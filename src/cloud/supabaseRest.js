@@ -13,6 +13,10 @@ function firstRow(rows) {
     return Array.isArray(rows) ? rows[0] || null : null;
 }
 
+function shouldSendBearerAuthorization(key) {
+    return !key.startsWith('sb_secret_') && !key.startsWith('sb_publishable_');
+}
+
 const SETUP_CHECKS = [
     { name: 'organizations_table', path: '/rest/v1/organizations?select=org_id&limit=1' },
     { name: 'farm_nodes_table', path: '/rest/v1/farm_nodes?select=node_id&limit=1' },
@@ -48,11 +52,12 @@ export function createSupabaseRestClient({
 
     async function request(path, { method = 'GET', body = null, headers = {} } = {}) {
         const { baseUrl, key } = getConfig();
+        const authHeaders = shouldSendBearerAuthorization(key) ? { Authorization: `Bearer ${key}` } : {};
         const response = await fetchImpl(`${baseUrl}${path}`, {
             method,
             headers: {
                 apikey: key,
-                Authorization: `Bearer ${key}`,
+                ...authHeaders,
                 'Content-Type': 'application/json',
                 ...headers,
             },

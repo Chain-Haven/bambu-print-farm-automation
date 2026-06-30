@@ -48,6 +48,22 @@ describe('supabase REST cloud admin methods', () => {
         });
     });
 
+    it('sends modern Supabase secret keys only through the apikey header', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+        const client = createSupabaseRestClient({
+            url: 'https://example.supabase.co',
+            serviceKey: 'sb_secret_test-key',
+            fetchImpl,
+        });
+
+        await client.getCloudSetupStatus();
+
+        expect(fetchImpl.mock.calls[0][1].headers).toMatchObject({
+            apikey: 'sb_secret_test-key',
+        });
+        expect(fetchImpl.mock.calls[0][1].headers).not.toHaveProperty('Authorization');
+    });
+
     it('reports schema checks as not ready instead of throwing on missing tables', async () => {
         const fetchImpl = vi.fn()
             .mockResolvedValueOnce(jsonResponse([]))
