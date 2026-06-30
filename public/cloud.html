@@ -42,6 +42,19 @@
     <section id="metrics" class="metrics" aria-label="Cloud metrics"></section>
 
     <section class="work-grid">
+      <form id="organization-form" class="panel">
+        <div class="panel-heading">
+          <h2>Organization</h2>
+          <span>Bootstrap</span>
+        </div>
+        <label>
+          <span>Name</span>
+          <input id="organization-name" type="text" required placeholder="Bambu Farm">
+        </label>
+        <button type="submit">Create Org</button>
+        <pre id="organization-output" class="secret-output" hidden></pre>
+      </form>
+
       <form id="node-form" class="panel">
         <div class="panel-heading">
           <h2>Provision Node</h2>

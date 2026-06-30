@@ -68,6 +68,18 @@ export function createSupabaseRestClient({
             return row ? { ...row, organization_id: row.org_id } : null;
         },
 
+        async createOrganization(organization) {
+            const rows = await request(
+                '/rest/v1/organizations?select=org_id,name,created_at,updated_at',
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'return=representation' },
+                    body: organization,
+                },
+            );
+            return firstRow(rows);
+        },
+
         async getCloudOverview({ orgId = null, limit = 50 } = {}) {
             const boundedLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 50, 100));
             const [nodes, printers, jobs, commands, events] = await Promise.all([

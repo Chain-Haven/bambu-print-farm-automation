@@ -76,6 +76,14 @@ function normalizeCloudCommand(body) {
     };
 }
 
+function normalizeOrganization(body) {
+    const source = isPlainObject(body) ? body : {};
+
+    return {
+        name: normalizeRequiredString(source.name, 'name'),
+    };
+}
+
 function normalizeNodeProvision(body) {
     const source = isPlainObject(body) ? body : {};
 
@@ -167,6 +175,29 @@ export function createCloudCommandHandler({ store, adminToken = process.env.CLOU
             return sendJson(res, 400, {
                 ok: false,
                 error: 'create_command_failed',
+                message: error.message,
+            });
+        }
+    };
+}
+
+export function createCloudOrganizationHandler({ store, adminToken = process.env.CLOUD_ADMIN_TOKEN }) {
+    if (!store) throw new Error('store is required');
+
+    return async function cloudOrganizationHandler(req, res) {
+        if (req.method && req.method !== 'POST') {
+            return methodNotAllowed(res, 'POST');
+        }
+
+        try {
+            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+
+            const organization = await store.createOrganization(normalizeOrganization(parseJsonBody(req.body)));
+            return sendJson(res, 201, { ok: true, organization });
+        } catch (error) {
+            return sendJson(res, 400, {
+                ok: false,
+                error: 'create_organization_failed',
                 message: error.message,
             });
         }

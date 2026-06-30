@@ -206,7 +206,7 @@ h2 {
 
 .work-grid {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  grid-template-columns: minmax(220px, 0.75fr) minmax(260px, 1fr) minmax(320px, 1.2fr);
   gap: 16px;
 }
 

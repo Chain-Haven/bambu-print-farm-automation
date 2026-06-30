@@ -21,6 +21,7 @@ The bootstrap cloud management surface is:
 ```text
 GET  /cloud
 GET  /api/cloud/overview?org_id=<org_id>&limit=50
+POST /api/cloud/organizations
 POST /api/cloud/nodes
 POST /api/cloud/node-package
 POST /api/cloud/commands
@@ -92,6 +93,7 @@ The migration creates:
 Open `/cloud`, enter `CLOUD_ADMIN_TOKEN`, and optionally set an organization ID filter. The dashboard can:
 
 - show recent nodes, printers, jobs, commands, and events
+- create a bootstrap organization and copy its `org_id`
 - create a farm node row and return the raw `LOCAL_NODE_TOKEN` once
 - download a Windows-node ZIP with the local runtime and prefilled `.env`
 - enqueue local-node commands such as `printer.status`, `printer.gcode`, and `job.start`

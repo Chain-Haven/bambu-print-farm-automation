@@ -4,6 +4,7 @@ import {
     createCloudCommandHandler,
     createCloudNodePackageHandler,
     createCloudNodeProvisionHandler,
+    createCloudOrganizationHandler,
     createCloudOverviewHandler,
 } from '../../src/cloud/adminHandlers.js';
 
@@ -163,6 +164,62 @@ describe('cloud command handler', () => {
             message: 'command_type is required',
         });
         expect(store.createNodeCommand).not.toHaveBeenCalled();
+    });
+});
+
+describe('cloud organization handler', () => {
+    it('creates a bootstrap organization without trusting client IDs', async () => {
+        const organization = {
+            org_id: 'org-1',
+            name: 'Bambu Lab',
+        };
+        const store = {
+            createOrganization: vi.fn().mockResolvedValue(organization),
+        };
+        const handler = createCloudOrganizationHandler({ store, adminToken: 'admin-secret' });
+        const res = createMockResponse();
+
+        await handler(
+            {
+                method: 'POST',
+                headers: { authorization: 'Bearer admin-secret' },
+                body: {
+                    org_id: 'client-spoof',
+                    name: ' Bambu Lab ',
+                    created_at: 'client-spoof',
+                },
+            },
+            res,
+        );
+
+        expect(store.createOrganization).toHaveBeenCalledWith({ name: 'Bambu Lab' });
+        expect(res.statusCode).toBe(201);
+        expect(res.body).toEqual({ ok: true, organization });
+    });
+
+    it('rejects organization creation without a name', async () => {
+        const store = {
+            createOrganization: vi.fn(),
+        };
+        const handler = createCloudOrganizationHandler({ store, adminToken: 'admin-secret' });
+        const res = createMockResponse();
+
+        await handler(
+            {
+                method: 'POST',
+                headers: { authorization: 'Bearer admin-secret' },
+                body: {},
+            },
+            res,
+        );
+
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({
+            ok: false,
+            error: 'create_organization_failed',
+            message: 'name is required',
+        });
+        expect(store.createOrganization).not.toHaveBeenCalled();
     });
 });
 

@@ -24,6 +24,9 @@ const elements = {
   saveToken: $('#save-token'),
   refresh: $('#refresh'),
   metrics: $('#metrics'),
+  organizationForm: $('#organization-form'),
+  organizationName: $('#organization-name'),
+  organizationOutput: $('#organization-output'),
   nodeForm: $('#node-form'),
   nodeOrgId: $('#node-org-id'),
   nodeName: $('#node-name'),
@@ -327,6 +330,27 @@ function syncOrgFields() {
   }
 }
 
+async function handleCreateOrganization(event) {
+  event.preventDefault();
+  const name = elements.organizationName.value.trim();
+  const result = await apiRequest('/api/cloud/organizations', {
+    method: 'POST',
+    body: { name },
+  });
+  const organization = result.organization;
+
+  elements.orgId.value = organization.org_id;
+  elements.nodeOrgId.value = organization.org_id;
+  window.localStorage.setItem(storageKeys.orgId, organization.org_id);
+  elements.organizationOutput.hidden = false;
+  elements.organizationOutput.textContent = [
+    `ORG_ID=${organization.org_id}`,
+    `NAME=${organization.name}`,
+  ].join('\n');
+  showToast('Organization created');
+  await refreshOverview();
+}
+
 async function handleProvisionNode(event) {
   event.preventDefault();
   const capabilities = parseJsonField(elements.nodeCapabilities.value, {});
@@ -424,6 +448,12 @@ function bindEvents() {
   });
 
   elements.orgId.addEventListener('input', syncOrgFields);
+  elements.organizationForm.addEventListener('submit', (event) => {
+    handleCreateOrganization(event).catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
   elements.nodeForm.addEventListener('submit', (event) => {
     handleProvisionNode(event).catch((error) => {
       setApiState('Error', 'error');

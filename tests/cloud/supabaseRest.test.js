@@ -10,6 +10,30 @@ function jsonResponse(payload, status = 200) {
 }
 
 describe('supabase REST cloud admin methods', () => {
+    it('creates organizations with return representation enabled', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([{ org_id: 'org-1', name: 'Bambu Lab' }]));
+        const client = createSupabaseRestClient({
+            url: 'https://example.supabase.co',
+            serviceKey: 'service-key',
+            fetchImpl,
+        });
+
+        const row = await client.createOrganization({ name: 'Bambu Lab' });
+
+        expect(row).toEqual({ org_id: 'org-1', name: 'Bambu Lab' });
+        expect(fetchImpl).toHaveBeenCalledWith(
+            expect.stringContaining('/rest/v1/organizations?select='),
+            expect.objectContaining({
+                method: 'POST',
+                headers: expect.objectContaining({
+                    Prefer: 'return=representation',
+                    Authorization: 'Bearer service-key',
+                }),
+                body: JSON.stringify({ name: 'Bambu Lab' }),
+            }),
+        );
+    });
+
     it('loads a bounded organization overview through service-role REST requests', async () => {
         const fetchImpl = vi.fn()
             .mockResolvedValueOnce(jsonResponse([{ node_id: 'node-1' }]))
