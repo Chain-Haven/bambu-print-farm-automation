@@ -10,6 +10,66 @@ function jsonResponse(payload, status = 200) {
 }
 
 describe('supabase REST cloud admin methods', () => {
+    it('checks cloud setup schema, RPC, and storage readiness', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+        const client = createSupabaseRestClient({
+            url: 'https://example.supabase.co',
+            serviceKey: 'service-key',
+            fetchImpl,
+        });
+
+        const status = await client.getCloudSetupStatus();
+
+        expect(status.ready).toBe(true);
+        expect(status.checked).toBe(true);
+        expect(status.checks).toEqual([
+            { name: 'organizations_table', ok: true },
+            { name: 'farm_nodes_table', ok: true },
+            { name: 'cloud_printers_table', ok: true },
+            { name: 'print_jobs_table', ok: true },
+            { name: 'node_commands_table', ok: true },
+            { name: 'node_events_table', ok: true },
+            { name: 'claim_node_commands_rpc', ok: true },
+            { name: 'print_artifacts_bucket', ok: true },
+        ]);
+        expect(fetchImpl.mock.calls.map(([url]) => new URL(url).pathname)).toEqual([
+            '/rest/v1/organizations',
+            '/rest/v1/farm_nodes',
+            '/rest/v1/cloud_printers',
+            '/rest/v1/print_jobs',
+            '/rest/v1/node_commands',
+            '/rest/v1/node_events',
+            '/rest/v1/rpc/claim_node_commands',
+            '/storage/v1/bucket/print-artifacts',
+        ]);
+        expect(fetchImpl.mock.calls[0][1].headers).toMatchObject({
+            apikey: 'service-key',
+            Authorization: 'Bearer service-key',
+        });
+    });
+
+    it('reports schema checks as not ready instead of throwing on missing tables', async () => {
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse([]))
+            .mockResolvedValueOnce(jsonResponse({ message: 'relation does not exist' }, 404));
+        const client = createSupabaseRestClient({
+            url: 'https://example.supabase.co',
+            serviceKey: 'service-key',
+            fetchImpl,
+        });
+
+        const status = await client.getCloudSetupStatus();
+
+        expect(status.ready).toBe(false);
+        expect(status.checked).toBe(true);
+        expect(status.checks[0]).toEqual({ name: 'organizations_table', ok: true });
+        expect(status.checks[1]).toEqual({
+            name: 'farm_nodes_table',
+            ok: false,
+            error: 'Supabase GET /rest/v1/farm_nodes?select=node_id&limit=1 failed (404): {"message":"relation does not exist"}',
+        });
+    });
+
     it('creates organizations with return representation enabled', async () => {
         const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([{ org_id: 'org-1', name: 'Bambu Lab' }]));
         const client = createSupabaseRestClient({

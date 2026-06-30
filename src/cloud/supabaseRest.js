@@ -13,6 +13,25 @@ function firstRow(rows) {
     return Array.isArray(rows) ? rows[0] || null : null;
 }
 
+const SETUP_CHECKS = [
+    { name: 'organizations_table', path: '/rest/v1/organizations?select=org_id&limit=1' },
+    { name: 'farm_nodes_table', path: '/rest/v1/farm_nodes?select=node_id&limit=1' },
+    { name: 'cloud_printers_table', path: '/rest/v1/cloud_printers?select=printer_id&limit=1' },
+    { name: 'print_jobs_table', path: '/rest/v1/print_jobs?select=job_id&limit=1' },
+    { name: 'node_commands_table', path: '/rest/v1/node_commands?select=command_id&limit=1' },
+    { name: 'node_events_table', path: '/rest/v1/node_events?select=event_id&limit=1' },
+    {
+        name: 'claim_node_commands_rpc',
+        path: '/rest/v1/rpc/claim_node_commands',
+        method: 'POST',
+        body: {
+            p_node_id: '00000000-0000-0000-0000-000000000000',
+            p_limit: 1,
+        },
+    },
+    { name: 'print_artifacts_bucket', path: '/storage/v1/bucket/print-artifacts' },
+];
+
 export function createSupabaseRestClient({
     url = process.env.SUPABASE_URL,
     serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY,
@@ -60,6 +79,29 @@ export function createSupabaseRestClient({
     }
 
     return {
+        async getCloudSetupStatus() {
+            const checks = [];
+
+            for (const check of SETUP_CHECKS) {
+                try {
+                    await request(check.path, {
+                        method: check.method || 'GET',
+                        body: check.body || null,
+                    });
+                    checks.push({ name: check.name, ok: true });
+                } catch (error) {
+                    checks.push({ name: check.name, ok: false, error: error.message });
+                    break;
+                }
+            }
+
+            return {
+                checked: true,
+                ready: checks.length === SETUP_CHECKS.length && checks.every((check) => check.ok),
+                checks,
+            };
+        },
+
         async findNodeByTokenHash(tokenHash) {
             const rows = await request(
                 `/rest/v1/farm_nodes?token_hash=eq.${encodeURIComponent(tokenHash)}&select=node_id,org_id,name,status&limit=1`,

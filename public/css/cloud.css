@@ -142,6 +142,7 @@ h2 {
 }
 
 .control-band,
+.setup-status,
 .metrics,
 .work-grid,
 .table-stack {
@@ -211,6 +212,7 @@ h2 {
 }
 
 .panel,
+.setup-status,
 .table-panel {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -223,6 +225,67 @@ h2 {
   gap: 14px;
   align-content: start;
   padding: 16px;
+}
+
+.setup-status {
+  padding: 16px;
+}
+
+.setup-status .panel-heading {
+  margin-bottom: 14px;
+}
+
+.ready-label {
+  color: var(--accent-strong);
+}
+
+.missing-label {
+  color: var(--warn);
+}
+
+.setup-grid,
+.setup-checks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.setup-item,
+.setup-backend {
+  display: grid;
+  gap: 4px;
+  min-height: 72px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--warn);
+  border-radius: 6px;
+  background: #fff;
+  padding: 10px;
+}
+
+.setup-item.ok {
+  border-left-color: var(--accent);
+}
+
+.setup-item.missing {
+  background: #fff8ed;
+}
+
+.setup-item span,
+.setup-backend span,
+.setup-item small {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.setup-backend {
+  margin-top: 12px;
+  border-left-color: var(--accent);
+}
+
+.setup-checks {
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  margin-top: 8px;
 }
 
 .panel-heading {
@@ -340,7 +403,9 @@ th {
 @media (max-width: 980px) {
   .control-band,
   .work-grid,
-  .metrics {
+  .metrics,
+  .setup-grid,
+  .setup-checks {
     grid-template-columns: 1fr;
   }
 
@@ -366,6 +431,7 @@ th {
 
   .control-band,
   .panel,
+  .setup-status,
   .table-panel {
     padding: 12px;
   }

@@ -111,6 +111,23 @@ function generateNodeToken() {
     return `pkx_node_${randomBytes(32).toString('base64url')}`;
 }
 
+function hasEnvValue(env, key) {
+    return typeof env[key] === 'string' && env[key].trim() !== '';
+}
+
+function buildSetupEnvStatus(env, adminToken) {
+    return [
+        { key: 'SUPABASE_URL', present: hasEnvValue(env, 'SUPABASE_URL'), secret: false },
+        {
+            key: 'SUPABASE_SERVICE_ROLE_KEY',
+            present: hasEnvValue(env, 'SUPABASE_SERVICE_ROLE_KEY') || hasEnvValue(env, 'SUPABASE_SECRET_KEY'),
+            secret: true,
+        },
+        { key: 'NODE_TOKEN_PEPPER', present: hasEnvValue(env, 'NODE_TOKEN_PEPPER'), secret: true },
+        { key: 'CLOUD_ADMIN_TOKEN', present: hasEnvValue(env, 'CLOUD_ADMIN_TOKEN') || !!adminToken, secret: true },
+    ];
+}
+
 async function authenticateAdmin(req, res, adminToken) {
     const provided = getAdminToken(req.headers || {});
     if (!provided) {
@@ -129,6 +146,63 @@ async function authenticateAdmin(req, res, adminToken) {
     }
 
     return true;
+}
+
+export function createCloudSetupStatusHandler({
+    store,
+    adminToken = process.env.CLOUD_ADMIN_TOKEN,
+    env = process.env,
+}) {
+    if (!store) throw new Error('store is required');
+
+    return async function cloudSetupStatusHandler(req, res) {
+        if (req.method && req.method !== 'GET') {
+            return methodNotAllowed(res, 'GET');
+        }
+
+        try {
+            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+
+            const envStatus = buildSetupEnvStatus(env, adminToken);
+            const missing = envStatus.filter((item) => !item.present).map((item) => item.key);
+            const missingSupabase = missing.includes('SUPABASE_URL') || missing.includes('SUPABASE_SERVICE_ROLE_KEY');
+            let backend = {
+                checked: false,
+                ready: false,
+                message: 'Supabase environment is incomplete',
+                checks: [],
+            };
+
+            if (!missingSupabase) {
+                try {
+                    backend = await store.getCloudSetupStatus();
+                } catch (error) {
+                    backend = {
+                        checked: true,
+                        ready: false,
+                        message: error.message,
+                        checks: [],
+                    };
+                }
+            }
+
+            return sendJson(res, 200, {
+                ok: true,
+                setup: {
+                    ready: missing.length === 0 && backend.ready === true,
+                    env: envStatus,
+                    missing,
+                    backend,
+                },
+            });
+        } catch (error) {
+            return sendJson(res, 500, {
+                ok: false,
+                error: 'setup_status_failed',
+                message: error.message,
+            });
+        }
+    };
 }
 
 export function createCloudOverviewHandler({ store, adminToken = process.env.CLOUD_ADMIN_TOKEN }) {

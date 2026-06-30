@@ -6,6 +6,7 @@ import {
     createCloudNodeProvisionHandler,
     createCloudOrganizationHandler,
     createCloudOverviewHandler,
+    createCloudSetupStatusHandler,
 } from '../../src/cloud/adminHandlers.js';
 
 function createMockResponse() {
@@ -93,6 +94,89 @@ describe('cloud overview handler', () => {
         expect(store.getCloudOverview).toHaveBeenCalledWith({ orgId: 'org-1', limit: 100 });
         expect(res.statusCode).toBe(200);
         expect(res.body).toEqual({ ok: true, overview });
+    });
+});
+
+describe('cloud setup status handler', () => {
+    it('reports missing Supabase environment without touching the backend', async () => {
+        const store = {
+            getCloudSetupStatus: vi.fn(),
+        };
+        const handler = createCloudSetupStatusHandler({
+            store,
+            adminToken: 'admin-secret',
+            env: {
+                CLOUD_ADMIN_TOKEN: 'admin-secret',
+                NODE_TOKEN_PEPPER: 'pepper',
+            },
+        });
+        const res = createMockResponse();
+
+        await handler(
+            {
+                method: 'GET',
+                headers: { authorization: 'Bearer admin-secret' },
+            },
+            res,
+        );
+
+        expect(store.getCloudSetupStatus).not.toHaveBeenCalled();
+        expect(res.statusCode).toBe(200);
+        expect(res.body).toEqual({
+            ok: true,
+            setup: {
+                ready: false,
+                env: [
+                    { key: 'SUPABASE_URL', present: false, secret: false },
+                    { key: 'SUPABASE_SERVICE_ROLE_KEY', present: false, secret: true },
+                    { key: 'NODE_TOKEN_PEPPER', present: true, secret: true },
+                    { key: 'CLOUD_ADMIN_TOKEN', present: true, secret: true },
+                ],
+                missing: ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
+                backend: {
+                    checked: false,
+                    ready: false,
+                    message: 'Supabase environment is incomplete',
+                    checks: [],
+                },
+            },
+        });
+    });
+
+    it('checks backend schema readiness after required environment is present', async () => {
+        const backend = {
+            checked: true,
+            ready: true,
+            checks: [{ name: 'organizations_table', ok: true }],
+        };
+        const store = {
+            getCloudSetupStatus: vi.fn().mockResolvedValue(backend),
+        };
+        const handler = createCloudSetupStatusHandler({
+            store,
+            adminToken: 'admin-secret',
+            env: {
+                SUPABASE_URL: 'https://example.supabase.co',
+                SUPABASE_SERVICE_ROLE_KEY: 'service-key',
+                NODE_TOKEN_PEPPER: 'pepper',
+                CLOUD_ADMIN_TOKEN: 'admin-secret',
+            },
+        });
+        const res = createMockResponse();
+
+        await handler(
+            {
+                method: 'GET',
+                headers: { authorization: 'Bearer admin-secret' },
+            },
+            res,
+        );
+
+        expect(store.getCloudSetupStatus).toHaveBeenCalledOnce();
+        expect(res.statusCode).toBe(200);
+        expect(res.body.setup.ready).toBe(true);
+        expect(res.body.setup.backend).toEqual(backend);
+        expect(res.body.setup.missing).toEqual([]);
     });
 });
 

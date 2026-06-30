@@ -20,6 +20,7 @@ The bootstrap cloud management surface is:
 
 ```text
 GET  /cloud
+GET  /api/cloud/setup
 GET  /api/cloud/overview?org_id=<org_id>&limit=50
 POST /api/cloud/organizations
 POST /api/cloud/nodes

@@ -11,6 +11,7 @@ const state = {
     commands: [],
     events: [],
   },
+  setup: null,
   provisionedNode: null,
 };
 
@@ -23,6 +24,8 @@ const elements = {
   rowLimit: $('#row-limit'),
   saveToken: $('#save-token'),
   refresh: $('#refresh'),
+  setupStatus: $('#setup-status'),
+  setupStatusBody: $('#setup-status-body'),
   metrics: $('#metrics'),
   organizationForm: $('#organization-form'),
   organizationName: $('#organization-name'),
@@ -155,6 +158,71 @@ function makeStatus(value) {
   span.className = `status ${String(value || 'unknown')}`;
   span.textContent = value || 'unknown';
   return span;
+}
+
+function makeSetupItem(label, ok, detail) {
+  const item = document.createElement('div');
+  item.className = `setup-item ${ok ? 'ok' : 'missing'}`;
+
+  const title = document.createElement('strong');
+  title.textContent = label;
+
+  const stateLabel = document.createElement('span');
+  stateLabel.textContent = ok ? 'Ready' : 'Missing';
+
+  item.append(title, stateLabel);
+  if (detail) {
+    const note = document.createElement('small');
+    note.textContent = detail;
+    item.append(note);
+  }
+  return item;
+}
+
+function renderSetupStatus(setup) {
+  state.setup = setup;
+  if (!setup) {
+    elements.setupStatus.hidden = true;
+    return;
+  }
+
+  elements.setupStatus.hidden = false;
+  const heading = elements.setupStatus.querySelector('.panel-heading span');
+  heading.textContent = setup.ready ? 'Ready' : 'Action needed';
+  heading.className = setup.ready ? 'ready-label' : 'missing-label';
+
+  const envGrid = document.createElement('div');
+  envGrid.className = 'setup-grid';
+  setup.env.forEach((item) => {
+    envGrid.append(makeSetupItem(item.key, item.present, item.secret ? 'server secret' : 'server config'));
+  });
+
+  const backend = document.createElement('div');
+  backend.className = 'setup-backend';
+  const backendTitle = document.createElement('strong');
+  backendTitle.textContent = 'Supabase backend';
+  const backendMessage = document.createElement('span');
+  backendMessage.textContent = setup.backend.checked
+    ? (setup.backend.ready ? 'Schema ready' : 'Schema needs attention')
+    : setup.backend.message;
+  backend.append(backendTitle, backendMessage);
+
+  if (Array.isArray(setup.backend.checks) && setup.backend.checks.length > 0) {
+    const checks = document.createElement('div');
+    checks.className = 'setup-checks';
+    setup.backend.checks.forEach((check) => {
+      checks.append(makeSetupItem(check.name, check.ok, check.error || 'verified'));
+    });
+    backend.append(checks);
+  }
+
+  elements.setupStatusBody.replaceChildren(envGrid, backend);
+}
+
+async function refreshSetupStatus() {
+  const payload = await apiRequest('/api/cloud/setup');
+  renderSetupStatus(payload.setup);
+  return payload.setup;
 }
 
 function renderMetrics(overview) {
@@ -323,6 +391,16 @@ async function refreshOverview() {
   setApiState('Connected', 'online');
 }
 
+async function refreshDashboard() {
+  setApiState('Loading');
+  const setup = await refreshSetupStatus();
+  if (!setup.ready) {
+    setApiState('Setup needed', 'error');
+    return;
+  }
+  await refreshOverview();
+}
+
 function syncOrgFields() {
   const orgId = getOrgId();
   if (orgId && !elements.nodeOrgId.value.trim()) {
@@ -441,7 +519,7 @@ function bindEvents() {
   });
 
   elements.refresh.addEventListener('click', () => {
-    refreshOverview().catch((error) => {
+    refreshDashboard().catch((error) => {
       setApiState('Error', 'error');
       showToast(error.message);
     });
@@ -479,7 +557,7 @@ bindEvents();
 renderOverview();
 
 if (getAdminToken()) {
-  refreshOverview().catch((error) => {
+  refreshDashboard().catch((error) => {
     setApiState('Error', 'error');
     showToast(error.message);
   });
