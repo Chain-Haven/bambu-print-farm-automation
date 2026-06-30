@@ -119,6 +119,23 @@ CLOUD_HEARTBEAT_INTERVAL_MS=30000
 
 It should never store `SUPABASE_SERVICE_ROLE_KEY`.
 
+## End-to-end Smoke Test
+
+After the Supabase migration is applied and Vercel has `SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY`, `NODE_TOKEN_PEPPER`, and `CLOUD_ADMIN_TOKEN`, run:
+
+```bash
+CLOUD_API_URL=https://<vercel-deployment> \
+CLOUD_ADMIN_TOKEN=<bootstrap admin token> \
+npm run cloud:smoke
+```
+
+The smoke test creates a temporary organization and node through the cloud admin
+API, sends a local-node heartbeat with the returned node token, queues a
+`printer.status` command, runs one local agent poll, and confirms the command is
+reported as succeeded with simulated local execution. It intentionally does not
+print the one-time node token or touch printer hardware.
+
 ## Running the Windows NUC Node
 
 On the NUC:
