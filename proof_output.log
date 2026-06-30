@@ -1,0 +1,46 @@
+﻿2026-02-24T03:34:36.757Z INFO  [DB] Database loaded from ./data/antigravity.db
+2026-02-24T03:34:36.773Z INFO  [AutomatorZip] Parsed 56 ZIP entries
+[+     16ms] SETUP ΓÇö {"remote":"A1 Large Case white top.AG.gcode.3mf","plate":8,"entry":"Metadata/plate_8.gcode"}
+[+    927ms] MQTT_CONNECTED
+
+=== PAYLOAD ===
+Topic: device/00M00A123456789/request
+url: ftp:///sdcard/cache/A1 Large Case white top.AG.gcode.3mf
+param: Metadata/plate_8.gcode
+{
+  "print": {
+    "sequence_id": "1771904077744",
+    "command": "project_file",
+    "param": "Metadata/plate_8.gcode",
+    "subtask_name": "A1 Large Case white top.AG",
+    "url": "ftp:///sdcard/cache/A1 Large Case white top.AG.gcode.3mf",
+    "bed_type": "auto",
+    "timelapse": false,
+    "bed_leveling": true,
+    "flow_cali": false,
+    "vibration_cali": false,
+    "layer_inspect": false,
+    "use_ams": false,
+    "ams_mapping": [],
+    "profile_id": "0",
+    "project_id": "0",
+    "subtask_id": "0",
+    "task_id": "0"
+  }
+}
+=== END ===
+
+[+    973ms] PUBLISHING
+[+    973ms] PUBLISHED
+[+    996ms] {"sequence_id":"1771904077744","command":"project_file","param":"Metadata/plate_8.gcode","subtask_name":"A1 Large Case white top.AG","url":"ftp:///sdcard/cache/A1 Large Case white top.AG.gcode.3mf","bed_type":"auto","timelapse":false,"bed_leveling":true,"flow_cali":false,"vibration_cali":false,"layer_inspect":false,"use_ams":false,"ams_mapping":[],"profile_id":"0","project_id":"0","subtask_id":"0","task_id":"0","reason":"success","result":"success"}
+[+   1211ms] {"nozzle_temper":21.90625,"bed_temper":21.09375,"wifi_signal":"-47dBm","command":"push_status","msg":1,"sequence_id":"3423"}
+[+   5240ms] {"wifi_signal":"-46dBm","command":"push_status","msg":1,"sequence_id":"3424"}
+[+   7247ms] {"bed_temper":21.125,"wifi_signal":"-47dBm","command":"push_status","msg":1,"sequence_id":"3425"}
+[+   9257ms] {"wifi_signal":"-42dBm","command":"push_status","msg":1,"sequence_id":"3426"}
+[+  11274ms] {"nozzle_temper":21.9375,"bed_temper":21.09375,"wifi_signal":"-46dBm","command":"push_status","msg":1,"sequence_id":"3427"}
+[+  13283ms] {"nozzle_temper":21.90625,"command":"push_status","msg":1,"sequence_id":"3428"}
+[+  15290ms] {"wifi_signal":"-47dBm","command":"push_status","msg":1,"sequence_id":"3429"}
+[+  17300ms] {"wifi_signal":"-46dBm","command":"push_status","msg":1,"sequence_id":"3430"}
+[+  23329ms] {"wifi_signal":"-43dBm","command":"push_status","msg":1,"sequence_id":"3431"}
+[+  27344ms] {"wifi_signal":"-46dBm","command":"push_status","msg":1,"sequence_id":"3432"}
+[+  29360ms] {"wifi_signal":"-45dBm","command":"push_status","msg":1,"sequence_id":"3433"}

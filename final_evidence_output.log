@@ -1,0 +1,55 @@
+﻿2026-02-24T03:31:10.164Z INFO  [DB] Database loaded from ./data/antigravity.db
+2026-02-24T03:31:10.183Z INFO  [AutomatorZip] Parsed 56 ZIP entries
+[+     16ms] SETUP ΓÇö {"remote":"A1 Large Case white top.AG.gcode.3mf","plate":8,"entry":"Metadata/plate_8.gcode","bytes":1233546}
+[+    948ms] MQTT_CONNECTED
+[+    964ms] MQTT_SUBSCRIBED
+
+=== PUBLISH PAYLOAD ===
+Topic: device/00M00A123456789/request
+{
+  "print": {
+    "sequence_id": "1771903871145",
+    "command": "project_file",
+    "param": "Metadata/plate_8.gcode",
+    "subtask_name": "A1 Large Case white top.AG",
+    "url": "ftp://A1 Large Case white top.AG.gcode.3mf",
+    "bed_type": "auto",
+    "timelapse": false,
+    "bed_leveling": true,
+    "flow_cali": false,
+    "vibration_cali": false,
+    "layer_inspect": false,
+    "use_ams": false,
+    "ams_mapping": [],
+    "profile_id": "0",
+    "project_id": "0",
+    "subtask_id": "0",
+    "task_id": "0"
+  }
+}
+=== END ===
+
+[+    964ms] PUBLISHING
+[+    965ms] PUBLISHED
+[+    965ms] WAITING_30S
+[+    983ms] FULL: {"sequence_id":"1771903871145","command":"project_file","param":"Metadata/plate_8.gcode","subtask_name":"A1 Large Case white top.AG","url":"ftp://A1 Large Case white top.AG.gcode.3mf","bed_type":"auto","timelapse":false,"bed_leveling":true,"flow_cali":false,"vibration_cali":false,"layer_inspect":false,"use_ams":false,"ams_mapping":[],"profile_id":"0","project_id":"0","subtask_id":"0","task_id":"0","reason":"success","result":"success"}
+[+   1523ms] FULL: {"bed_temper":21.1875,"wifi_signal":"-43dBm","command":"push_status","msg":1,"sequence_id":"3410"}
+[+   3525ms] FULL: {"nozzle_temper":21.96875,"bed_temper":21.21875,"wifi_signal":"-42dBm","command":"push_status","msg":1,"sequence_id":"3411"}
+[+   5537ms] FULL: {"nozzle_temper":22,"wifi_signal":"-41dBm","command":"push_status","msg":1,"sequence_id":"3412"}
+[+   7553ms] FULL: {"nozzle_temper":21.96875,"wifi_signal":"-42dBm","command":"push_status","msg":1,"sequence_id":"3413"}
+[+   9560ms] FULL: {"bed_temper":21.1875,"wifi_signal":"-45dBm","command":"push_status","msg":1,"sequence_id":"3414"}
+[+  13584ms] FULL: {"wifi_signal":"-41dBm","command":"push_status","msg":1,"sequence_id":"3415"}
+[+  15594ms] FULL: {"wifi_signal":"-42dBm","command":"push_status","msg":1,"sequence_id":"3416"}
+[+  17609ms] FULL: {"wifi_signal":"-43dBm","command":"push_status","msg":1,"sequence_id":"3417"}
+[+  19619ms] FULL: {"wifi_signal":"-41dBm","command":"push_status","msg":1,"sequence_id":"3418"}
+[+  21629ms] FULL: {"nozzle_temper":22,"wifi_signal":"-46dBm","command":"push_status","msg":1,"sequence_id":"3419"}
+[+  25639ms] FULL: {"nozzle_temper":21.96875,"wifi_signal":"-42dBm","command":"push_status","msg":1,"sequence_id":"3420"}
+[+  27652ms] FULL: {"bed_temper":21.21875,"wifi_signal":"-43dBm","command":"push_status","msg":1,"sequence_id":"3421"}
+[+  29664ms] FULL: {"wifi_signal":"-46dBm","command":"push_status","msg":1,"sequence_id":"3422"}
+
+=== SUMMARY ===
+Total messages: 14
+State changes: NONE
+Errors: NONE
+Results: 983ms: success/success
+[+  30976ms] RESULT: PRINT_NOT_STARTED Γ¥î

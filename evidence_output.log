@@ -1,0 +1,227 @@
+﻿2026-02-24T03:23:26.888Z INFO  [DB] Database loaded from ./data/antigravity.db
+[+     25ms] SETUP ΓÇö {"printer":"A1 1","ip":"192.168.1.50","serial":"00M00A123456789"}
+[+     27ms] FILE_SELECTED ΓÇö {"local":"b01ed6c3-44dd-408b-9fd4-102cb65413f2_A1 Large Case white top.AG.gcode.3mf","remote":"A1 Large Case white top.AG.gcode.3mf","bytes":1233546}
+[+     27ms] FTPS_CONNECT_START
+[+   1021ms] FTPS_CONNECT_OK
+[+   1021ms] FTPS_TLS_HANDSHAKE_OK ΓÇö {"protocol":"TLSv1.2","cipher":"ECDHE-RSA-AES256-GCM-SHA384","session":true}
+[+   1021ms] FTPS_CD_CACHE
+[+   1073ms] FTPS_PWD ΓÇö {"raw_response":"257 /cache","code":257}
+[+   1073ms] UPLOAD_START ΓÇö {"remote":"A1 Large Case white top.AG.gcode.3mf","bytes":1233546}
+[+   8357ms] UPLOAD_FINISHED ΓÇö {"duration_ms":7284,"throughput_kbps":165,"last_byte_to_226_ms":7096}
+[+   8368ms] FTPS_PWD_AFTER_UPLOAD ΓÇö {"raw_response":"257 /cache"}
+[+   8369ms] FTPS_LIST_START
+[+   8879ms] FTPS_LIST ΓÇö {"entries":[{"name":"0.2mm layer, 2 walls, 15% infill.3mf","size":4165224,"type":1},{"name":"0_plate_1.gcode","size":25134913,"type":1},{"name":"0.2mm layer, 2 walls, 15% infill.bbl","size":1113,"type":1},{"name":"0.2mm layer, 6 walls, 25% infill.3mf","size":6505543,"type":1},{"name":"0.2mm layer, 6 walls, 25% infill.bbl","size":1111,"type":1},{"name":"Vial Dish.3mf","size":4020359,"type":1},{"name":"Vial Dish_plate_1.gcode","size":15403952,"type":1},{"name":"Vial Dish.bbl","size":1065,"type":1},{"name":"20 Vial Case With Logo_plate_6.3mf","size":3612174,"type":1},{"name":"20 Vial Case With Logo_plate_6_plate_6.gcode","size":22379951,"type":1},{"name":"20 Vial Case With Logo_plate_6.bbl","size":1653,"type":1},{"name":"20 Vial Case With Logo_plate_5.3mf","size":5860762,"type":1},{"name":"20 Vial Case With Logo_plate_5_plate_5.gcode","size":21675443,"type":1},{"name":"20 Vial Case With Logo_plate_5.bbl","size":2190,"type":1},{"name":"20 Vial Case With Logo_plate_4.3mf","size":2136399,"type":1},{"name":"20 Vial Case With Logo_plate_4_plate_4.gcode","size":7062461,"type":1},{"name":"20 Vial Case With Logo_plate_4.bbl","size":1651,"type":1},{"name":"6 3ml box bambu print_plate_3.3mf","size":7505980,"type":1},{"name":"6 3ml box bambu print_plate_3_plate_3.gcode","size":33609268,"type":1},{"name":"6 3ml box bambu print_plate_3.bbl","size":1646,"type":1},{"name":"6 3ml box bambu print_plate_1.3mf","size":4128142,"type":1},{"name":"6 3ml box bambu print_plate_1_plate_1.gcode","size":21270117,"type":1},{"name":"6 3ml box bambu print_plate_1.bbl","size":2191,"type":1},{"name":"20 Vial Case With Logo_plate_3.3mf","size":3904381,"type":1},{"name":"20 Vial Case With Logo_plate_3_plate_3.gcode","size":24559305,"type":1},{"name":"20 Vial Case With Logo_plate_3.bbl","size":2190,"type":1},{"name":"Large Case Black Print_plate_4.3mf","size":1924208,"type":1},{"name":"Large Case Black Print_plate_4_plate_4.gcode","size":7020133,"type":1},{"name":"Large Case Black Print_plate_4.bbl","size":1651,"type":1},{"name":"Large Case Black Print_plate_3.3mf","size":3893723,"type":1},{"name":"Large Case Black Print_plate_3_plate_3.gcode","size":24562838,"type":1},{"name":"Large Case Black Print_plate_3.bbl","size":1648,"type":1},{"name":"Large Case Black Print Smooth Plate_plate_4.3mf","size":5877247,"type":1},{"name":"Large Case Black Print Smooth Plate_plate_4_plate_4.gcode","size":21676831,"type":1},{"name":"Large Case Black Print Smooth Plate_plate_4.bbl","size":2216,"type":1},{"name":"Large Case Black Print Smooth Plate_plate_3.3mf","size":2017313,"type":1},{"name":"Large Case Black Print Smooth Plate_plate_3_plate_3.gcode","size":7048586,"type":1},{"name":"Large Case Black Print Smooth Plate_plate_3.bbl","size":1677,"type":1},{"name":"3ml_BAC Water .3mf","size":4638009,"type":1},{"name":"3ml_BAC Water _plate_3.gcode","size":18971090,"type":1},{"name":"3ml_BAC Water .bbl","size":1619,"type":1},{"name":"Large Case White Print_Non Ice pack Height.3mf","size":5668139,"type":1},{"name":"Large Case White Print_Non Ice pack Height_plate_5.gcode","size":20734700,"type":1},{"name":"Large Case White Print_Non Ice pack Height.bbl","size":1672,"type":1},{"name":"Large Case White Print_Regular Tops.3mf","size":2057972,"type":1},{"name":"Large Case White Print_Regular Tops_plate_4.gcode","size":7208226,"type":1},{"name":"Large Case White Print_Regular Tops.bbl","size":1660,"type":1},{"name":"Large Case Ice Pack Compartment Print File_plate_4.3mf","size":1495833,"type":1},{"name":"Large Case Ice Pack Compartment Print File_plate_4_plate_4.gcode","size":8432354,"type":1},{"name":"Large Case Ice Pack Compartment Print File_plate_4.bbl","size":2229,"type":1},{"name":"Large Case Ice Pack Compartment Print File_plate_3.3mf","size":1311662,"type":1},{"name":"Large Case Ice Pack Compartment Print File_plate_3_plate_3.gcode","size":5588404,"type":1},{"name":"Large Case Ice Pack Compartment Print File_plate_3.bbl","size":2229,"type":1},{"name":"3ml_plate_1.3mf","size":5248125,"type":1},{"name":"3ml_plate_1_plate_1.gcode","size":19421301,"type":1},{"name":"3ml_plate_1.bbl","size":1612,"type":1},{"name":"PETG + TPU, 0.2mm layer, 2 walls, 10-80% infill.3mf","size":2185598,"type":1},{"name":"PETG + TPU, 0_plate_1.gcode","size":2949120,"type":1},{"name":"PETG + TPU, 0.2mm layer, 2 walls, 10-80% infill.bbl","size":1682,"type":1},{"name":"A1 Large Case white top.AG.gcode.3mf","size":1233546,"type":1},{"name":"test_upload.gcode","size":13,"type":1},{"name":"test_large.gcode.3mf","size":8183026,"type":1}]}
+[+   8879ms] FTPS_SIZE_START
+[+   8902ms] FTPS_SIZE ΓÇö {"remote_size":1233546,"local_size":1233546,"match":true}
+[+   8903ms] FTPS_CLOSED
+
+=== FTP CONTROL CHANNEL LOG (raw, with timestamps) ===
+[+    872ms] Connected to 192.168.1.50:990 (TLSv1.2)
+[+    873ms] < 220 BBL-P003 FTP Server
+[+    873ms] > OPTS UTF8 ON
+[+    891ms] < 332
+[+    891ms] Login security: TLSv1.2
+[+    891ms] > USER bblp
+[+    904ms] < 331
+[+    904ms] > PASS ###
+[+    916ms] < 230
+[+    917ms] > FEAT
+[+    931ms] < 502 no-features
+[+    931ms] > TYPE I
+[+    971ms] < 200
+[+    971ms] > STRU F
+[+    982ms] < 502
+[+    983ms] > OPTS UTF8 ON
+[+    996ms] < 502
+[+    996ms] > PBSZ 0
+[+   1008ms] < 200
+[+   1009ms] > PROT P
+[+   1021ms] < 200
+[+   1021ms] > CWD /cache
+[+   1034ms] < 250
+[+   1034ms] > PWD
+[+   1073ms] < 257 /cache
+[+   1073ms] Trying to find optimal transfer strategy...
+[+   1074ms] > EPSV
+[+   1091ms] < 502
+[+   1092ms] > PASV
+[+   1103ms] < 227 (192,168,1,199,7,232)
+[+   1113ms] Optimal transfer strategy found.
+[+   1113ms] > STOR A1 Large Case white top.AG.gcode.3mf
+[+   1145ms] < 150
+[+   1146ms] Uploading to 192.168.1.50:2024 (TLSv1.3)
+[+   8356ms] < 226
+[+   8357ms] > PWD
+[+   8368ms] < 257 /cache
+[+   8369ms] > PASV
+[+   8397ms] < 227 (192,168,1,199,7,232)
+[+   8408ms] > LIST -a
+[+   8447ms] < 550
+[+   8448ms] > PASV
+[+   8474ms] < 227 (192,168,1,199,7,232)
+[+   8496ms] > LIST
+[+   8510ms] < 150
+[+   8510ms] Downloading from 192.168.1.50:2024 (TLSv1.3)
+[+   8859ms] < 226
+[+   8877ms] -rw-rw-rw-   1 root  root   4165224 Dec 01 12:55 0.2mm layer, 2 walls, 15% infill.3mf
+-rw-rw-rw-   1 root  root  25134913 Jan 22 01:49 0_plate_1.gcode
+-rw-rw-rw-   1 root  root      1113 Dec 01 12:55 0.2mm layer, 2 walls, 15% infill.bbl
+-rw-rw-rw-   1 root  root   6505543 Jan 20 05:14 0.2mm layer, 6 walls, 25% infill.3mf
+-rw-rw-rw-   1 root  root      1111 Jan 20 05:14 0.2mm layer, 6 walls, 25% infill.bbl
+-rw-rw-rw-   1 root  root   4020359 Jan 22 11:59 Vial Dish.3mf
+-rw-rw-rw-   1 root  root  15403952 Jan 23 00:56 Vial Dish_plate_1.gcode
+-rw-rw-rw-   1 root  root      1065 Jan 22 11:59 Vial Dish.bbl
+-rw-rw-rw-   1 root  root   3612174 Jan 24 02:26 20 Vial Case With Logo_plate_6.3mf
+-rw-rw-rw-   1 root  root  22379951 Jan 24 02:27 20 Vial Case With Logo_plate_6_plate_6.gcode
+-rw-rw-rw-   1 root  root      1653 Jan 24 02:26 20 Vial Case With Logo_plate_6.bbl
+-rw-rw-rw-   1 root  root   5860762 Jan 30 11:17 20 Vial Case With Logo_plate_5.3mf
+-rw-rw-rw-   1 root  root  21675443 Jan 30 11:18 20 Vial Case With Logo_plate_5_plate_5.gcode
+-rw-rw-rw-   1 root  root      2190 Jan 30 11:17 20 Vial Case With Logo_plate_5.bbl
+-rw-rw-rw-   1 root  root   2136399 Jan 27 03:09 20 Vial Case With Logo_plate_4.3mf
+-rw-rw-rw-   1 root  root   7062461 Jan 27 03:09 20 Vial Case With Logo_plate_4_plate_4.gcode
+-rw-rw-rw-   1 root  root      1651 Jan 27 03:09 20 Vial Case With Logo_plate_4.bbl
+-rw-rw-rw-   1 root  root   7505980 Jan 28 07:48 6 3ml box bambu print_plate_3.3mf
+-rw-rw-rw-   1 root  root  33609268 Jan 28 07:50 6 3ml box bambu print_plate_3_plate_3.gcode
+-rw-rw-rw-   1 root  root      1646 Jan 28 07:48 6 3ml box bambu print_plate_3.bbl
+-rw-rw-rw-   1 root  root   4128142 Jan 29 07:14 6 3ml box bambu print_plate_1.3mf
+-rw-rw-rw-   1 root  root  21270117 Jan 29 07:15 6 3ml box bambu print_plate_1_plate_1.gcode
+-rw-rw-rw-   1 root  root      2191 Jan 29 07:14 6 3ml box bambu print_plate_1.bbl
+-rw-rw-rw-   1 root  root   3904381 Jan 30 03:14 20 Vial Case With Logo_plate_3.3mf
+-rw-rw-rw-   1 root  root  24559305 Feb 13 23:39 20 Vial Case With Logo_plate_3_plate_3.gcode
+-rw-rw-rw-   1 root  root      2190 Jan 30 03:14 20 Vial Case With Logo_plate_3.bbl
+-rw-rw-rw-   1 root  root   1924208 Jan 31 01:02 Large Case Black Print_plate_4.3mf
+-rw-rw-rw-   1 root  root   7020133 Jan 31 01:03 Large Case Black Print_plate_4_plate_4.gcode
+-rw-rw-rw-   1 root  root      1651 Jan 31 01:02 Large Case Black Print_plate_4.bbl
+-rw-rw-rw-   1 root  root   3893723 Jan 31 06:18 Large Case Black Print_plate_3.3mf
+-rw-rw-rw-   1 root  root  24562838 Jan 31 06:20 Large Case Black Print_plate_3_plate_3.gcode
+-rw-rw-rw-   1 root  root      1648 Jan 31 06:18 Large Case Black Print_plate_3.bbl
+-rw-rw-rw-   1 root  root   5877247 Feb 03 11:02 Large Case Black Print Smooth Plate_plate_4.3mf
+-rw-rw-rw-   1 root  root  21676831 Feb 03 11:03 Large Case Black Print Smooth Plate_plate_4_plate_4.gcode
+-rw-rw-rw-   1 root  root      2216 Feb 03 11:02 Large Case Black Print Smooth Plate_plate_4.bbl
+-rw-rw-rw-   1 root  root   2017313 Feb 04 04:13 Large Case Black Print Smooth Plate_plate_3.3mf
+-rw-rw-rw-   1 root  root   7048586 Feb 06 05:01 Large Case Black Print Smooth Plate_plate_3_plate_3.gcode
+-rw-rw-rw-   1 root  root      1677 Feb 04 04:13 Large Case Black Print Smooth Plate_plate_3.bbl
+-rw-rw-rw-   1 root  root   4638009 Feb 20 10:09 3ml_BAC Water .3mf
+-rw-rw-rw-   1 root  root  18971090 Feb 20 10:11 3ml_BAC Water _plate_3.gcode
+-rw-rw-rw-   1 root  root      1619 Feb 20 10:09 3ml_BAC Water .bbl
+-rw-rw-rw-   1 root  root   5668139 Feb 18 10:52 Large Case White Print_Non Ice pack Height.3mf
+-rw-rw-rw-   1 root  root  20734700 Feb 21 09:06 Large Case White Print_Non Ice pack Height_plate_5.gcode
+-rw-rw-rw-   1 root  root      1672 Feb 18 10:52 Large Case White Print_Non Ice pack Height.bbl
+-rw-rw-rw-   1 root  root   2057972 Feb 12 10:44 Large Case White Print_Regular Tops.3mf
+-rw-rw-rw-   1 root  root   7208226 Feb 19 23:59 Large Case White Print_Regular Tops_plate_4.gcode
+-rw-rw-rw-   1 root  root      1660 Feb 12 10:44 Large Case White Print_Regular Tops.bbl
+-rw-rw-rw-   1 root  root   1495833 Feb 10 09:24 Large Case Ice Pack Compartment Print File_plate_4.3mf
+-rw-rw-rw-   1 root  root   8432354 Feb 10 09:25 Large Case Ice Pack Compartment Print File_plate_4_plate_4.gcode
+-rw-rw-rw-   1 root  root      2229 Feb 10 09:24 Large Case Ice Pack Compartment Print File_plate_4.bbl
+-rw-rw-rw-   1 root  root   1311662 Feb 11 01:02 Large Case Ice Pack Compartment Print File_plate_3.3mf
+-rw-rw-rw-   1 root  root   5588404 Feb 11 01:02 Large Case Ice Pack Compartment Print File_plate_3_plate_3.gcode
+-rw-rw-rw-   1 root  root      2229 Feb 11 01:02 Large Case Ice Pack Compartment Print File_plate_3.bbl
+-rw-rw-rw-   1 root  root   5248125 Feb 13 08:00 3ml_plate_1.3mf
+-rw-rw-rw-   1 root  root  19421301 Feb 21 02:16 3ml_plate_1_plate_1.gcode
+-rw-rw-rw-   1 root  root      1612 Feb 13 08:00 3ml_plate_1.bbl
+-rw-rw-rw-   1 root  root   2185598 Feb 19 08:39 PETG + TPU, 0.2mm layer, 2 walls, 10-80% infill.3mf
+-rw-rw-rw-   1 root  root   2949120 Feb 19 08:39 PETG + TPU, 0_plate_1.gcode
+-rw-rw-rw-   1 root  root      1682 Feb 19 08:39 PETG + TPU, 0.2mm layer, 2 walls, 10-80% infill.bbl
+-rw-rw-rw-   1 root  root   1233546 Feb 24 11:23 A1 Large Case white top.AG.gcode.3mf
+-rw-rw-rw-   1 root  root        13 Feb 24 10:09 test_upload.gcode
+-rw-rw-rw-   1 root  root   8183026 Feb 24 10:15 test_large.gcode.3mf
+[+   8879ms] > SIZE A1 Large Case white top.AG.gcode.3mf
+[+   8902ms] < 213 1233546
+[+   8902ms] > QUIT
+=== END FTP CONTROL CHANNEL LOG ===
+
+[+   8903ms] MQTT_CONNECT_START
+[+   9803ms] MQTT_CONNECTED
+[+   9827ms] MQTT_SUBSCRIBED ΓÇö {"topic":"device/00M00A123456789/report"}
+
+=== MQTT PUBLISH PAYLOAD (exact JSON) ===
+Topic: device/00M00A123456789/request
+{
+  "print": {
+    "sequence_id": "1771903416705",
+    "command": "project_file",
+    "param": "Metadata/plate_1.gcode",
+    "subtask_name": "A1 Large Case white top.AG",
+    "url": "ftp://A1 Large Case white top.AG.gcode.3mf",
+    "bed_type": "auto",
+    "timelapse": false,
+    "bed_leveling": true,
+    "flow_cali": true,
+    "vibration_cali": true,
+    "layer_inspect": false,
+    "use_ams": false,
+    "ams_mapping": [],
+    "profile_id": "0",
+    "project_id": "0",
+    "subtask_id": "0",
+    "task_id": "0"
+  }
+}
+=== END MQTT PAYLOAD ===
+
+[+   9827ms] FILE_PATH_VERIFICATION ΓÇö {"ftp_upload_path":"257 /cache/A1 Large Case white top.AG.gcode.3mf","mqtt_url":"ftp://A1 Large Case white top.AG.gcode.3mf","mqtt_subtask_name":"A1 Large Case white top.AG","mqtt_param":"Metadata/plate_1.gcode"}
+[+   9827ms] MQTT_PUBLISH_START
+[+   9828ms] MQTT_PUBLISH_DONE
+[+   9828ms] WAITING_30S_FOR_INBOUND_MESSAGES
+[+  39835ms] CAPTURE_COMPLETE ΓÇö {"total_inbound":15}
+
+=== ALL INBOUND MQTT MESSAGES (30s window) ===
+[+   9846ms] topic=device/00M00A123456789/report keys=[print]
+         print: {"command":"project_file","subtask_name":"A1 Large Case white top.AG","result":"success","reason":"success"}
+[+  10731ms] topic=device/00M00A123456789/report keys=[print]
+         print: {"command":"push_status"}
+[+  12748ms] topic=device/00M00A123456789/report keys=[print]
+         print: {"command":"push_status","subtask_name":"A1 Large Case white top.AG"}
+[+  14751ms] topic=device/00M00A123456789/report keys=[print]
+         print: {"command":"push_status"}
+[+  16766ms] topic=device/00M00A123456789/report keys=[print]
+         print: {"command":"push_status"}
+[+  18790ms] topic=device/00M00A123456789/report keys=[print]
+         print: {"command":"push_status"}
+[+  20790ms] topic=device/00M00A123456789/report keys=[print]
+         print: {"command":"push_status"}
+[+  22801ms] topic=device/00M00A123456789/report keys=[print]
+         print: {"command":"push_status"}
+[+  24844ms] topic=device/00M00A123456789/report keys=[print]
+         print: {"command":"push_status"}
+[+  26821ms] topic=device/00M00A123456789/report keys=[print]
+         print: {"command":"push_status"}
+[+  28835ms] topic=device/00M00A123456789/report keys=[print]
+         print: {"command":"push_status"}
+[+  30841ms] topic=device/00M00A123456789/report keys=[print]
+         print: {"command":"push_status"}
+[+  32858ms] topic=device/00M00A123456789/report keys=[print]
+         print: {"command":"push_status"}
+[+  34869ms] topic=device/00M00A123456789/report keys=[print]
+         print: {"command":"push_status"}
+[+  38885ms] topic=device/00M00A123456789/report keys=[print]
+         print: {"command":"push_status"}
+=== END INBOUND MQTT MESSAGES ===
+
+[+  39836ms] RESULT_PRINT_NOT_STARTED ΓÇö {"conclusion":"Printer remained idle for 30s after startPrint command","payload_sent":{"print":{"sequence_id":"1771903416705","command":"project_file","param":"Metadata/plate_1.gcode","subtask_name":"A1 Large Case white top.AG","url":"ftp://A1 Large Case white top.AG.gcode.3mf","bed_type":"auto","timelapse":false,"bed_leveling":true,"flow_cali":true,"vibration_cali":true,"layer_inspect":false,"use_ams":false,"ams_mapping":[],"profile_id":"0","project_id":"0","subtask_id":"0","task_id":"0"}},"file_uploaded_to":"257 /cache/A1 Large Case white top.AG.gcode.3mf","file_verified":true}
+
+=== FULL STAGE TRACE ===
+[+     25ms] SETUP ΓÇö {"printer":"A1 1","ip":"192.168.1.50","serial":"00M00A123456789"}
+[+     27ms] FILE_SELECTED ΓÇö {"local":"b01ed6c3-44dd-408b-9fd4-102cb65413f2_A1 Large Case white top.AG.gcode.3mf","remote":"A1 Large Case white top.AG.gcode.3mf","bytes":1233546}
+[+     27ms] FTPS_CONNECT_START
+[+   1021ms] FTPS_CONNECT_OK
+[+   1021ms] FTPS_TLS_HANDSHAKE_OK ΓÇö {"protocol":"TLSv1.2","cipher":"ECDHE-RSA-AES256-GCM-SHA384","session":true}
+[+   1021ms] FTPS_CD_CACHE
+[+   1073ms] FTPS_PWD ΓÇö {"raw_response":"257 /cache","code":257}
+[+   1073ms] UPLOAD_START ΓÇö {"remote":"A1 Large Case white top.AG.gcode.3mf","bytes":1233546}
+[+   8357ms] UPLOAD_FINISHED ΓÇö {"duration_ms":7284,"throughput_kbps":165,"last_byte_to_226_ms":7096}
+[+   8368ms] FTPS_PWD_AFTER_UPLOAD ΓÇö {"raw_response":"257 /cache"}
+[+   8369ms] FTPS_LIST_START
+[+   8879ms] FTPS_LIST ΓÇö {"entries":[{"name":"0.2mm layer, 2 walls, 15% infill.3mf","size":4165224,"type":1},{"name":"0_plate_1.gcode","size":25134913,"type":1},{"name":"0.2mm layer, 2 walls, 15% infill.bbl","size":1113,"type":1},{"name":"0.2mm layer, 6 walls, 25% infill.3mf","size":6505543,"type":1},{"name":"0.2mm layer, 6 walls, 25% infill.bbl","size":1111,"type":1},{"name":"Vial Dish.3mf","size":4020359,"type":1},{"name":"Vial Dish_plate_1.gcode","size":15403952,"type":1},{"name":"Vial Dish.bbl","size":1065,"type":1},{"name":"20 Vial Case With Logo_plate_6.3mf","size":3612174,"type":1},{"name":"20 Vial Case With Logo_plate_6_plate_6.gcode","size":22379951,"type":1},{"name":"20 Vial Case With Logo_plate_6.bbl","size":1653,"type":1},{"name":"20 Vial Case With Logo_plate_5.3mf","size":5860762,"type":1},{"name":"20 Vial Case With Logo_plate_5_plate_5.gcode","size":21675443,"type":1},{"name":"20 Vial Case With Logo_plate_5.bbl","size":2190,"type":1},{"name":"20 Vial Case With Logo_plate_4.3mf","size":2136399,"type":1},{"name":"20 Vial Case With Logo_plate_4_plate_4.gcode","size":7062461,"type":1},{"name":"20 Vial Case With Logo_plate_4.bbl","size":1651,"type":1},{"name":"6 3ml box bambu print_plate_3.3mf","size":7505980,"type":1},{"name":"6 3ml box bambu print_plate_3_plate_3.gcode","size":33609268,"type":1},{"name":"6 3ml box bambu print_plate_3.bbl","size":1646,"type":1},{"name":"6 3ml box bambu print_plate_1.3mf","size":4128142,"type":1},{"name":"6 3ml box bambu print_plate_1_plate_1.gcode","size":21270117,"type":1},{"name":"6 3ml box bambu print_plate_1.bbl","size":2191,"type":1},{"name":"20 Vial Case With Logo_plate_3.3mf","size":3904381,"type":1},{"name":"20 Vial Case With Logo_plate_3_plate_3.gcode","size":24559305,"type":1},{"name":"20 Vial Case With Logo_plate_3.bbl","size":2190,"type":1},{"name":"Large Case Black Print_plate_4.3mf","size":1924208,"type":1},{"name":"Large Case Black Print_plate_4_plate_4.gcode","size":7020133,"type":1},{"name":"Large Case Black Print_plate_4.bbl","size":1651,"type":1},{"name":"Large Case Black Print_plate_3.3mf","size":3893723,"type":1},{"name":"Large Case Black Print_plate_3_plate_3.gcode","size":24562838,"type":1},{"name":"Large Case Black Print_plate_3.bbl","size":1648,"type":1},{"name":"Large Case Black Print Smooth Plate_plate_4.3mf","size":5877247,"type":1},{"name":"Large Case Black Print Smooth Plate_plate_4_plate_4.gcode","size":21676831,"type":1},{"name":"Large Case Black Print Smooth Plate_plate_4.bbl","size":2216,"type":1},{"name":"Large Case Black Print Smooth Plate_plate_3.3mf","size":2017313,"type":1},{"name":"Large Case Black Print Smooth Plate_plate_3_plate_3.gcode","size":7048586,"type":1},{"name":"Large Case Black Print Smooth Plate_plate_3.bbl","size":1677,"type":1},{"name":"3ml_BAC Water .3mf","size":4638009,"type":1},{"name":"3ml_BAC Water _plate_3.gcode","size":18971090,"type":1},{"name":"3ml_BAC Water .bbl","size":1619,"type":1},{"name":"Large Case White Print_Non Ice pack Height.3mf","size":5668139,"type":1},{"name":"Large Case White Print_Non Ice pack Height_plate_5.gcode","size":20734700,"type":1},{"name":"Large Case White Print_Non Ice pack Height.bbl","size":1672,"type":1},{"name":"Large Case White Print_Regular Tops.3mf","size":2057972,"type":1},{"name":"Large Case White Print_Regular Tops_plate_4.gcode","size":7208226,"type":1},{"name":"Large Case White Print_Regular Tops.bbl","size":1660,"type":1},{"name":"Large Case Ice Pack Compartment Print File_plate_4.3mf","size":1495833,"type":1},{"name":"Large Case Ice Pack Compartment Print File_plate_4_plate_4.gcode","size":8432354,"type":1},{"name":"Large Case Ice Pack Compartment Print File_plate_4.bbl","size":2229,"type":1},{"name":"Large Case Ice Pack Compartment Print File_plate_3.3mf","size":1311662,"type":1},{"name":"Large Case Ice Pack Compartment Print File_plate_3_plate_3.gcode","size":5588404,"type":1},{"name":"Large Case Ice Pack Compartment Print File_plate_3.bbl","size":2229,"type":1},{"name":"3ml_plate_1.3mf","size":5248125,"type":1},{"name":"3ml_plate_1_plate_1.gcode","size":19421301,"type":1},{"name":"3ml_plate_1.bbl","size":1612,"type":1},{"name":"PETG + TPU, 0.2mm layer, 2 walls, 10-80% infill.3mf","size":2185598,"type":1},{"name":"PETG + TPU, 0_plate_1.gcode","size":2949120,"type":1},{"name":"PETG + TPU, 0.2mm layer, 2 walls, 10-80% infill.bbl","size":1682,"type":1},{"name":"A1 Large Case white top.AG.gcode.3mf","size":1233546,"type":1},{"name":"test_upload.gcode","size":13,"type":1},{"name":"test_large.gcode.3mf","size":8183026,"type":1}]}
+[+   8879ms] FTPS_SIZE_START
+[+   8902ms] FTPS_SIZE ΓÇö {"remote_size":1233546,"local_size":1233546,"match":true}
+[+   8903ms] FTPS_CLOSED
+[+   8903ms] MQTT_CONNECT_START
+[+   9803ms] MQTT_CONNECTED
+[+   9827ms] MQTT_SUBSCRIBED ΓÇö {"topic":"device/00M00A123456789/report"}
+[+   9827ms] FILE_PATH_VERIFICATION ΓÇö {"ftp_upload_path":"257 /cache/A1 Large Case white top.AG.gcode.3mf","mqtt_url":"ftp://A1 Large Case white top.AG.gcode.3mf","mqtt_subtask_name":"A1 Large Case white top.AG","mqtt_param":"Metadata/plate_1.gcode"}
+[+   9827ms] MQTT_PUBLISH_START
+[+   9828ms] MQTT_PUBLISH_DONE
+[+   9828ms] WAITING_30S_FOR_INBOUND_MESSAGES
+[+  39835ms] CAPTURE_COMPLETE ΓÇö {"total_inbound":15}
+[+  39836ms] RESULT_PRINT_NOT_STARTED ΓÇö {"conclusion":"Printer remained idle for 30s after startPrint command","payload_sent":{"print":{"sequence_id":"1771903416705","command":"project_file","param":"Metadata/plate_1.gcode","subtask_name":"A1 Large Case white top.AG","url":"ftp://A1 Large Case white top.AG.gcode.3mf","bed_type":"auto","timelapse":false,"bed_leveling":true,"flow_cali":true,"vibration_cali":true,"layer_inspect":false,"use_ams":false,"ams_mapping":[],"profile_id":"0","project_id":"0","subtask_id":"0","task_id":"0"}},"file_uploaded_to":"257 /cache/A1 Large Case white top.AG.gcode.3mf","file_verified":true}
