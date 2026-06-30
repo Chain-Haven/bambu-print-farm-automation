@@ -1,5 +1,17 @@
-import { describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { loadCloudSmokeEnv } from '../../src/cloud/cloudSmokeEnv.js';
 import { runCloudSmokeTest } from '../../src/cloud/cloudSmokeTest.js';
+
+const tempRoots = [];
+
+function makeTempRoot() {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pkx-cloud-smoke-'));
+    tempRoots.push(root);
+    return root;
+}
 
 function jsonResponse(payload, status = 200) {
     return {
@@ -9,7 +21,36 @@ function jsonResponse(payload, status = 200) {
     };
 }
 
+afterEach(() => {
+    while (tempRoots.length) {
+        fs.rmSync(tempRoots.pop(), { recursive: true, force: true });
+    }
+});
+
 describe('cloud smoke test runner', () => {
+    it('loads local smoke-test defaults from ignored env files without overriding shell env', () => {
+        const cwd = makeTempRoot();
+        fs.writeFileSync(path.join(cwd, '.env'), [
+            'CLOUD_API_URL=https://env-file.example.com',
+            'CLOUD_ADMIN_TOKEN=env-admin',
+        ].join('\n'));
+        fs.writeFileSync(path.join(cwd, '.env.local'), [
+            'CLOUD_API_URL=https://local-file.example.com',
+            'NODE_TOKEN_PEPPER=local-pepper',
+        ].join('\n'));
+        const env = {
+            CLOUD_ADMIN_TOKEN: 'shell-admin',
+        };
+
+        loadCloudSmokeEnv({ cwd, env });
+
+        expect(env).toEqual({
+            CLOUD_API_URL: 'https://env-file.example.com',
+            CLOUD_ADMIN_TOKEN: 'shell-admin',
+            NODE_TOKEN_PEPPER: 'local-pepper',
+        });
+    });
+
     it('provisions a cloud node and proves the local agent command loop through HTTP APIs', async () => {
         const calls = [];
         const fetchImpl = vi.fn(async (url, init = {}) => {

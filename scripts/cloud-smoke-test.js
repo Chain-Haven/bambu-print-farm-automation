@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-import 'dotenv/config';
+import { loadCloudSmokeEnv } from '../src/cloud/cloudSmokeEnv.js';
 import { runCloudSmokeTest } from '../src/cloud/cloudSmokeTest.js';
+
+loadCloudSmokeEnv();
 
 function getArgValue(name) {
     const index = process.argv.indexOf(name);
