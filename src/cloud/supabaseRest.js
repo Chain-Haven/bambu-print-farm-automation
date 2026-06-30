@@ -98,5 +98,22 @@ export function createSupabaseRestClient({
                 body: rows,
             });
         },
+
+        async recordCommandResult(nodeId, commandResult) {
+            await request(
+                `/rest/v1/node_commands?node_id=eq.${encodeURIComponent(nodeId)}&command_id=eq.${encodeURIComponent(commandResult.command_id)}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=minimal' },
+                    body: {
+                        status: commandResult.status,
+                        result: commandResult.result,
+                        error: commandResult.error,
+                        finished_at: commandResult.finished_at,
+                        updated_at: new Date().toISOString(),
+                    },
+                },
+            );
+        },
     };
 }

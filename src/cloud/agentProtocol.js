@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 const VALID_NODE_STATUSES = new Set(['online', 'degraded', 'offline']);
+const VALID_COMMAND_RESULT_STATUSES = new Set(['running', 'succeeded', 'failed']);
 
 function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -58,6 +59,26 @@ export function normalizeAgentEvents(body = {}, now = () => new Date()) {
             created_at: createdAt,
         }];
     });
+}
+
+export function normalizeCommandResult(body = {}, now = () => new Date()) {
+    const source = isPlainObject(body) ? body : {};
+    const commandId = typeof source.command_id === 'string' ? source.command_id.trim() : '';
+    if (!commandId) throw new Error('command_id is required');
+
+    const status = VALID_COMMAND_RESULT_STATUSES.has(source.status) ? source.status : null;
+    if (!status) throw new Error('status must be running, succeeded, or failed');
+
+    const failed = status === 'failed';
+    const running = status === 'running';
+
+    return {
+        command_id: commandId,
+        status,
+        result: !failed && isPlainObject(source.result) ? source.result : null,
+        error: failed ? (typeof source.error === 'string' && source.error.trim() ? source.error.trim() : 'Command failed') : null,
+        finished_at: running ? null : now().toISOString(),
+    };
 }
 
 export function parseJsonBody(body) {

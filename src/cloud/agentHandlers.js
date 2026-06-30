@@ -2,6 +2,7 @@ import {
     getBearerToken,
     hashNodeToken,
     normalizeAgentEvents,
+    normalizeCommandResult,
     normalizeHeartbeat,
     parseJsonBody,
 } from './agentProtocol.js';
@@ -140,6 +141,36 @@ export function createEventsHandler({ store, pepper, now = () => new Date() }) {
             return sendJson(res, 500, {
                 ok: false,
                 error: 'record_events_failed',
+                message: error.message,
+            });
+        }
+    };
+}
+
+export function createCommandResultHandler({ store, pepper, now = () => new Date() }) {
+    if (!store) throw new Error('store is required');
+
+    return async function commandResultHandler(req, res) {
+        if (req.method && req.method !== 'POST') {
+            return methodNotAllowed(res, 'POST');
+        }
+
+        try {
+            const node = await authenticateNode(req, res, { store, pepper });
+            if (!node) return null;
+
+            const result = normalizeCommandResult(parseJsonBody(req.body), now);
+            await store.recordCommandResult(node.node_id, result);
+
+            return sendJson(res, 200, {
+                ok: true,
+                command_id: result.command_id,
+                status: result.status,
+            });
+        } catch (error) {
+            return sendJson(res, 400, {
+                ok: false,
+                error: 'record_command_result_failed',
                 message: error.message,
             });
         }

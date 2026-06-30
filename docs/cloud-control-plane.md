@@ -10,6 +10,7 @@ The first implemented cloud endpoints are:
 ```text
 POST /api/agent/heartbeat
 GET  /api/agent/commands?limit=10
+POST /api/agent/command-result
 POST /api/agent/events
 Authorization: Bearer <LOCAL_NODE_TOKEN>
 Content-Type: application/json
@@ -28,7 +29,7 @@ Request body:
 
 Vercel hashes the bearer token with `NODE_TOKEN_PEPPER`, looks up `farm_nodes.token_hash`, and updates the node heartbeat fields in Supabase. A registered node row must exist before the downloaded agent can connect.
 
-Command claim responses return the node's queued `node_commands` rows after atomically moving them from `queued` to `claimed` through the `claim_node_commands` Supabase RPC. Event posts accept up to 100 well-formed event rows per request and write them into `node_events` for cloud visibility.
+Command claim responses return the node's queued `node_commands` rows after atomically moving them from `queued` to `claimed` through the `claim_node_commands` Supabase RPC. Command result posts move claimed commands through `running`, `succeeded`, or `failed` while filtering by the authenticated node. Event posts accept up to 100 well-formed event rows per request and write them into `node_events` for cloud visibility.
 
 The local Node client lives in `src/cloud/localNodeClient.js` and wraps these outbound calls:
 
@@ -86,6 +87,33 @@ The local node should store:
 ```bash
 CLOUD_API_URL=https://<vercel-deployment>
 LOCAL_NODE_TOKEN=<opaque node token>
+CLOUD_COMMAND_POLL_INTERVAL_MS=2000
+CLOUD_HEARTBEAT_INTERVAL_MS=30000
 ```
 
 It should never store `SUPABASE_SERVICE_ROLE_KEY`.
+
+## Running the Windows NUC Node
+
+On the NUC:
+
+1. Install Node.js 24 LTS or newer.
+2. Copy `.env.example` to `.env`.
+3. Set `CLOUD_API_URL` to the Vercel deployment and `LOCAL_NODE_TOKEN` to the token provisioned for that node.
+4. Double-click `Start Cloud Node.bat`, or run:
+
+```bash
+npm install
+npm run local-node
+```
+
+`npm run local-node` starts the existing local printer controller (`server.js`) and also starts the outbound cloud agent. The cloud agent sends heartbeats, claims queued commands, executes supported local actions, and reports command lifecycle status back to Vercel.
+
+Supported cloud command types in this slice:
+
+- `printer.status` with `payload.local_printer_id`
+- `printer.pause` with `payload.local_printer_id`
+- `printer.resume` with `payload.local_printer_id`
+- `printer.stop` with `payload.local_printer_id`
+- `printer.gcode` with `payload.local_printer_id` and `payload.gcode`
+- `job.start` with `payload.local_job_id`

@@ -68,5 +68,15 @@ export function createLocalNodeClient({
         sendEvents(events) {
             return request('/api/agent/events', { method: 'POST', body: { events } });
         },
+
+        reportCommandResult(commandId, payload) {
+            return request('/api/agent/command-result', {
+                method: 'POST',
+                body: {
+                    command_id: commandId,
+                    ...payload,
+                },
+            });
+        },
     };
 }

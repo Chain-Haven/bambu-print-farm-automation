@@ -3,14 +3,18 @@ import {
     getBearerToken,
     hashNodeToken,
     normalizeAgentEvents,
+    normalizeCommandResult,
     normalizeHeartbeat,
 } from '../../src/cloud/agentProtocol.js';
 import {
     createClaimCommandsHandler,
+    createCommandResultHandler,
     createEventsHandler,
     createHeartbeatHandler,
 } from '../../src/cloud/agentHandlers.js';
+import { createLocalNodeAgent } from '../../src/cloud/localNodeAgent.js';
 import { createLocalNodeClient } from '../../src/cloud/localNodeClient.js';
+import { executeCloudCommand } from '../../src/cloud/localCommandExecutor.js';
 
 function createMockResponse() {
     return {
@@ -91,6 +95,27 @@ describe('agent protocol', () => {
                 created_at: '2026-06-30T22:10:00.000Z',
             },
         ]);
+    });
+
+    it('normalizes command results without trusting node or org fields', () => {
+        const result = normalizeCommandResult(
+            {
+                command_id: 'command-1',
+                status: 'succeeded',
+                result: { started: true },
+                error: 'ignored on success',
+                node_id: 'spoof',
+            },
+            () => new Date('2026-06-30T22:20:00.000Z'),
+        );
+
+        expect(result).toEqual({
+            command_id: 'command-1',
+            status: 'succeeded',
+            result: { started: true },
+            error: null,
+            finished_at: '2026-06-30T22:20:00.000Z',
+        });
     });
 });
 
@@ -223,6 +248,48 @@ describe('command claim handler', () => {
     });
 });
 
+describe('command result handler', () => {
+    it('records command lifecycle updates for a registered local node', async () => {
+        const store = {
+            findNodeByTokenHash: vi.fn().mockResolvedValue({
+                node_id: 'node-1',
+                organization_id: 'org-1',
+            }),
+            recordCommandResult: vi.fn().mockResolvedValue(undefined),
+        };
+        const handler = createCommandResultHandler({
+            pepper: 'pepper',
+            store,
+            now: () => new Date('2026-06-30T22:25:00.000Z'),
+        });
+        const res = createMockResponse();
+
+        await handler(
+            {
+                method: 'POST',
+                headers: { authorization: 'Bearer pkx_node_secret' },
+                body: {
+                    command_id: 'command-1',
+                    status: 'failed',
+                    error: 'printer offline',
+                    result: { ignored: true },
+                },
+            },
+            res,
+        );
+
+        expect(store.recordCommandResult).toHaveBeenCalledWith('node-1', {
+            command_id: 'command-1',
+            status: 'failed',
+            result: null,
+            error: 'printer offline',
+            finished_at: '2026-06-30T22:25:00.000Z',
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.body).toEqual({ ok: true, command_id: 'command-1', status: 'failed' });
+    });
+});
+
 describe('events handler', () => {
     it('records local node events for cloud visibility', async () => {
         const store = {
@@ -314,5 +381,92 @@ describe('local node client', () => {
                 'Content-Type': 'application/json',
             },
         });
+    });
+});
+
+describe('local command executor', () => {
+    it('returns local printer status using the existing runtime worker', async () => {
+        const worker = {
+            state: 'idle',
+            connected: true,
+            latestStatus: { state: 'idle', bed_temp: 25 },
+            getPreflightStatus: vi.fn().mockReturnValue({ ok: true, state: 'idle' }),
+        };
+
+        const result = await executeCloudCommand(
+            {
+                command_id: 'cmd-1',
+                command_type: 'printer.status',
+                payload: { local_printer_id: 'local-printer-1' },
+            },
+            {
+                getWorker: vi.fn().mockReturnValue(worker),
+            },
+        );
+
+        expect(result).toEqual({
+            state: 'idle',
+            connected: true,
+            status: { state: 'idle', bed_temp: 25 },
+            preflight: { ok: true, state: 'idle' },
+        });
+    });
+
+    it('starts an existing local job through JobOrchestrator', async () => {
+        const startJob = vi.fn().mockResolvedValue({ job: { job_id: 'local-job-1', status: 'printing' } });
+
+        const result = await executeCloudCommand(
+            {
+                command_id: 'cmd-2',
+                command_type: 'job.start',
+                payload: { local_job_id: 'local-job-1' },
+            },
+            { startJob },
+        );
+
+        expect(startJob).toHaveBeenCalledWith('local-job-1');
+        expect(result).toEqual({ job: { job_id: 'local-job-1', status: 'printing' } });
+    });
+});
+
+describe('local node agent', () => {
+    it('claims commands, executes them locally, and reports running plus final states', async () => {
+        const client = {
+            claimCommands: vi.fn().mockResolvedValue({
+                commands: [{ command_id: 'cmd-1', command_type: 'printer.status', payload: {} }],
+            }),
+            reportCommandResult: vi.fn().mockResolvedValue({ ok: true }),
+        };
+        const executeCommand = vi.fn().mockResolvedValue({ state: 'idle' });
+        const agent = createLocalNodeAgent({ client, executeCommand });
+
+        const summary = await agent.runOnce();
+
+        expect(client.claimCommands).toHaveBeenCalledWith({ limit: 10 });
+        expect(client.reportCommandResult).toHaveBeenNthCalledWith(1, 'cmd-1', { status: 'running' });
+        expect(client.reportCommandResult).toHaveBeenNthCalledWith(2, 'cmd-1', {
+            status: 'succeeded',
+            result: { state: 'idle' },
+        });
+        expect(summary).toEqual({ claimed: 1, succeeded: 1, failed: 0 });
+    });
+
+    it('reports failed command execution back to the cloud', async () => {
+        const client = {
+            claimCommands: vi.fn().mockResolvedValue({
+                commands: [{ command_id: 'cmd-1', command_type: 'printer.status', payload: {} }],
+            }),
+            reportCommandResult: vi.fn().mockResolvedValue({ ok: true }),
+        };
+        const executeCommand = vi.fn().mockRejectedValue(new Error('printer offline'));
+        const agent = createLocalNodeAgent({ client, executeCommand });
+
+        const summary = await agent.runOnce();
+
+        expect(client.reportCommandResult).toHaveBeenNthCalledWith(2, 'cmd-1', {
+            status: 'failed',
+            error: 'printer offline',
+        });
+        expect(summary).toEqual({ claimed: 1, succeeded: 0, failed: 1 });
     });
 });
