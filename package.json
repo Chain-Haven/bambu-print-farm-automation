@@ -8,6 +8,7 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "vitest run",
+    "test:cloud": "vitest run tests/cloud",
     "test:watch": "vitest",
     "cli": "node src/gcode/cli.js"
   },
