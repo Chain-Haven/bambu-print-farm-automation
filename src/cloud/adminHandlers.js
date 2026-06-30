@@ -1,5 +1,6 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { hashNodeToken, parseJsonBody } from './agentProtocol.js';
+import { buildWindowsNodePackage, getNodePackageFileName } from './nodePackage.js';
 
 function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -83,6 +84,18 @@ function normalizeNodeProvision(body) {
         name: normalizeRequiredString(source.name, 'name'),
         capabilities: isPlainObject(source.capabilities) ? source.capabilities : {},
         token: normalizeOptionalString(source.local_node_token),
+    };
+}
+
+function normalizeNodePackageRequest(body, req) {
+    const source = isPlainObject(body) ? body : {};
+    const host = typeof (req.headers || {}).host === 'string' ? req.headers.host.trim() : '';
+    const inferredCloudApiUrl = host ? `https://${host}` : '';
+
+    return {
+        cloudApiUrl: normalizeRequiredString(source.cloud_api_url || inferredCloudApiUrl, 'cloud_api_url'),
+        localNodeToken: normalizeRequiredString(source.local_node_token, 'local_node_token'),
+        nodeName: typeof source.node_name === 'string' && source.node_name.trim() ? source.node_name.trim() : 'Windows NUC',
     };
 }
 
@@ -197,6 +210,44 @@ export function createCloudNodeProvisionHandler({
             return sendJson(res, 400, {
                 ok: false,
                 error: 'provision_node_failed',
+                message: error.message,
+            });
+        }
+    };
+}
+
+export function createCloudNodePackageHandler({
+    adminToken = process.env.CLOUD_ADMIN_TOKEN,
+    rootDir = process.cwd(),
+    packageBuilder = buildWindowsNodePackage,
+} = {}) {
+    return async function cloudNodePackageHandler(req, res) {
+        if (req.method && req.method !== 'POST') {
+            return methodNotAllowed(res, 'POST');
+        }
+
+        try {
+            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+
+            const request = normalizeNodePackageRequest(parseJsonBody(req.body), req);
+            const zipBuffer = packageBuilder({
+                rootDir,
+                cloudApiUrl: request.cloudApiUrl,
+                localNodeToken: request.localNodeToken,
+                nodeName: request.nodeName,
+            });
+
+            res.statusCode = 200;
+            if (typeof res.setHeader === 'function') {
+                res.setHeader('Content-Type', 'application/zip');
+                res.setHeader('Content-Disposition', `attachment; filename="${getNodePackageFileName(request.nodeName)}"`);
+                res.setHeader('Cache-Control', 'no-store');
+            }
+            return res.end(zipBuffer);
+        } catch (error) {
+            return sendJson(res, 400, {
+                ok: false,
+                error: 'node_package_failed',
                 message: error.message,
             });
         }

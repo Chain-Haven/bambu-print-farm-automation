@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { hashNodeToken } from '../../src/cloud/agentProtocol.js';
 import {
     createCloudCommandHandler,
+    createCloudNodePackageHandler,
     createCloudNodeProvisionHandler,
     createCloudOverviewHandler,
 } from '../../src/cloud/adminHandlers.js';
@@ -21,6 +22,29 @@ function createMockResponse() {
         },
         setHeader(name, value) {
             this.headers[name] = value;
+        },
+    };
+}
+
+function createMockDownloadResponse() {
+    return {
+        statusCode: 200,
+        body: null,
+        headers: {},
+        status(code) {
+            this.statusCode = code;
+            return this;
+        },
+        json(payload) {
+            this.body = payload;
+            return this;
+        },
+        setHeader(name, value) {
+            this.headers[name] = value;
+        },
+        end(payload) {
+            this.body = payload;
+            return this;
         },
     };
 }
@@ -187,5 +211,69 @@ describe('cloud node provisioning handler', () => {
             node,
             local_node_token: 'pkx_node_generated_secret',
         });
+    });
+});
+
+describe('cloud node package handler', () => {
+    it('returns a zip download for an authenticated admin', async () => {
+        const packageBuffer = Buffer.from('zip-data');
+        const packageBuilder = vi.fn().mockReturnValue(packageBuffer);
+        const handler = createCloudNodePackageHandler({
+            adminToken: 'admin-secret',
+            rootDir: '/repo',
+            packageBuilder,
+        });
+        const res = createMockDownloadResponse();
+
+        await handler(
+            {
+                method: 'POST',
+                headers: { authorization: 'Bearer admin-secret', host: 'farm.example.com' },
+                body: {
+                    local_node_token: 'pkx_node_secret',
+                    cloud_api_url: 'https://farm.example.com',
+                    node_name: 'Print NUC 01',
+                },
+            },
+            res,
+        );
+
+        expect(packageBuilder).toHaveBeenCalledWith({
+            rootDir: '/repo',
+            cloudApiUrl: 'https://farm.example.com',
+            localNodeToken: 'pkx_node_secret',
+            nodeName: 'Print NUC 01',
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.headers['Content-Type']).toBe('application/zip');
+        expect(res.headers['Content-Disposition']).toBe('attachment; filename="print-nuc-01-cloud-node.zip"');
+        expect(res.body).toBe(packageBuffer);
+    });
+
+    it('rejects package downloads without a local node token', async () => {
+        const packageBuilder = vi.fn();
+        const handler = createCloudNodePackageHandler({
+            adminToken: 'admin-secret',
+            rootDir: '/repo',
+            packageBuilder,
+        });
+        const res = createMockDownloadResponse();
+
+        await handler(
+            {
+                method: 'POST',
+                headers: { authorization: 'Bearer admin-secret', host: 'farm.example.com' },
+                body: { cloud_api_url: 'https://farm.example.com' },
+            },
+            res,
+        );
+
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({
+            ok: false,
+            error: 'node_package_failed',
+            message: 'local_node_token is required',
+        });
+        expect(packageBuilder).not.toHaveBeenCalled();
     });
 });

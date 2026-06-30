@@ -11,6 +11,7 @@ const state = {
     commands: [],
     events: [],
   },
+  provisionedNode: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -28,6 +29,7 @@ const elements = {
   nodeName: $('#node-name'),
   nodeCapabilities: $('#node-capabilities'),
   nodeTokenOutput: $('#node-token-output'),
+  downloadNodePackage: $('#download-node-package'),
   commandForm: $('#command-form'),
   commandNode: $('#command-node'),
   commandType: $('#command-type'),
@@ -89,6 +91,42 @@ async function apiRequest(path, { method = 'GET', body = null } = {}) {
   }
 
   return payload;
+}
+
+async function apiDownload(path, { body, fileName }) {
+  const token = getAdminToken();
+  if (!token) throw new Error('Admin token is required');
+
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    let message = `Download failed with ${response.status}`;
+    try {
+      const payload = text ? JSON.parse(text) : {};
+      message = payload.message || payload.error || message;
+    } catch {
+      if (text) message = text;
+    }
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const href = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = href;
+  anchor.download = fileName;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(href);
 }
 
 function formatDate(value) {
@@ -303,6 +341,12 @@ async function handleProvisionNode(event) {
     body: payload,
   });
 
+  state.provisionedNode = {
+    id: result.node.node_id,
+    name: result.node.name || payload.name,
+    token: result.local_node_token,
+    cloudApiUrl: window.location.origin,
+  };
   elements.nodeTokenOutput.hidden = false;
   elements.nodeTokenOutput.textContent = [
     `CLOUD_API_URL=${window.location.origin}`,
@@ -310,8 +354,30 @@ async function handleProvisionNode(event) {
     '',
     `Node ID: ${result.node.node_id}`,
   ].join('\n');
+  elements.downloadNodePackage.hidden = false;
   showToast('Node provisioned');
   await refreshOverview();
+}
+
+async function handleDownloadNodePackage() {
+  if (!state.provisionedNode) {
+    throw new Error('Provision a node first');
+  }
+
+  const fileBase = (state.provisionedNode.name || 'printkinetix-node')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'printkinetix-node';
+
+  await apiDownload('/api/cloud/node-package', {
+    fileName: `${fileBase}-cloud-node.zip`,
+    body: {
+      cloud_api_url: state.provisionedNode.cloudApiUrl,
+      local_node_token: state.provisionedNode.token,
+      node_name: state.provisionedNode.name,
+    },
+  });
+  showToast('Windows ZIP downloaded');
 }
 
 async function handleQueueCommand(event) {
@@ -360,6 +426,12 @@ function bindEvents() {
   elements.orgId.addEventListener('input', syncOrgFields);
   elements.nodeForm.addEventListener('submit', (event) => {
     handleProvisionNode(event).catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.downloadNodePackage.addEventListener('click', () => {
+    handleDownloadNodePackage().catch((error) => {
       setApiState('Error', 'error');
       showToast(error.message);
     });

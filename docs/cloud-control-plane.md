@@ -22,6 +22,7 @@ The bootstrap cloud management surface is:
 GET  /cloud
 GET  /api/cloud/overview?org_id=<org_id>&limit=50
 POST /api/cloud/nodes
+POST /api/cloud/node-package
 POST /api/cloud/commands
 Authorization: Bearer <CLOUD_ADMIN_TOKEN>
 Content-Type: application/json
@@ -92,6 +93,7 @@ Open `/cloud`, enter `CLOUD_ADMIN_TOKEN`, and optionally set an organization ID 
 
 - show recent nodes, printers, jobs, commands, and events
 - create a farm node row and return the raw `LOCAL_NODE_TOKEN` once
+- download a Windows-node ZIP with the local runtime and prefilled `.env`
 - enqueue local-node commands such as `printer.status`, `printer.gcode`, and `job.start`
 
 Provisioned node rows store only:
@@ -100,7 +102,7 @@ Provisioned node rows store only:
 sha256("${NODE_TOKEN_PEPPER}:${LOCAL_NODE_TOKEN}")
 ```
 
-in `farm_nodes.token_hash`. Copy the returned `CLOUD_API_URL` and `LOCAL_NODE_TOKEN` values into the Windows NUC `.env`.
+in `farm_nodes.token_hash`. Copy the returned `CLOUD_API_URL` and `LOCAL_NODE_TOKEN` values into the Windows NUC `.env`, or click `Download Windows ZIP` after provisioning to get a prefilled package.
 
 If you are provisioning manually from the Supabase SQL editor instead, create an organization and node row from a trusted server-side context. Do not paste `SUPABASE_SERVICE_ROLE_KEY` into the NUC or browser.
 
