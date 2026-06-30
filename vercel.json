@@ -2,16 +2,7 @@
   "functions": {
     "api/cloud/node-package.js": {
       "maxDuration": 30,
-      "includeFiles": [
-        "package.json",
-        "package-lock.json",
-        "server.js",
-        "Start Cloud Node.bat",
-        "fix_network_access.bat",
-        "allow_remote_access.bat",
-        "src/**",
-        "public/**"
-      ]
+      "includeFiles": "{package.json,package-lock.json,server.js,Start Cloud Node.bat,fix_network_access.bat,allow_remote_access.bat,src/**,public/**}"
     },
     "api/**/*.js": {
       "maxDuration": 30

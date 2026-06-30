@@ -7,14 +7,12 @@ describe('Vercel cloud node package config', () => {
 
         expect(config.functions['api/cloud/node-package.js']).toMatchObject({
             maxDuration: 30,
-            includeFiles: expect.arrayContaining([
-                'package.json',
-                'package-lock.json',
-                'server.js',
-                'Start Cloud Node.bat',
-                'src/**',
-                'public/**',
-            ]),
         });
+        expect(config.functions['api/cloud/node-package.js'].includeFiles).toContain('package.json');
+        expect(config.functions['api/cloud/node-package.js'].includeFiles).toContain('package-lock.json');
+        expect(config.functions['api/cloud/node-package.js'].includeFiles).toContain('server.js');
+        expect(config.functions['api/cloud/node-package.js'].includeFiles).toContain('Start Cloud Node.bat');
+        expect(config.functions['api/cloud/node-package.js'].includeFiles).toContain('src/**');
+        expect(config.functions['api/cloud/node-package.js'].includeFiles).toContain('public/**');
     });
 });
