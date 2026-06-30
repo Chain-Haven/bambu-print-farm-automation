@@ -9,6 +9,10 @@ function normalizeBaseUrl(url) {
     return requireValue(url, 'SUPABASE_URL').replace(/\/+$/, '');
 }
 
+function firstRow(rows) {
+    return Array.isArray(rows) ? rows[0] || null : null;
+}
+
 export function createSupabaseRestClient({
     url = process.env.SUPABASE_URL,
     serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY,
@@ -46,13 +50,90 @@ export function createSupabaseRestClient({
         return text ? JSON.parse(text) : null;
     }
 
+    function tableListPath(table, { select, orgId = null, order, limit = 50 }) {
+        const params = new URLSearchParams();
+        params.set('select', select);
+        if (orgId) params.set('org_id', `eq.${orgId}`);
+        if (order) params.set('order', order);
+        params.set('limit', String(limit));
+        return `/rest/v1/${table}?${params.toString()}`;
+    }
+
     return {
         async findNodeByTokenHash(tokenHash) {
             const rows = await request(
                 `/rest/v1/farm_nodes?token_hash=eq.${encodeURIComponent(tokenHash)}&select=node_id,org_id,name,status&limit=1`,
             );
-            const row = Array.isArray(rows) ? rows[0] : null;
+            const row = firstRow(rows);
             return row ? { ...row, organization_id: row.org_id } : null;
+        },
+
+        async getCloudOverview({ orgId = null, limit = 50 } = {}) {
+            const boundedLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 50, 100));
+            const [nodes, printers, jobs, commands, events] = await Promise.all([
+                request(tableListPath('farm_nodes', {
+                    orgId,
+                    limit: boundedLimit,
+                    order: 'last_seen_at.desc.nullslast',
+                    select: 'node_id,org_id,name,status,agent_version,host_info,capabilities,last_seen_at,created_at,updated_at',
+                })),
+                request(tableListPath('cloud_printers', {
+                    orgId,
+                    limit: boundedLimit,
+                    order: 'last_seen_at.desc.nullslast',
+                    select: 'printer_id,org_id,node_id,local_printer_id,name,model,status,status_snapshot,capabilities,last_seen_at,created_at,updated_at',
+                })),
+                request(tableListPath('print_jobs', {
+                    orgId,
+                    limit: boundedLimit,
+                    order: 'created_at.desc',
+                    select: 'job_id,org_id,node_id,printer_id,file_id,name,status,options,created_at,updated_at',
+                })),
+                request(tableListPath('node_commands', {
+                    orgId,
+                    limit: boundedLimit,
+                    order: 'created_at.desc',
+                    select: 'command_id,org_id,node_id,printer_id,job_id,command_type,status,payload,result,error,claimed_at,finished_at,created_at,updated_at',
+                })),
+                request(tableListPath('node_events', {
+                    orgId,
+                    limit: boundedLimit,
+                    order: 'created_at.desc',
+                    select: 'event_id,org_id,node_id,printer_id,command_id,event_type,payload,created_at',
+                })),
+            ]);
+
+            return {
+                nodes: Array.isArray(nodes) ? nodes : [],
+                printers: Array.isArray(printers) ? printers : [],
+                jobs: Array.isArray(jobs) ? jobs : [],
+                commands: Array.isArray(commands) ? commands : [],
+                events: Array.isArray(events) ? events : [],
+            };
+        },
+
+        async createNodeCommand(command) {
+            const rows = await request(
+                '/rest/v1/node_commands?select=command_id,org_id,node_id,printer_id,job_id,command_type,status,payload,result,error,claimed_at,finished_at,created_at,updated_at',
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'return=representation' },
+                    body: command,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async createFarmNode(node) {
+            const rows = await request(
+                '/rest/v1/farm_nodes?select=node_id,org_id,name,status,agent_version,host_info,capabilities,last_seen_at,created_at,updated_at',
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'return=representation' },
+                    body: node,
+                },
+            );
+            return firstRow(rows);
         },
 
         async recordNodeHeartbeat(nodeId, heartbeat) {

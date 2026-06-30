@@ -16,6 +16,19 @@ Authorization: Bearer <LOCAL_NODE_TOKEN>
 Content-Type: application/json
 ```
 
+The bootstrap cloud management surface is:
+
+```text
+GET  /cloud
+GET  /api/cloud/overview?org_id=<org_id>&limit=50
+POST /api/cloud/nodes
+POST /api/cloud/commands
+Authorization: Bearer <CLOUD_ADMIN_TOKEN>
+Content-Type: application/json
+```
+
+`/cloud` calls the Vercel API routes above. The browser never receives the Supabase service key. `CLOUD_ADMIN_TOKEN` is a bootstrap secret for early operations; replace it with Supabase Auth and role-aware server checks before broader operator access.
+
 Request body:
 
 ```json
@@ -59,6 +72,7 @@ Required Vercel environment variables:
 SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<server-only service/secret key>
 NODE_TOKEN_PEPPER=<long random server-side pepper>
+CLOUD_ADMIN_TOKEN=<long random bootstrap admin token>
 ```
 
 The migration creates:
@@ -72,15 +86,23 @@ The migration creates:
 - service-role-only command claiming for Vercel agent APIs
 - private Supabase Realtime org topics named `org:<org_id>:...`
 
-## Local Node Registration
+## Cloud Management
 
-Until the provisioning UI exists, create an organization, membership, and node row from a trusted server-side script or Supabase SQL editor. Store only:
+Open `/cloud`, enter `CLOUD_ADMIN_TOKEN`, and optionally set an organization ID filter. The dashboard can:
+
+- show recent nodes, printers, jobs, commands, and events
+- create a farm node row and return the raw `LOCAL_NODE_TOKEN` once
+- enqueue local-node commands such as `printer.status`, `printer.gcode`, and `job.start`
+
+Provisioned node rows store only:
 
 ```text
 sha256("${NODE_TOKEN_PEPPER}:${LOCAL_NODE_TOKEN}")
 ```
 
-in `farm_nodes.token_hash`.
+in `farm_nodes.token_hash`. Copy the returned `CLOUD_API_URL` and `LOCAL_NODE_TOKEN` values into the Windows NUC `.env`.
+
+If you are provisioning manually from the Supabase SQL editor instead, create an organization and node row from a trusted server-side context. Do not paste `SUPABASE_SERVICE_ROLE_KEY` into the NUC or browser.
 
 The local node should store:
 

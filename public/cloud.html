@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3DFLOW Cloud</title>
+  <link rel="stylesheet" href="/css/cloud.css">
+  <link rel="icon"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23146c5a'/%3E%3Cpath d='M8 10h16v4H8zM8 18h10v4H8z' fill='white'/%3E%3C/svg%3E">
+</head>
+
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Cloud control</p>
+        <h1>3DFLOW Farm</h1>
+      </div>
+      <div id="api-state" class="state-pill">Not connected</div>
+    </header>
+
+    <form id="access-form" class="control-band" aria-label="Cloud access">
+      <label>
+        <span>Admin token</span>
+        <input id="admin-token" type="password" autocomplete="off">
+      </label>
+      <label>
+        <span>Org ID</span>
+        <input id="org-id" type="text" autocomplete="off">
+      </label>
+      <label class="small-field">
+        <span>Limit</span>
+        <input id="row-limit" type="number" min="1" max="100" value="50">
+      </label>
+      <div class="button-row">
+        <button id="save-token" type="button">Save</button>
+        <button id="refresh" type="button">Refresh</button>
+      </div>
+    </form>
+
+    <section id="metrics" class="metrics" aria-label="Cloud metrics"></section>
+
+    <section class="work-grid">
+      <form id="node-form" class="panel">
+        <div class="panel-heading">
+          <h2>Provision Node</h2>
+          <span>Windows NUC</span>
+        </div>
+        <label>
+          <span>Org ID</span>
+          <input id="node-org-id" type="text" required>
+        </label>
+        <label>
+          <span>Node name</span>
+          <input id="node-name" type="text" required placeholder="Print NUC 01">
+        </label>
+        <label>
+          <span>Capabilities JSON</span>
+          <textarea id="node-capabilities" rows="4">{ "max_concurrent_jobs": 4 }</textarea>
+        </label>
+        <button type="submit">Provision</button>
+        <pre id="node-token-output" class="secret-output" hidden></pre>
+      </form>
+
+      <form id="command-form" class="panel">
+        <div class="panel-heading">
+          <h2>Queue Command</h2>
+          <span>Local agent</span>
+        </div>
+        <label>
+          <span>Node</span>
+          <select id="command-node" required></select>
+        </label>
+        <label>
+          <span>Command type</span>
+          <select id="command-type">
+            <option value="printer.status">printer.status</option>
+            <option value="printer.pause">printer.pause</option>
+            <option value="printer.resume">printer.resume</option>
+            <option value="printer.stop">printer.stop</option>
+            <option value="printer.gcode">printer.gcode</option>
+            <option value="job.start">job.start</option>
+          </select>
+        </label>
+        <div class="split">
+          <label>
+            <span>Printer ID</span>
+            <input id="command-printer" type="text">
+          </label>
+          <label>
+            <span>Job ID</span>
+            <input id="command-job" type="text">
+          </label>
+        </div>
+        <label>
+          <span>Payload JSON</span>
+          <textarea id="command-payload" rows="5">{ "local_printer_id": "printer-1" }</textarea>
+        </label>
+        <button type="submit">Queue</button>
+      </form>
+    </section>
+
+    <section class="table-stack" aria-label="Farm data">
+      <div class="table-panel">
+        <div class="panel-heading">
+          <h2>Nodes</h2>
+          <span id="node-count">0</span>
+        </div>
+        <div id="nodes-table"></div>
+      </div>
+      <div class="table-panel">
+        <div class="panel-heading">
+          <h2>Printers</h2>
+          <span id="printer-count">0</span>
+        </div>
+        <div id="printers-table"></div>
+      </div>
+      <div class="table-panel">
+        <div class="panel-heading">
+          <h2>Jobs</h2>
+          <span id="job-count">0</span>
+        </div>
+        <div id="jobs-table"></div>
+      </div>
+      <div class="table-panel">
+        <div class="panel-heading">
+          <h2>Commands</h2>
+          <span id="command-count">0</span>
+        </div>
+        <div id="commands-table"></div>
+      </div>
+      <div class="table-panel">
+        <div class="panel-heading">
+          <h2>Events</h2>
+          <span id="event-count">0</span>
+        </div>
+        <div id="events-table"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+  <script type="module" src="/js/cloud-dashboard.js"></script>
+</body>
+
+</html>
