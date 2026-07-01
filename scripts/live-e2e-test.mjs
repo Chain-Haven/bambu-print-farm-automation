@@ -891,11 +891,19 @@ async function main() {
                     secret: `whsec_${RUN_ID}`,
                     events: ['job.accepted', 'job.canceled', 'job.reprint_requested'],
                 },
+                expected: [201],
+            });
+            assert(webhook.webhook_id && webhook.secret?.startsWith('whsec_'), 'webhook signing secret was not returned on create');
+            const webhookRead = await merchantApi(`/api/public/webhooks/${encodeURIComponent(webhook.webhook_id)}`, liveKey.apiKey, {
                 expected: [200],
             });
-            assert(webhook.webhook?.has_secret === true, 'webhook secret was not accepted');
-            const webhookRead = await merchantApi('/api/public/webhooks', liveKey.apiKey, { expected: [200] });
-            assert(webhookRead.webhook?.has_secret === true && !('secret' in webhookRead.webhook), 'webhook read did not redact the secret');
+            assert(webhookRead.webhook_id === webhook.webhook_id, 'webhook read did not return the created endpoint');
+            assert(
+                !('secret' in webhookRead)
+                    && !('secret_hash' in webhookRead)
+                    && !JSON.stringify(webhookRead).includes(webhook.secret),
+                'webhook read did not redact the secret',
+            );
             return {
                 quote_status: quote.routing.status,
                 preflight_status: preflight.routing.status,
