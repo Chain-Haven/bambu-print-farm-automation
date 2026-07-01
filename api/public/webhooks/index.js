@@ -1,9 +1,19 @@
-import { createMerchantWebhooksHandler } from '../../../src/cloud/merchantWebhookHandlers.js';
-import { createSupabaseRestClient } from '../../../src/cloud/supabaseRest.js';
+import { parseJsonBody } from '../../../src/cloud/agentProtocol.js';
+import { createMerchantWebhooksV2Handlers } from '../../../src/cloud/merchantWebhooksV2.js';
+import {
+    createMerchantRouteContext,
+    routeQuery,
+    runMerchantRoute,
+} from '../../../src/cloud/merchantPublicRoute.js';
 
-export default function handler(req, res) {
-    return createMerchantWebhooksHandler({
-        store: createSupabaseRestClient(),
-        pepper: process.env.MERCHANT_API_KEY_PEPPER || process.env.NODE_TOKEN_PEPPER,
-    })(req, res);
+export default async function handler(req, res) {
+    return runMerchantRoute(req, res, {
+        methods: 'GET, POST',
+        handle: (requestId) => {
+            const context = createMerchantRouteContext();
+            const { createEndpoint, listEndpoints } = createMerchantWebhooksV2Handlers(context);
+            if (req.method === 'GET') return listEndpoints(routeQuery(req), req, requestId);
+            return createEndpoint(parseJsonBody(req.body), req, requestId);
+        },
+    });
 }
