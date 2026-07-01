@@ -29,4 +29,34 @@ describe('Supabase migrations', () => {
         expect(adminMigration).toContain("'ianmebert@gmail.com'");
         expect(adminMigration).toContain("'super_admin'");
     });
+
+    it('includes Merchant API v2 adapter backbone tables', () => {
+        const sql = fs.readFileSync('supabase/migrations/20260701050000_merchant_api_v2_adapter_backbone.sql', 'utf8');
+        for (const table of [
+            'merchant_files',
+            'merchant_slice_jobs',
+            'merchant_orders',
+            'merchant_order_items',
+            'merchant_material_reservations',
+            'merchant_batches',
+            'merchant_batch_items',
+            'merchant_job_events',
+            'merchant_job_artifacts',
+            'merchant_inspections',
+            'merchant_post_processing_tasks',
+            'merchant_shipments',
+            'merchant_shipping_labels',
+            'merchant_rate_cards',
+            'merchant_invoices',
+            'merchant_invoice_lines',
+            'merchant_webhook_endpoints',
+            'merchant_webhook_deliveries',
+            'merchant_realtime_tokens',
+            'merchant_adapter_events',
+        ]) {
+            expect(sql).toContain(`public.${table}`);
+            expect(sql).toContain(`grant all on public.${table} to service_role`);
+            expect(sql).toContain(`alter table public.${table} enable row level security`);
+        }
+    });
 });

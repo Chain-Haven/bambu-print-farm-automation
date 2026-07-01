@@ -166,17 +166,42 @@ const ROUTING_DECISION_SELECT = [
     'created_at',
 ].join(',');
 
+const MERCHANT_V2_IDS = {
+    merchant_files: 'file_id',
+    merchant_slice_jobs: 'slice_job_id',
+    merchant_orders: 'order_id',
+    merchant_material_reservations: 'reservation_id',
+    merchant_batches: 'batch_id',
+    merchant_inspections: 'inspection_id',
+    merchant_post_processing_tasks: 'task_id',
+    merchant_shipments: 'shipment_id',
+    merchant_webhook_endpoints: 'webhook_id',
+};
+
+function boundedLimit(limit, fallback = 50, max = 100) {
+    return Math.max(1, Math.min(Number.parseInt(limit, 10) || fallback, max));
+}
+
+function eqFilter(value, name) {
+    return `eq.${encodeURIComponent(requireValue(value, name))}`;
+}
+
 export function createSupabaseRestClient({
-    url = process.env.SUPABASE_URL,
-    serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY,
+    url = null,
+    supabaseUrl = null,
+    serviceKey = null,
+    serviceRoleKey = null,
     fetchImpl = globalThis.fetch,
 } = {}) {
     if (typeof fetchImpl !== 'function') throw new Error('fetch implementation is required');
 
     function getConfig() {
         return {
-            baseUrl: normalizeBaseUrl(url),
-            key: requireValue(serviceKey, 'SUPABASE_SERVICE_ROLE_KEY'),
+            baseUrl: normalizeBaseUrl(url || supabaseUrl || process.env.SUPABASE_URL),
+            key: requireValue(
+                serviceKey || serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY,
+                'SUPABASE_SERVICE_ROLE_KEY',
+            ),
         };
     }
 
@@ -234,6 +259,63 @@ export function createSupabaseRestClient({
         if (order) params.set('order', order);
         params.set('limit', String(limit));
         return `/rest/v1/${table}?${params.toString()}`;
+    }
+
+    function merchantV2CreatePath(table) {
+        return `/rest/v1/${table}?select=*`;
+    }
+
+    function merchantV2ResourcePath(table, { merchantId, idColumn, id, select = '*', limit = 1 }) {
+        return [
+            `/rest/v1/${table}?merchant_id=${eqFilter(merchantId, 'merchant_id')}`,
+            `${idColumn}=${eqFilter(id, idColumn)}`,
+            `select=${select}`,
+            `limit=${boundedLimit(limit, 1, 100)}`,
+        ].join('&');
+    }
+
+    function merchantV2ListPath(table, {
+        merchantId,
+        select = '*',
+        order = 'created_at.desc',
+        limit = 50,
+        filters = [],
+    }) {
+        return [
+            `/rest/v1/${table}?merchant_id=${eqFilter(merchantId, 'merchant_id')}`,
+            ...filters,
+            `select=${select}`,
+            `order=${order}`,
+            `limit=${boundedLimit(limit)}`,
+        ].join('&');
+    }
+
+    async function createMerchantV2Row(table, body) {
+        const rows = await request(merchantV2CreatePath(table), {
+            method: 'POST',
+            headers: { Prefer: 'return=representation' },
+            body,
+        });
+        return firstRow(rows);
+    }
+
+    async function getMerchantV2Row(table, { merchantId, idColumn, id }) {
+        const rows = await request(merchantV2ResourcePath(table, { merchantId, idColumn, id }));
+        return firstRow(rows);
+    }
+
+    async function updateMerchantV2Row(table, { merchantId, idColumn, id, body }) {
+        const rows = await request(merchantV2ResourcePath(table, { merchantId, idColumn, id }), {
+            method: 'PATCH',
+            headers: { Prefer: 'return=representation' },
+            body,
+        });
+        return firstRow(rows);
+    }
+
+    async function listMerchantV2Rows(table, options) {
+        const rows = await request(merchantV2ListPath(table, options));
+        return Array.isArray(rows) ? rows : [];
     }
 
     return {
@@ -714,6 +796,275 @@ export function createSupabaseRestClient({
                 `/rest/v1/merchant_usage_events?merchant_id=eq.${encodeURIComponent(merchantId)}&select=usage_event_id,org_id,merchant_id,job_id,file_id,event_type,quantity,metrics,created_at&order=created_at.desc&limit=${Math.max(1, Math.min(Number.parseInt(limit, 10) || 50, 100))}`,
             );
             return Array.isArray(rows) ? rows : [];
+        },
+
+        async createMerchantFile(file) {
+            return createMerchantV2Row('merchant_files', file);
+        },
+
+        async getMerchantFile({ merchantId, fileId }) {
+            return getMerchantV2Row('merchant_files', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_files,
+                id: fileId,
+            });
+        },
+
+        async updateMerchantFile({ merchantId, fileId, fields = {} }) {
+            return updateMerchantV2Row('merchant_files', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_files,
+                id: fileId,
+                body: fields,
+            });
+        },
+
+        async deleteMerchantFile({ merchantId, fileId }) {
+            return updateMerchantV2Row('merchant_files', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_files,
+                id: fileId,
+                body: { status: 'deleted' },
+            });
+        },
+
+        async createMerchantSliceJob(sliceJob) {
+            return createMerchantV2Row('merchant_slice_jobs', sliceJob);
+        },
+
+        async getMerchantSliceJob({ merchantId, sliceJobId }) {
+            return getMerchantV2Row('merchant_slice_jobs', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_slice_jobs,
+                id: sliceJobId,
+            });
+        },
+
+        async updateMerchantSliceJob({ merchantId, sliceJobId, fields = {} }) {
+            return updateMerchantV2Row('merchant_slice_jobs', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_slice_jobs,
+                id: sliceJobId,
+                body: fields,
+            });
+        },
+
+        async createMerchantOrder(order) {
+            return createMerchantV2Row('merchant_orders', order);
+        },
+
+        async getMerchantOrder({ merchantId, orderId }) {
+            return getMerchantV2Row('merchant_orders', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_orders,
+                id: orderId,
+            });
+        },
+
+        async updateMerchantOrder({ merchantId, orderId, fields = {} }) {
+            return updateMerchantV2Row('merchant_orders', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_orders,
+                id: orderId,
+                body: fields,
+            });
+        },
+
+        async createMerchantOrderItem(orderItem) {
+            return createMerchantV2Row('merchant_order_items', orderItem);
+        },
+
+        async createMerchantMaterialReservation(reservation) {
+            return createMerchantV2Row('merchant_material_reservations', reservation);
+        },
+
+        async getMerchantMaterialReservation({ merchantId, reservationId }) {
+            return getMerchantV2Row('merchant_material_reservations', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_material_reservations,
+                id: reservationId,
+            });
+        },
+
+        async releaseMerchantMaterialReservation({ merchantId, reservationId }) {
+            return updateMerchantV2Row('merchant_material_reservations', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_material_reservations,
+                id: reservationId,
+                body: { status: 'released' },
+            });
+        },
+
+        async createMerchantBatch(batch) {
+            return createMerchantV2Row('merchant_batches', batch);
+        },
+
+        async getMerchantBatch({ merchantId, batchId }) {
+            return getMerchantV2Row('merchant_batches', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_batches,
+                id: batchId,
+            });
+        },
+
+        async updateMerchantBatch({ merchantId, batchId, fields = {} }) {
+            return updateMerchantV2Row('merchant_batches', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_batches,
+                id: batchId,
+                body: fields,
+            });
+        },
+
+        async createMerchantBatchItem(batchItem) {
+            return createMerchantV2Row('merchant_batch_items', batchItem);
+        },
+
+        async recordMerchantJobEvent(event) {
+            return createMerchantV2Row('merchant_job_events', event);
+        },
+
+        async listMerchantJobEvents({ merchantId, jobId, limit = 50 }) {
+            const filters = jobId ? [`job_id=${eqFilter(jobId, 'job_id')}`] : [];
+            return listMerchantV2Rows('merchant_job_events', {
+                merchantId,
+                filters,
+                order: 'occurred_at.desc',
+                limit,
+            });
+        },
+
+        async createMerchantJobArtifact(artifact) {
+            return createMerchantV2Row('merchant_job_artifacts', artifact);
+        },
+
+        async listMerchantJobArtifacts({ merchantId, jobId, limit = 50 }) {
+            const filters = jobId ? [`job_id=${eqFilter(jobId, 'job_id')}`] : [];
+            return listMerchantV2Rows('merchant_job_artifacts', { merchantId, filters, limit });
+        },
+
+        async createMerchantInspection(inspection) {
+            return createMerchantV2Row('merchant_inspections', inspection);
+        },
+
+        async getMerchantInspectionByJob({ merchantId, jobId }) {
+            const rows = await request(merchantV2ResourcePath('merchant_inspections', {
+                merchantId,
+                idColumn: 'job_id',
+                id: jobId,
+            }));
+            return firstRow(rows);
+        },
+
+        async updateMerchantInspection({ merchantId, inspectionId, fields = {} }) {
+            return updateMerchantV2Row('merchant_inspections', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_inspections,
+                id: inspectionId,
+                body: fields,
+            });
+        },
+
+        async createMerchantPostProcessingTask(task) {
+            return createMerchantV2Row('merchant_post_processing_tasks', task);
+        },
+
+        async listMerchantPostProcessingTasks({ merchantId, jobId = null, limit = 50 }) {
+            const filters = jobId ? [`job_id=${eqFilter(jobId, 'job_id')}`] : [];
+            return listMerchantV2Rows('merchant_post_processing_tasks', { merchantId, filters, limit });
+        },
+
+        async updateMerchantPostProcessingTask({ merchantId, taskId, fields = {} }) {
+            return updateMerchantV2Row('merchant_post_processing_tasks', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_post_processing_tasks,
+                id: taskId,
+                body: fields,
+            });
+        },
+
+        async createMerchantShipment(shipment) {
+            return createMerchantV2Row('merchant_shipments', shipment);
+        },
+
+        async getMerchantShipment({ merchantId, shipmentId }) {
+            return getMerchantV2Row('merchant_shipments', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_shipments,
+                id: shipmentId,
+            });
+        },
+
+        async createMerchantShippingLabel(label) {
+            return createMerchantV2Row('merchant_shipping_labels', label);
+        },
+
+        async getMerchantRateCard({ merchantId, rateCardId = null } = {}) {
+            const filters = rateCardId
+                ? [`rate_card_id=${eqFilter(rateCardId, 'rate_card_id')}`]
+                : ['status=eq.active'];
+            const rows = await request(merchantV2ListPath('merchant_rate_cards', {
+                merchantId,
+                filters,
+                order: 'effective_at.desc',
+                limit: 1,
+            }));
+            return firstRow(rows);
+        },
+
+        async createMerchantInvoice(invoice) {
+            return createMerchantV2Row('merchant_invoices', invoice);
+        },
+
+        async listMerchantInvoices({ merchantId, limit = 50 }) {
+            return listMerchantV2Rows('merchant_invoices', { merchantId, limit });
+        },
+
+        async createMerchantInvoiceLine(line) {
+            return createMerchantV2Row('merchant_invoice_lines', line);
+        },
+
+        async createMerchantWebhookEndpoint(endpoint) {
+            return createMerchantV2Row('merchant_webhook_endpoints', endpoint);
+        },
+
+        async listMerchantWebhookEndpoints({ merchantId, limit = 50 }) {
+            return listMerchantV2Rows('merchant_webhook_endpoints', { merchantId, limit });
+        },
+
+        async updateMerchantWebhookEndpoint({ merchantId, webhookId, fields = {} }) {
+            return updateMerchantV2Row('merchant_webhook_endpoints', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_webhook_endpoints,
+                id: webhookId,
+                body: fields,
+            });
+        },
+
+        async deleteMerchantWebhookEndpoint({ merchantId, webhookId }) {
+            return updateMerchantV2Row('merchant_webhook_endpoints', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_webhook_endpoints,
+                id: webhookId,
+                body: { status: 'disabled' },
+            });
+        },
+
+        async createMerchantWebhookDelivery(delivery) {
+            return createMerchantV2Row('merchant_webhook_deliveries', delivery);
+        },
+
+        async listMerchantWebhookDeliveries({ merchantId, webhookId = null, limit = 50 }) {
+            const filters = webhookId ? [`webhook_id=${eqFilter(webhookId, 'webhook_id')}`] : [];
+            return listMerchantV2Rows('merchant_webhook_deliveries', { merchantId, filters, limit });
+        },
+
+        async createMerchantRealtimeToken(token) {
+            return createMerchantV2Row('merchant_realtime_tokens', token);
+        },
+
+        async recordMerchantAdapterEvent(event) {
+            return createMerchantV2Row('merchant_adapter_events', event);
         },
 
         async uploadPrintArtifact(storagePath, buffer, contentType = 'application/octet-stream') {
