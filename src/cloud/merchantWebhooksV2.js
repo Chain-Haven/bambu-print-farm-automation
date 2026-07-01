@@ -9,6 +9,7 @@ import {
     safeObject,
 } from './merchantPublicProjections.js';
 import { signWebhookPayload } from './webhooks.js';
+import { assertSafeWebhookUrl } from './urlGuard.js';
 
 const WEBHOOK_STATUSES = new Set(['active', 'disabled']);
 const DEFAULT_EVENTS = ['job.created'];
@@ -107,16 +108,8 @@ function normalizeUrl(value, { required = true } = {}) {
         if (required) throw createHttpError(400, 'invalid_payload', 'url is required');
         return null;
     }
-    let parsed;
-    try {
-        parsed = new URL(url);
-    } catch {
-        throw createHttpError(400, 'invalid_payload', 'url must be a valid HTTPS URL');
-    }
-    if (parsed.protocol !== 'https:') {
-        throw createHttpError(400, 'invalid_payload', 'url must be a valid HTTPS URL');
-    }
-    return parsed.toString();
+    // Requires HTTPS and rejects internal/private hosts (SSRF guard).
+    return assertSafeWebhookUrl(url);
 }
 
 function normalizeEvents(value, { required = false } = {}) {

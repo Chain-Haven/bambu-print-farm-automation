@@ -1,5 +1,10 @@
 import crypto from 'node:crypto';
 import { createHttpError, merchantScope, publicOk } from './merchantApiV2.js';
+import { MAX_JSON_FILE_BYTES } from './printIntake.js';
+
+// Upper bound on a base64-encoded payload (~4/3 the decoded byte cap). Checked
+// before decoding so an oversized upload is rejected without allocating it.
+const MAX_BASE64_CHARS = Math.ceil(MAX_JSON_FILE_BYTES / 3) * 4;
 
 const readyExtensions = new Set(['.gcode', '.3mf', '.gcode.3mf']);
 const sourceExtensions = new Set(['.stl', '.obj', '.step', '.stp']);
@@ -43,6 +48,9 @@ function classifyFileName(name) {
 function decodeBase64(value) {
     const source = requiredString(value, 'file.base64');
     const compact = source.replace(/\s+/g, '');
+    if (compact.length > MAX_BASE64_CHARS) {
+        throw createHttpError(413, 'file_too_large', `file exceeds the ${MAX_JSON_FILE_BYTES}-byte limit`);
+    }
     const paddingIndex = compact.indexOf('=');
     const hasInvalidPadding = paddingIndex !== -1 && !/^=+$/.test(compact.slice(paddingIndex));
     if (

@@ -239,6 +239,25 @@ describe('merchant files API handlers', () => {
         expect(store.createMerchantFile).not.toHaveBeenCalled();
     });
 
+    it('rejects an oversized base64 payload before allocating or uploading it', async () => {
+        const { createFile, store } = createHandlers();
+        // ~34MB of base64 chars — well past the 25MB decoded cap.
+        const huge = 'A'.repeat(34 * 1024 * 1024);
+
+        await expect(createFile({
+            file: {
+                name: 'part.stl',
+                base64: huge,
+            },
+        })).rejects.toMatchObject({
+            statusCode: 413,
+            code: 'file_too_large',
+        });
+
+        expect(store.uploadPrintArtifact).not.toHaveBeenCalled();
+        expect(store.createMerchantFile).not.toHaveBeenCalled();
+    });
+
     it('does not create a file row when upload persistence fails', async () => {
         const { createFile, store } = createHandlers({
             store: {

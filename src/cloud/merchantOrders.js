@@ -61,9 +61,14 @@ function normalizeAmount(value, name) {
     return parsed;
 }
 
+const MAX_ORDER_ITEMS = 200;
+
 function normalizeItems(value) {
     if (!Array.isArray(value) || value.length === 0) {
         throw createHttpError(400, 'invalid_payload', 'items must contain at least one item');
+    }
+    if (value.length > MAX_ORDER_ITEMS) {
+        throw createHttpError(400, 'invalid_payload', `items must not exceed ${MAX_ORDER_ITEMS} entries`);
     }
     return value.map((item, index) => {
         const source = safeObject(item);

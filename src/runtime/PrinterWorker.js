@@ -201,7 +201,13 @@ export class PrinterWorker {
         }
 
         if (this.mqttClient) {
-            this.mqttClient.startPrint(params);
+            // publish() returns false when the MQTT socket is not connected. If we
+            // ignored it we would report a print as started that the printer never
+            // received (e.g. an MQTT drop during the multi-minute FTPS upload).
+            const published = this.mqttClient.startPrint(params);
+            if (published === false) {
+                throw new Error('MQTT not connected: start command was not delivered to the printer');
+            }
             return { started: true };
         }
         throw new Error('MQTT client not available');

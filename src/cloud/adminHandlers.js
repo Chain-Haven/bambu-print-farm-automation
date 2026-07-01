@@ -8,6 +8,7 @@ import {
     generateMerchantSetupToken,
 } from './merchantAuth.js';
 import { redactPublicValue } from './merchantPublicProjections.js';
+import { redactWebhookConfig } from './webhooks.js';
 import { buildWindowsNodePackage, getNodePackageFileName } from './nodePackage.js';
 import { buildFarmAutomationPlan, normalizeFarmAutomationSettings } from './farmAutomation.js';
 
@@ -18,6 +19,22 @@ const FARM_INTEGRATIONS_KEY = 'farm_integrations';
 
 function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+// The V1 webhook signing secret is stored cleartext at metadata.webhook.secret.
+// Redact it (to has_secret) before returning merchants to the admin console so
+// the plaintext HMAC secret is never shipped to the browser.
+function redactMerchant(merchant) {
+    if (!isPlainObject(merchant) || !isPlainObject(merchant.metadata) || !isPlainObject(merchant.metadata.webhook)) {
+        return merchant;
+    }
+    return {
+        ...merchant,
+        metadata: {
+            ...merchant.metadata,
+            webhook: redactWebhookConfig(merchant.metadata.webhook),
+        },
+    };
 }
 
 function sendJson(res, statusCode, payload) {
@@ -758,7 +775,7 @@ export function createCloudMerchantsHandler({
                     status: normalizeOptionalString((req.query || {}).status),
                     limit: parseLimit(req.query || {}),
                 });
-                return sendJson(res, 200, { ok: true, merchants });
+                return sendJson(res, 200, { ok: true, merchants: merchants.map(redactMerchant) });
             } catch (error) {
                 return sendJson(res, 500, {
                     ok: false,
@@ -808,13 +825,13 @@ export function createCloudMerchantsHandler({
                 });
                 return sendJson(res, 200, {
                     ok: true,
-                    merchant,
+                    merchant: redactMerchant(merchant),
                     merchant_setup_token: setupToken.secret,
                     setup_token_expires_at: setupToken.expires_at,
                 });
             }
 
-            return sendJson(res, 200, { ok: true, merchant });
+            return sendJson(res, 200, { ok: true, merchant: redactMerchant(merchant) });
         } catch (error) {
             return sendJson(res, 400, {
                 ok: false,

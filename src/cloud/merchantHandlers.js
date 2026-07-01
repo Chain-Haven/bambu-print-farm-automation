@@ -331,6 +331,22 @@ export function createMerchantApiKeysHandler({
 
         try {
             const context = await authenticateForKeyCreation(req);
+
+            // When authenticated via a one-time setup token, atomically consume the
+            // token BEFORE minting the key. The store consume is conditional
+            // (used_at=is.null) and returns null if the token was already used, so
+            // concurrent requests cannot mint multiple keys from one token, and a
+            // failure here leaves no dangling key behind.
+            if (context.setupToken && typeof store.markMerchantSetupTokenUsed === 'function') {
+                const consumed = await store.markMerchantSetupTokenUsed(
+                    context.setupToken.setup_token_id,
+                    now().toISOString(),
+                );
+                if (!consumed) {
+                    throw new MerchantAuthError(401, 'setup_token_used');
+                }
+            }
+
             const apiKey = await createLiveKeyForMerchant({
                 store,
                 merchant: context.merchant,
@@ -338,10 +354,6 @@ export function createMerchantApiKeysHandler({
                 pepper,
                 liveKeyFactory,
             });
-
-            if (context.setupToken && typeof store.markMerchantSetupTokenUsed === 'function') {
-                await store.markMerchantSetupTokenUsed(context.setupToken.setup_token_id, now().toISOString());
-            }
 
             return sendJson(res, 201, {
                 ok: true,

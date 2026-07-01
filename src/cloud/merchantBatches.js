@@ -30,10 +30,15 @@ function normalizeQuantity(value, name) {
     return parsed;
 }
 
+const MAX_BATCH_ITEMS = 500;
+
 function normalizeItems(value) {
     if (value === undefined || value === null) return [];
     if (!Array.isArray(value)) {
         throw createHttpError(400, 'invalid_payload', 'items must be an array');
+    }
+    if (value.length > MAX_BATCH_ITEMS) {
+        throw createHttpError(400, 'invalid_payload', `items must not exceed ${MAX_BATCH_ITEMS} entries`);
     }
     return value.map((item, index) => {
         const source = safeObject(item);

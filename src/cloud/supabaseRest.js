@@ -713,8 +713,12 @@ export function createSupabaseRestClient({
         },
 
         async markMerchantSetupTokenUsed(setupTokenId, usedAt = new Date().toISOString()) {
+            // Conditional consume: the used_at=is.null predicate makes this atomic —
+            // only the first concurrent request updates a row (and gets it back);
+            // a token already consumed returns no rows (null), so the caller can
+            // reject instead of minting a second key from one one-time token.
             const rows = await request(
-                `/rest/v1/merchant_setup_tokens?setup_token_id=eq.${encodeURIComponent(setupTokenId)}&select=${MERCHANT_SETUP_TOKEN_SELECT}`,
+                `/rest/v1/merchant_setup_tokens?setup_token_id=eq.${encodeURIComponent(setupTokenId)}&used_at=is.null&select=${MERCHANT_SETUP_TOKEN_SELECT}`,
                 {
                     method: 'PATCH',
                     headers: { Prefer: 'return=representation' },
@@ -1665,8 +1669,11 @@ export function createSupabaseRestClient({
         },
 
         async recordCommandResult(nodeId, commandResult) {
+            // Only transition from a non-terminal state. Without this precondition a
+            // delayed/duplicate outbox re-delivery could resurrect an already
+            // succeeded/failed command (resetting finished_at).
             await request(
-                `/rest/v1/node_commands?node_id=eq.${encodeURIComponent(nodeId)}&command_id=eq.${encodeURIComponent(commandResult.command_id)}`,
+                `/rest/v1/node_commands?node_id=eq.${encodeURIComponent(nodeId)}&command_id=eq.${encodeURIComponent(commandResult.command_id)}&status=in.(claimed,running)`,
                 {
                     method: 'PATCH',
                     headers: { Prefer: 'return=minimal' },

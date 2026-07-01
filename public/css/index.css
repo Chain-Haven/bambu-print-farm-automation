@@ -1,7 +1,9 @@
 /* public/css/index.css — Antigravity Design System */
 /* Premium dark theme with glassmorphism, gradients, and micro-animations */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+/* Offline-first: no runtime CDN import (the local node often runs on an isolated
+   print-farm LAN). Prefers locally-installed Inter/JetBrains Mono, falling back to
+   a robust system stack (Segoe UI on Windows hosts). */
 
 /* ===== DESIGN TOKENS ===== */
 :root {
@@ -41,8 +43,8 @@
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.7);
   --shadow-glow: 0 0 40px rgba(124, 58, 237, 0.25);
 
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --transition: all 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   --transition-bounce: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);

@@ -251,7 +251,10 @@ describe('merchant API key handler', () => {
                 revoked_at: null,
                 created_at: '2026-07-01T12:00:00.000Z',
             }),
-            markMerchantSetupTokenUsed: vi.fn(),
+            markMerchantSetupTokenUsed: vi.fn().mockResolvedValue({
+                setup_token_id: 'setup-1',
+                used_at: '2026-07-01T12:00:00.000Z',
+            }),
         };
         const handler = createMerchantApiKeysHandler({
             store,
@@ -289,6 +292,40 @@ describe('merchant API key handler', () => {
             },
             api_key_secret: liveKey,
         });
+    });
+
+    it('rejects a setup token that was already consumed and mints no key', async () => {
+        const setupToken = 'pkx_setup_secret';
+        const store = {
+            findMerchantSetupTokenByHash: vi.fn().mockResolvedValue({
+                setup_token_id: 'setup-1',
+                merchant_id: 'merchant-1',
+                org_id: 'org-1',
+                token_hash: hashMerchantApiKey(setupToken, 'pepper'),
+                used_at: null,
+                expires_at: '2026-07-08T12:00:00.000Z',
+            }),
+            findMerchantById: vi.fn().mockResolvedValue({
+                merchant_id: 'merchant-1',
+                org_id: 'org-1',
+                status: 'active',
+            }),
+            createMerchantApiKey: vi.fn(),
+            // Conditional consume loses the race: no row updated -> null.
+            markMerchantSetupTokenUsed: vi.fn().mockResolvedValue(null),
+        };
+        const handler = createMerchantApiKeysHandler({ store, pepper: 'pepper', now });
+        const res = createMockResponse();
+
+        await handler({
+            method: 'POST',
+            headers: { 'x-merchant-setup-token': setupToken },
+            body: { name: 'Production' },
+        }, res);
+
+        expect(res.statusCode).toBe(401);
+        expect(res.body).toMatchObject({ ok: false, error: 'setup_token_used' });
+        expect(store.createMerchantApiKey).not.toHaveBeenCalled();
     });
 
     it('lists live API keys for authenticated merchants without hashes', async () => {
