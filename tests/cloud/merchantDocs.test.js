@@ -128,6 +128,7 @@ describe('merchant API docs', () => {
 
         for (const [responseName, idProperty, wrapperProperty] of [
             ['File', 'file_id', 'file'],
+            ['Slice', 'slice_id', 'slice'],
             ['Order', 'order_id', 'order'],
             ['Shipment', 'shipment_id', 'shipment'],
             ['Inspection', 'inspection_id', 'inspection'],
@@ -139,6 +140,13 @@ describe('merchant API docs', () => {
             expect(properties[idProperty], responseName).toBeTruthy();
             expect(properties[wrapperProperty], responseName).toBeUndefined();
         }
+
+        const routingEstimate = schemaProperties(spec, responseSchema(spec, 'RoutingEstimate'));
+        expect(routingEstimate.strategy).toBeTruthy();
+        expect(routingEstimate.confidence).toBeTruthy();
+        expect(routingEstimate.eta).toBeTruthy();
+        expect(routingEstimate.price_estimate).toBeTruthy();
+        expect(routingEstimate.estimate).toBeUndefined();
 
         const invoicePreview = schemaProperties(spec, responseSchema(spec, 'InvoicePreview'));
         expect(invoicePreview.invoice_preview).toBeTruthy();

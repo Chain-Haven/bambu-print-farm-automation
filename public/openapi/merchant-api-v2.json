@@ -640,9 +640,9 @@
       "Ok": { "description": "Successful response", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } } },
       "Error": { "description": "Error response", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
       "File": { "description": "File response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "$ref": "#/components/schemas/File" }] } } } },
-      "Slice": { "description": "Slice response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "slice": { "$ref": "#/components/schemas/Slice" } } }] } } } },
+      "Slice": { "description": "Slice response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "$ref": "#/components/schemas/Slice" }] } } } },
       "Order": { "description": "Order response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "$ref": "#/components/schemas/Order" }] } } } },
-      "RoutingEstimate": { "description": "Routing estimate response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "estimate": { "$ref": "#/components/schemas/RoutingEstimate" } } }] } } } },
+      "RoutingEstimate": { "description": "Routing estimate response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "$ref": "#/components/schemas/RoutingEstimate" }] } } } },
       "JobEvents": { "description": "Job events response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "events": { "type": "array", "items": { "$ref": "#/components/schemas/PrintJobEvent" } } } }] } } } },
       "JobArtifacts": { "description": "Job artifacts response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "artifacts": { "type": "array", "items": { "$ref": "#/components/schemas/JobArtifact" } } } }] } } } },
       "Inspection": { "description": "Inspection response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "$ref": "#/components/schemas/Inspection" }] } } } },
@@ -771,11 +771,30 @@
         "type": "object",
         "properties": {
           "strategy": { "type": "string" },
-          "estimated_print_minutes": { "type": "number" },
-          "estimated_queue_minutes": { "type": "number" },
-          "estimated_cost": { "type": "number" },
-          "currency": { "type": "string" },
-          "options": { "type": "array", "items": { "$ref": "#/components/schemas/RoutingOption" } }
+          "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+          "eta": {
+            "type": "object",
+            "properties": {
+              "queue_minutes": { "type": "number" },
+              "print_minutes": { "type": "number" },
+              "lead_time_minutes": { "type": "number" },
+              "ship_by_window": { "type": ["string", "null"] }
+            },
+            "additionalProperties": true
+          },
+          "price_estimate": {
+            "type": "object",
+            "properties": {
+              "currency": { "type": "string" },
+              "material_cents": { "type": "integer" },
+              "machine_cents": { "type": "integer" },
+              "setup_cents": { "type": "integer" },
+              "estimated_total_cents": { "type": "integer" }
+            },
+            "additionalProperties": true
+          },
+          "compatible": { "type": "boolean" },
+          "rejection_reasons": { "type": "array", "items": { "type": "string" } }
         },
         "additionalProperties": true
       },
