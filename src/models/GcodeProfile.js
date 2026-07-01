@@ -65,7 +65,9 @@ export class GcodeProfileModel {
     }
 
     static findByName(name) {
-        const row = dbGet('SELECT * FROM gcode_profiles WHERE name = ?', [name]);
+        // NOCASE: system profiles were renamed to title case by migration 004
+        // ("universal" → "Universal"); lookups predate the rename.
+        const row = dbGet('SELECT * FROM gcode_profiles WHERE name = ? COLLATE NOCASE', [name]);
         return row ? this._parse(row) : null;
     }
 

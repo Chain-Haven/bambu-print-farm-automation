@@ -115,6 +115,40 @@ const commandTemplates = {
   },
 };
 
+// Mirrors src/services/FilamentCatalog.js on the local node — the node
+// validates materials against its catalog, so keep this list in sync.
+const AMS_MATERIALS = [
+  'PLA', 'PLA High Speed', 'PLA Silk', 'PLA-CF',
+  'PETG', 'PETG HF', 'PETG-CF', 'PCTG',
+  'ABS', 'ASA', 'TPU', 'TPU for AMS',
+  'PA (Nylon)', 'PA-CF', 'PC', 'PVA', 'HIPS', 'BVOH',
+  'EVA', 'PHA', 'PE', 'PE-CF', 'PP', 'PP-CF', 'PP-GF',
+  'PPA-CF', 'PPA-GF', 'PPS', 'PPS-CF',
+];
+
+const AMS_COLORS = [
+  { name: 'White', hex: 'FFFFFFFF' },
+  { name: 'Black', hex: '000000FF' },
+  { name: 'Red', hex: 'FF0000FF' },
+  { name: 'Blue', hex: '0000FFFF' },
+  { name: 'Green', hex: '00FF00FF' },
+  { name: 'Yellow', hex: 'FFFF00FF' },
+  { name: 'Orange', hex: 'FF8C00FF' },
+  { name: 'Purple', hex: '800080FF' },
+  { name: 'Pink', hex: 'FF69B4FF' },
+  { name: 'Gray', hex: '808080FF' },
+  { name: 'Light Gray', hex: 'C0C0C0FF' },
+  { name: 'Dark Gray', hex: '404040FF' },
+  { name: 'Brown', hex: '8B4513FF' },
+  { name: 'Cyan', hex: '00FFFFFF' },
+  { name: 'Lime', hex: '32CD32FF' },
+  { name: 'Navy', hex: '000080FF' },
+  { name: 'Teal', hex: '008080FF' },
+  { name: 'Gold', hex: 'FFD700FF' },
+  { name: 'Transparent', hex: 'FFFFFF01' },
+  { name: 'Natural', hex: 'F5F5DCFF' },
+];
+
 const $ = (selector) => document.querySelector(selector);
 
 const elements = {
@@ -145,6 +179,8 @@ const elements = {
   bedClearVerification: $('#bed-clear-verification'),
   filamentInventoryForm: $('#filament-inventory-form'),
   filamentInventoryJson: $('#filament-inventory-json'),
+  amsPrinter: $('#ams-printer'),
+  amsSlots: $('#ams-slots'),
   integrationsForm: $('#integrations-form'),
   integrationsJson: $('#integrations-json'),
   fullAutoMode: $('#full-auto-mode'),
@@ -897,11 +933,131 @@ function renderFarmAutomation(automation) {
   renderPlatformStrategy(plan.platform_strategy || {});
 }
 
+// ===== AMS Filament Mapping (per-slot color + material) =====
+
+function getAmsSelectedPrinter() {
+  const printerId = elements.amsPrinter?.value;
+  return (state.overview.printers || []).find((printer) => printer.printer_id === printerId) || null;
+}
+
+function amsSlotOptions(selected, values, labelOf = (v) => v, valueOf = (v) => v) {
+  return values.map((value) => {
+    const optionValue = valueOf(value);
+    const isSelected = optionValue === selected ? ' selected' : '';
+    return `<option value="${optionValue}"${isSelected}>${labelOf(value)}</option>`;
+  }).join('');
+}
+
+function amsSwatchColor(hex) {
+  const raw = String(hex || '').replace(/^#/, '');
+  return /^[0-9A-Fa-f]{6}/.test(raw) ? `#${raw.slice(0, 6)}` : 'transparent';
+}
+
+function renderAmsPanel() {
+  if (!elements.amsPrinter || !elements.amsSlots) return;
+
+  const printers = state.overview.printers || [];
+  const previousSelection = elements.amsPrinter.value;
+  elements.amsPrinter.innerHTML = printers.length === 0
+    ? '<option value="">No printers synced yet</option>'
+    : amsSlotOptions(
+      previousSelection,
+      printers,
+      (printer) => `${printer.name || printer.local_printer_id} (${printer.status || 'unknown'})`,
+      (printer) => printer.printer_id,
+    );
+
+  const printer = getAmsSelectedPrinter() || printers[0] || null;
+  if (printer && elements.amsPrinter.value !== printer.printer_id) {
+    elements.amsPrinter.value = printer.printer_id;
+  }
+
+  if (!printer) {
+    elements.amsSlots.innerHTML = '<p class="field-hint">Provision a node and let it heartbeat to see printers here.</p>';
+    return;
+  }
+
+  // Known trays from the node's last heartbeat; always offer at least 4 slots.
+  const knownTrays = Array.isArray(printer.capabilities?.ams_trays) ? printer.capabilities.ams_trays : [];
+  const trayByKey = new Map(knownTrays.map((tray) => [`${tray.ams_id || 0}_${tray.tray_id || 0}`, tray]));
+  const slotCount = Math.max(4, knownTrays.length);
+
+  const rows = [];
+  for (let index = 0; index < slotCount; index += 1) {
+    const amsId = Math.floor(index / 4);
+    const trayId = index % 4;
+    const tray = trayByKey.get(`${amsId}_${trayId}`) || {};
+    const material = tray.material || '';
+    const colorHex = String(tray.color_hex || '').toUpperCase();
+    const colorMatch = AMS_COLORS.find((color) => color.hex === colorHex || color.hex.slice(0, 6) === colorHex.replace(/^#/, '').slice(0, 6));
+
+    rows.push(`
+      <div class="ams-slot-row" data-ams-id="${amsId}" data-tray-id="${trayId}">
+        <span class="ams-slot-label">U${amsId} T${trayId}</span>
+        <span class="ams-slot-swatch" style="background:${amsSwatchColor(colorHex)}"></span>
+        <select data-role="material">
+          <option value="">— material —</option>
+          ${amsSlotOptions(material, AMS_MATERIALS)}
+        </select>
+        <select data-role="color">
+          ${amsSlotOptions(colorMatch?.hex || 'FFFFFFFF', AMS_COLORS, (color) => color.name, (color) => color.hex)}
+        </select>
+        <button type="button" class="small-button" data-role="apply">Apply</button>
+      </div>
+      <span class="ams-slot-source">${tray.material ? `${tray.source === 'configured' ? 'operator-assigned' : 'from printer'}${tray.in_sync === false ? ' · out of sync' : ''}` : 'empty / unreported'}</span>
+    `);
+  }
+  elements.amsSlots.innerHTML = rows.join('');
+}
+
+async function handleAmsApply(event) {
+  const button = event.target.closest('button[data-role="apply"]');
+  if (!button) return;
+  const row = button.closest('.ams-slot-row');
+  const printer = getAmsSelectedPrinter();
+  if (!row || !printer) return;
+
+  const material = row.querySelector('select[data-role="material"]').value;
+  if (!material) {
+    showToast('Pick a material for the slot first');
+    return;
+  }
+  const colorHex = row.querySelector('select[data-role="color"]').value;
+  const colorName = AMS_COLORS.find((color) => color.hex === colorHex)?.name || null;
+
+  button.disabled = true;
+  try {
+    await apiRequest('/api/cloud/commands', {
+      method: 'POST',
+      body: {
+        org_id: printer.org_id || getOrgId(),
+        node_id: printer.node_id,
+        printer_id: printer.printer_id,
+        command_type: 'printer.ams.set',
+        payload: {
+          local_printer_id: printer.local_printer_id,
+          ams_id: Number.parseInt(row.dataset.amsId, 10) || 0,
+          tray_id: Number.parseInt(row.dataset.trayId, 10) || 0,
+          material,
+          color_hex: colorHex,
+          color_name: colorName,
+        },
+      },
+    });
+    showToast(`Queued ${material} for ${printer.name || printer.local_printer_id} slot U${row.dataset.amsId}·T${row.dataset.trayId}`);
+  } catch (error) {
+    showToast(`AMS assignment failed: ${error.message}`);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderOverview() {
   const overview = state.overview;
   updateCounts();
   renderMetrics();
   renderCommandNodeOptions(overview.nodes);
+  renderAmsPanel();
 
   renderTable('#nodes-table', [
     { label: 'Node', value: (row) => row.name || '-' },
@@ -1620,6 +1776,15 @@ function restoreSettings() {
 
 function bindEvents() {
   bindFarmAutomationEditorGuards();
+
+  if (elements.amsPrinter) {
+    elements.amsPrinter.addEventListener('change', () => renderAmsPanel());
+  }
+  if (elements.amsSlots) {
+    elements.amsSlots.addEventListener('click', (event) => {
+      handleAmsApply(event).catch((error) => showToast(error.message));
+    });
+  }
 
   elements.adminLoginForm.addEventListener('submit', (event) => {
     handleAdminLogin(event).catch((error) => {

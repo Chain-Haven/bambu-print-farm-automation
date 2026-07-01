@@ -391,6 +391,114 @@ describe('merchant print jobs handler', () => {
         expect(res.body.routing.status).toBe('no_capacity');
     });
 
+    it('maps job color/material onto the selected printer AMS trays in the dispatch payload', async () => {
+        const fileBytes = Buffer.from('project bytes');
+        const store = createAuthStore({
+            uploadPrintArtifact: vi.fn().mockResolvedValue({ Key: 'print-artifacts/path' }),
+            createJobFile: vi.fn().mockImplementation(async (file) => ({ file_id: 'file-1', ...file })),
+            getCloudOverview: vi.fn().mockResolvedValue({
+                nodes: [{ node_id: 'node-1', status: 'online' }],
+                printers: [{
+                    printer_id: 'printer-1',
+                    node_id: 'node-1',
+                    local_printer_id: 'local-printer-1',
+                    status: 'online',
+                    status_snapshot: { print: { gcode_state: 'IDLE' } },
+                    capabilities: {
+                        max_x: 256, max_y: 256, max_z: 256,
+                        ams_trays: [
+                            { ams_id: 0, tray_id: 0, material: 'PLA', color_hex: 'FFFFFFFF' },
+                            { ams_id: 0, tray_id: 2, material: 'PLA', color_hex: 'FF0000FF' },
+                        ],
+                        materials: ['PLA'],
+                        colors: ['FFFFFFFF', 'FF0000FF'],
+                    },
+                }],
+                jobs: [],
+            }),
+            createPrintJob: vi.fn().mockImplementation(async (job) => ({ job_id: 'job-1', ...job })),
+            createRoutingDecision: vi.fn().mockResolvedValue({ decision_id: 'decision-1' }),
+            createSignedPrintArtifactUrl: vi.fn().mockResolvedValue('https://signed.example/file'),
+            createNodeCommand: vi.fn().mockResolvedValue({ command_id: 'command-1' }),
+            createMerchantUsageEvent: vi.fn().mockResolvedValue({ usage_event_id: 'usage-1' }),
+        });
+        const handler = createMerchantPrintJobsHandler({ store, pepper: 'pepper', now });
+        const res = createMockResponse();
+
+        await handler({
+            method: 'POST',
+            headers: { authorization: 'Bearer pkx_live_secret' },
+            body: {
+                file: { name: 'part.gcode.3mf', base64: fileBytes.toString('base64') },
+                requirements: { materials: ['PLA'], colors: ['#FF0000'] },
+            },
+        }, res);
+
+        expect(store.createNodeCommand).toHaveBeenCalledWith(expect.objectContaining({
+            payload: expect.objectContaining({
+                print_job_id: 'job-1',
+                // red PLA lives in tray (0,2) → global tray index 2
+                ams_mapping: [2],
+                use_ams: true,
+            }),
+        }));
+        // routing summary carries the node-side printer id for later stop/cancel
+        expect(store.createPrintJob).toHaveBeenCalledWith(expect.objectContaining({
+            routing_summary: expect.objectContaining({ selected_local_printer_id: 'local-printer-1' }),
+        }));
+    });
+
+    it('routes using operator spool inventory when printer capabilities lack the material', async () => {
+        const fileBytes = Buffer.from('project bytes');
+        const store = createAuthStore({
+            uploadPrintArtifact: vi.fn().mockResolvedValue({ Key: 'print-artifacts/path' }),
+            createJobFile: vi.fn().mockImplementation(async (file) => ({ file_id: 'file-1', ...file })),
+            getCloudOverview: vi.fn().mockResolvedValue({
+                nodes: [{ node_id: 'node-1', status: 'online' }],
+                printers: [{
+                    printer_id: 'printer-1',
+                    node_id: 'node-1',
+                    local_printer_id: 'local-printer-1',
+                    status: 'online',
+                    status_snapshot: { print: { gcode_state: 'IDLE' } },
+                    capabilities: { max_x: 256, max_y: 256, max_z: 256 }, // no materials/colors
+                }],
+                jobs: [],
+            }),
+            createPrintJob: vi.fn().mockImplementation(async (job) => ({ job_id: 'job-1', ...job })),
+            updatePrintJob: vi.fn().mockImplementation(async (jobId, fields) => ({ job_id: jobId, ...fields })),
+            createRoutingDecision: vi.fn().mockResolvedValue({ decision_id: 'decision-1' }),
+            createSignedPrintArtifactUrl: vi.fn().mockResolvedValue('https://signed.example/file'),
+            createNodeCommand: vi.fn().mockResolvedValue({ command_id: 'command-1' }),
+            createMerchantUsageEvent: vi.fn().mockResolvedValue({ usage_event_id: 'usage-1' }),
+            getPlatformSetting: vi.fn().mockResolvedValue({
+                spools: [{
+                    spool_id: 'spool-petg-black',
+                    material: 'PETG',
+                    color_hex: '#000000',
+                    grams_remaining: 900,
+                    local_printer_id: 'local-printer-1',
+                }],
+            }),
+            upsertPlatformSetting: vi.fn().mockResolvedValue({}),
+        });
+        const handler = createMerchantPrintJobsHandler({ store, pepper: 'pepper', now });
+        const res = createMockResponse();
+
+        await handler({
+            method: 'POST',
+            headers: { authorization: 'Bearer pkx_live_secret' },
+            body: {
+                file: { name: 'part.gcode.3mf', base64: fileBytes.toString('base64') },
+                requirements: { materials: ['PETG'], colors: ['#000000'] },
+            },
+        }, res);
+
+        // Without the inventory augment this rejected with missing_material.
+        expect(res.body.routing.status).toBe('routed');
+        expect(store.createPrintJob).toHaveBeenCalledWith(expect.objectContaining({ status: 'queued' }));
+    });
+
     it('lists merchant print jobs with a capped limit', async () => {
         const store = createAuthStore({
             listMerchantPrintJobs: vi.fn().mockResolvedValue([{ job_id: 'job-1', merchant_id: 'merchant-1' }]),

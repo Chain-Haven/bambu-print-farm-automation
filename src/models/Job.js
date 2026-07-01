@@ -6,13 +6,14 @@ import path from 'node:path';
 import { getUploadRoot } from '../utils/uploadPaths.js';
 
 export class JobModel {
-    static create({ name, printer_id, profile_id, source_file_name, ams_roles, repeat_total }) {
+    static create({ name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, metadata }) {
         const id = generateId();
         dbRun(
-            `INSERT INTO jobs (job_id, name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, repeat_remaining)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO jobs (job_id, name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, repeat_remaining, metadata)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [id, name, printer_id || null, profile_id, source_file_name,
-                JSON.stringify(ams_roles || null), repeat_total || 1, repeat_total || 1]
+                JSON.stringify(ams_roles || null), repeat_total || 1, repeat_total || 1,
+                metadata ? JSON.stringify(metadata) : null]
         );
         return this.findById(id);
     }
@@ -34,7 +35,7 @@ export class JobModel {
     }
 
     static update(id, fields) {
-        const allowed = ['name', 'printer_id', 'status', 'transformed_file_name', 'transform_report', 'diff_summary', 'ams_roles', 'repeat_total', 'repeat_remaining'];
+        const allowed = ['name', 'printer_id', 'status', 'transformed_file_name', 'transform_report', 'diff_summary', 'ams_roles', 'repeat_total', 'repeat_remaining', 'metadata'];
         const sets = []; const vals = [];
         for (const [k, v] of Object.entries(fields)) {
             if (!allowed.includes(k)) continue;
@@ -105,6 +106,7 @@ export class JobModel {
             transform_report: _pj(row.transform_report, null),
             diff_summary: _pj(row.diff_summary, null),
             ams_roles: _pj(row.ams_roles, null),
+            metadata: _pj(row.metadata, null),
         };
     }
 }

@@ -29,6 +29,44 @@ export function hashNodeToken(token, pepper) {
     return createHash('sha256').update(`${pepper}:${token}`, 'utf8').digest('hex');
 }
 
+// cloud_printers.status check constraint values; local worker states are
+// mapped onto them (idle → online, error → degraded).
+const VALID_PRINTER_STATUSES = new Set(['online', 'offline', 'printing', 'paused', 'degraded', 'unknown']);
+const PRINTER_STATUS_MAP = {
+    idle: 'online',
+    ready: 'online',
+    finish: 'online',
+    error: 'degraded',
+    disconnected: 'offline',
+};
+const MAX_HEARTBEAT_PRINTERS = 500;
+
+export function normalizePrinterStatus(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (VALID_PRINTER_STATUSES.has(raw)) return raw;
+    return PRINTER_STATUS_MAP[raw] || 'unknown';
+}
+
+export function normalizeHeartbeatPrinters(source) {
+    const rows = Array.isArray(source) ? source : [];
+    return rows.slice(0, MAX_HEARTBEAT_PRINTERS).flatMap((row) => {
+        if (!isPlainObject(row)) return [];
+        const localPrinterId = typeof row.local_printer_id === 'string' && row.local_printer_id.trim()
+            ? row.local_printer_id.trim()
+            : null;
+        if (!localPrinterId) return [];
+
+        return [{
+            local_printer_id: localPrinterId,
+            name: typeof row.name === 'string' && row.name.trim() ? row.name.trim() : localPrinterId,
+            model: typeof row.model === 'string' && row.model.trim() ? row.model.trim() : 'unknown',
+            status: normalizePrinterStatus(row.status),
+            status_snapshot: isPlainObject(row.status_snapshot) ? row.status_snapshot : {},
+            capabilities: isPlainObject(row.capabilities) ? row.capabilities : {},
+        }];
+    });
+}
+
 export function normalizeHeartbeat(body = {}, now = () => new Date()) {
     const source = isPlainObject(body) ? body : {};
     const status = VALID_NODE_STATUSES.has(source.status) ? source.status : 'online';
@@ -38,6 +76,7 @@ export function normalizeHeartbeat(body = {}, now = () => new Date()) {
         agent_version: typeof source.agent_version === 'string' ? source.agent_version : null,
         host_info: isPlainObject(source.host_info) ? source.host_info : {},
         capabilities: isPlainObject(source.capabilities) ? source.capabilities : {},
+        printers: normalizeHeartbeatPrinters(source.printers),
         last_seen_at: now().toISOString(),
     };
 }

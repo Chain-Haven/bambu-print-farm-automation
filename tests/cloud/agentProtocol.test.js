@@ -65,8 +65,50 @@ describe('agent protocol', () => {
             agent_version: '1.2.3',
             host_info: { hostname: 'nuc-01', os: 'Windows 11' },
             capabilities: { printers: 12, camera_proxy: true },
+            printers: [],
             last_seen_at: '2026-06-30T22:00:00.000Z',
         });
+    });
+
+    it('normalizes heartbeat printer mirrors and maps local states to cloud statuses', () => {
+        const heartbeat = normalizeHeartbeat(
+            {
+                status: 'online',
+                printers: [
+                    {
+                        local_printer_id: 'printer-1',
+                        name: 'A1 #1',
+                        model: 'Bambu A1',
+                        status: 'idle',
+                        status_snapshot: { bed_temp: 25 },
+                        capabilities: { ams_trays: [{ ams_id: 0, tray_id: 0, material: 'PLA', color_hex: 'FF0000FF' }] },
+                    },
+                    { local_printer_id: 'printer-2', status: 'error' },
+                    { name: 'missing local id — dropped' },
+                    'not-an-object',
+                ],
+            },
+            () => new Date('2026-06-30T22:00:00.000Z'),
+        );
+
+        expect(heartbeat.printers).toEqual([
+            {
+                local_printer_id: 'printer-1',
+                name: 'A1 #1',
+                model: 'Bambu A1',
+                status: 'online', // idle maps to the cloud 'online' status
+                status_snapshot: { bed_temp: 25 },
+                capabilities: { ams_trays: [{ ams_id: 0, tray_id: 0, material: 'PLA', color_hex: 'FF0000FF' }] },
+            },
+            {
+                local_printer_id: 'printer-2',
+                name: 'printer-2',
+                model: 'unknown',
+                status: 'degraded', // error maps to 'degraded'
+                status_snapshot: {},
+                capabilities: {},
+            },
+        ]);
     });
 
     it('normalizes agent events and drops malformed rows', () => {
@@ -172,6 +214,7 @@ describe('heartbeat handler', () => {
             agent_version: '0.1.0',
             host_info: { hostname: 'print-nuc' },
             capabilities: { max_concurrent_jobs: 4 },
+            printers: [],
             last_seen_at: '2026-06-30T22:05:00.000Z',
         });
         expect(res.statusCode).toBe(200);
@@ -180,6 +223,66 @@ describe('heartbeat handler', () => {
             node_id: 'node-1',
             organization_id: 'org-1',
             status: 'online',
+            printers_synced: 0,
+        });
+    });
+
+    it('upserts reported printers into the cloud printer mirror', async () => {
+        const store = {
+            findNodeByTokenHash: vi.fn().mockResolvedValue({
+                node_id: 'node-1',
+                organization_id: 'org-1',
+            }),
+            recordNodeHeartbeat: vi.fn().mockResolvedValue(undefined),
+            upsertCloudPrinters: vi.fn().mockResolvedValue(undefined),
+        };
+        const handler = createHeartbeatHandler({
+            pepper: 'pepper',
+            store,
+            now: () => new Date('2026-06-30T22:05:00.000Z'),
+        });
+        const res = createMockResponse();
+
+        await handler(
+            {
+                method: 'POST',
+                headers: { authorization: 'Bearer pkx_node_secret' },
+                body: {
+                    status: 'online',
+                    printers: [
+                        {
+                            local_printer_id: 'printer-1',
+                            name: 'A1 #1',
+                            model: 'Bambu A1',
+                            status: 'printing',
+                            capabilities: { materials: ['PLA'] },
+                        },
+                    ],
+                },
+            },
+            res,
+        );
+
+        expect(store.upsertCloudPrinters).toHaveBeenCalledWith(
+            { node_id: 'node-1', organization_id: 'org-1' },
+            [
+                {
+                    local_printer_id: 'printer-1',
+                    name: 'A1 #1',
+                    model: 'Bambu A1',
+                    status: 'printing',
+                    status_snapshot: {},
+                    capabilities: { materials: ['PLA'] },
+                },
+            ],
+            '2026-06-30T22:05:00.000Z',
+        );
+        expect(res.body).toEqual({
+            ok: true,
+            node_id: 'node-1',
+            organization_id: 'org-1',
+            status: 'online',
+            printers_synced: 1,
         });
     });
 });
@@ -340,7 +443,111 @@ describe('events handler', () => {
             ],
         );
         expect(res.statusCode).toBe(200);
-        expect(res.body).toEqual({ ok: true, accepted: 1 });
+        expect(res.body).toEqual({ ok: true, accepted: 1, job_updates: 0 });
+    });
+
+    it('applies node-reported merchant job lifecycle: status, reservation release, webhook', async () => {
+        const inventory = {
+            spools: [{
+                spool_id: 'spool-1', material: 'PLA', color_hex: '#FF0000',
+                grams_remaining: 800, reserved_for_job_id: 'job-9',
+            }],
+        };
+        const store = {
+            findNodeByTokenHash: vi.fn().mockResolvedValue({
+                node_id: 'node-1',
+                organization_id: 'org-1',
+            }),
+            recordNodeEvents: vi.fn().mockResolvedValue(undefined),
+            getPrintJobById: vi.fn().mockResolvedValue({
+                job_id: 'job-9',
+                org_id: 'org-1',
+                merchant_id: 'merchant-1',
+                status: 'printing',
+                options: {},
+            }),
+            updatePrintJob: vi.fn().mockImplementation(async (jobId, fields) => ({
+                job_id: jobId,
+                org_id: 'org-1',
+                merchant_id: 'merchant-1',
+                ...fields,
+            })),
+            getPlatformSetting: vi.fn().mockResolvedValue(inventory),
+            upsertPlatformSetting: vi.fn().mockResolvedValue(undefined),
+            findMerchantById: vi.fn().mockResolvedValue({
+                merchant_id: 'merchant-1',
+                org_id: 'org-1',
+                metadata: {}, // no webhook configured — delivery becomes a no-op
+            }),
+        };
+        const handler = createEventsHandler({
+            pepper: 'pepper',
+            store,
+            now: () => new Date('2026-06-30T23:00:00.000Z'),
+            fetchImpl: vi.fn(),
+        });
+        const res = createMockResponse();
+
+        await handler(
+            {
+                method: 'POST',
+                headers: { authorization: 'Bearer pkx_node_secret' },
+                body: {
+                    events: [{
+                        event_type: 'print_job.completed',
+                        payload: { print_job_id: 'job-9', local_job_id: 'local-1', local_printer_id: 'printer-1' },
+                    }],
+                },
+            },
+            res,
+        );
+
+        expect(res.body).toEqual({ ok: true, accepted: 1, job_updates: 1 });
+        expect(store.updatePrintJob).toHaveBeenCalledWith('job-9', expect.objectContaining({
+            status: 'completed',
+        }));
+        // reservation released back to the pool
+        expect(store.upsertPlatformSetting).toHaveBeenCalledWith(
+            'farm_filament_inventory',
+            expect.objectContaining({
+                spools: [expect.objectContaining({ spool_id: 'spool-1', reserved_for_job_id: null })],
+            }),
+        );
+    });
+
+    it('never lets a node move another organization\'s job', async () => {
+        const store = {
+            findNodeByTokenHash: vi.fn().mockResolvedValue({
+                node_id: 'node-1',
+                organization_id: 'org-1',
+            }),
+            recordNodeEvents: vi.fn().mockResolvedValue(undefined),
+            getPrintJobById: vi.fn().mockResolvedValue({
+                job_id: 'job-9',
+                org_id: 'org-OTHER',
+                status: 'printing',
+            }),
+            updatePrintJob: vi.fn(),
+        };
+        const handler = createEventsHandler({ pepper: 'pepper', store, fetchImpl: vi.fn() });
+        const res = createMockResponse();
+
+        await handler(
+            {
+                method: 'POST',
+                headers: { authorization: 'Bearer pkx_node_secret' },
+                body: {
+                    events: [{
+                        event_type: 'print_job.completed',
+                        payload: { print_job_id: 'job-9' },
+                    }],
+                },
+            },
+            res,
+        );
+
+        expect(store.updatePrintJob).not.toHaveBeenCalled();
+        expect(res.body).toEqual({ ok: true, accepted: 1, job_updates: 0 });
     });
 });
 

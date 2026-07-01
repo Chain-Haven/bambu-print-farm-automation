@@ -4,6 +4,7 @@ import { createLocalNodeAgent } from './localNodeAgent.js';
 import { createLocalNodeClient } from './localNodeClient.js';
 import { createLocalResultOutbox } from './localResultOutbox.js';
 import { collectNetworkInterfaces } from './localNetwork.js';
+import { collectLocalPrinterRecords } from './localPrinterSnapshot.js';
 import systemEvents from '../utils/SystemEvents.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -23,6 +24,17 @@ function getHostInfo() {
 
 async function sendHeartbeat(client, status = 'online', resultOutbox = null) {
     const networkInterfaces = collectNetworkInterfaces();
+
+    // Mirror every local printer (state + merged AMS filament view) into the
+    // cloud on each heartbeat. This is what populates cloud_printers — the
+    // admin console's printer table and the merchant router both read it.
+    let printers = [];
+    try {
+        printers = await collectLocalPrinterRecords({ sync_ams: true, sync_filament: true });
+    } catch (error) {
+        log.warn(`Printer snapshot for heartbeat failed: ${error.message}`);
+    }
+
     return client.sendHeartbeat({
         status,
         agent_version: process.env.npm_package_version || '0.1.0',
@@ -36,7 +48,9 @@ async function sendHeartbeat(client, status = 'online', resultOutbox = null) {
             printer_lan_control: true,
             network_interface_count: networkInterfaces.length,
             pending_result_count: resultOutbox?.size?.() || 0,
+            printer_count: printers.length,
         },
+        printers,
     });
 }
 
@@ -70,13 +84,35 @@ async function main() {
 
     // Forward local printer failure alerts (auto-cancel / blocking-error detection)
     // to the cloud so operators and storefronts see them in the control plane.
+    // NOTE: node_events.printer_id is a cloud_printers UUID foreign key — the
+    // local printer id goes in the payload, not the printer_id column.
     systemEvents.on('printer.alert', (alert) => {
         client.sendEvents([{
             event_type: alert?.kind === 'auto_canceled' ? 'printer.auto_canceled' : 'printer.alert',
-            printer_id: alert?.printer_id,
             payload: alert,
         }]).catch((error) => log.warn(`Cloud alert forward failed: ${error.message}`));
     });
+
+    // Forward job lifecycle for cloud-originated (merchant) jobs so the control
+    // plane can move print_jobs to printing/completed/failed, release filament
+    // reservations, and fire merchant webhooks. Local-only jobs are skipped.
+    const forwardJobLifecycle = (eventType) => ({ job, printer_id, reason } = {}) => {
+        const cloudJobId = job?.metadata?.cloud_job_id;
+        if (!cloudJobId) return;
+        client.sendEvents([{
+            event_type: eventType,
+            command_id: job?.metadata?.cloud_command_id || null,
+            payload: {
+                print_job_id: cloudJobId,
+                local_job_id: job.job_id,
+                local_printer_id: printer_id || job.printer_id || null,
+                reason: reason || null,
+            },
+        }]).catch((error) => log.warn(`Cloud job status forward failed (${eventType}): ${error.message}`));
+    };
+    systemEvents.on('job.started', forwardJobLifecycle('print_job.started'));
+    systemEvents.on('job.completed', forwardJobLifecycle('print_job.completed'));
+    systemEvents.on('job.failed', forwardJobLifecycle('print_job.failed'));
 
     await sendHeartbeat(client, 'online', resultOutbox);
     const heartbeatTimer = setInterval(() => {

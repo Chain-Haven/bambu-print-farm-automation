@@ -57,10 +57,14 @@ const PROFILES = [
 ];
 
 export function seedDefaultProfiles() {
-    const existing = dbGet('SELECT COUNT(*) as cnt FROM gcode_profiles');
-    if (existing && existing.cnt > 0) return;
-
+    // Per-profile idempotency, NOT a whole-table count: migration 005 inserts
+    // "A1 Mini" into a fresh database before this seed runs, so a count>0 guard
+    // skipped seeding entirely and fresh installs ended up without the
+    // Universal fallback profile (breaking every submit without an explicit
+    // profile_id, including cloud/merchant prints).
     for (const p of PROFILES) {
+        const existing = dbGet('SELECT profile_id FROM gcode_profiles WHERE name = ? COLLATE NOCASE', [p.name]);
+        if (existing) continue;
         dbRun(
             `INSERT INTO gcode_profiles (profile_id, name, description, printer_model, park_y_mm, eject_params, is_system)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
