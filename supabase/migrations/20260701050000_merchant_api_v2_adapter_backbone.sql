@@ -184,6 +184,7 @@ create table public.merchant_post_processing_tasks (
   merchant_id uuid not null references public.merchants(merchant_id) on delete cascade,
   job_id uuid references public.print_jobs(job_id) on delete set null,
   order_id uuid references public.merchant_orders(order_id) on delete set null,
+  idempotency_key text,
   task_type text not null check (task_type in ('auto_eject','bed_clear','support_removal','packing','labeling')),
   status text not null default 'pending' check (status in ('pending','running','completed','skipped','failed')),
   assigned_to text,
@@ -386,6 +387,9 @@ alter table public.merchant_inspections
 
 alter table public.merchant_post_processing_tasks
   add constraint merchant_post_processing_tasks_org_merchant_task_id_unique unique (org_id, merchant_id, task_id);
+
+alter table public.merchant_post_processing_tasks
+  add constraint merchant_post_processing_tasks_org_merchant_idempotency_key_unique unique (org_id, merchant_id, idempotency_key);
 
 alter table public.merchant_shipments
   add constraint merchant_shipments_org_merchant_shipment_id_unique unique (org_id, merchant_id, shipment_id);

@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
+import { hashMerchantApiKey } from '../../src/cloud/merchantAuth.js';
 import { createPostProcessingHandlers } from '../../src/cloud/merchantPostProcessing.js';
 import { createSupabaseRestClient } from '../../src/cloud/supabaseRest.js';
 
 const now = () => new Date('2026-07-01T12:00:00.000Z');
+const routeRawKey = 'pkx_live_post_processing';
+const routePepper = 'pepper';
 
 function taskRow(overrides = {}) {
     return {
@@ -55,6 +58,8 @@ function createMockStore(overrides = {}) {
                     status: 'post_processing',
                 }
         )),
+        findMerchantOrderItemByJobAndOrder: vi.fn().mockResolvedValue(null),
+        findMerchantPostProcessingTaskByIdempotencyKey: vi.fn().mockResolvedValue(null),
         createMerchantPostProcessingTask: vi.fn().mockImplementation(async (task) => taskRow(task)),
         listMerchantPostProcessingTasks: vi.fn().mockResolvedValue([
             taskRow({ task_id: 'task-1', task_type: 'support_removal' }),
@@ -141,6 +146,25 @@ async function importTaskRoute(path, store = createMockStore()) {
     const route = await import(path);
     vi.doUnmock('../../src/cloud/supabaseRest.js');
     return route.default;
+}
+
+function createAuthenticatedRouteStore(overrides = {}) {
+    const keyHash = hashMerchantApiKey(routeRawKey, routePepper);
+    return createMockStore({
+        findMerchantApiKeyByHash: vi.fn().mockResolvedValue({
+            key_id: 'key-1',
+            key_hash: keyHash,
+            merchant_id: 'merchant-1',
+            org_id: 'org-1',
+        }),
+        findMerchantById: vi.fn().mockResolvedValue({
+            merchant_id: 'merchant-1',
+            org_id: 'org-1',
+            status: 'active',
+        }),
+        touchMerchantApiKey: vi.fn().mockResolvedValue(null),
+        ...overrides,
+    });
 }
 
 describe('merchant post-processing handlers', () => {
@@ -238,6 +262,109 @@ describe('merchant post-processing handlers', () => {
         expect(JSON.stringify({ created, listed, fetched })).not.toContain('signed.example');
     });
 
+    it('replays post-processing creates by header or body idempotency key without leaking the key', async () => {
+        const existing = taskRow({
+            task_id: 'task-existing',
+            task_type: 'packing',
+            job_id: 'job-1',
+            order_id: 'order-1',
+            assigned_to: 'operator-1',
+            metadata: {},
+            idempotency_key: 'idem-1',
+        });
+        const { createTask, store } = createHandlers({
+            store: {
+                findMerchantPostProcessingTaskByIdempotencyKey: vi.fn().mockResolvedValue(existing),
+            },
+        });
+
+        const headerReplay = await createTask({
+            task_type: 'packing',
+            job_id: 'job-1',
+            order_id: 'order-1',
+            assigned_to: 'operator-1',
+        }, { headers: { 'Idempotency-Key': 'idem-1' } });
+        const bodyReplay = await createTask({
+            task_type: 'packing',
+            job_id: 'job-1',
+            order_id: 'order-1',
+            assigned_to: 'operator-1',
+            idempotency_key: 'idem-1',
+        });
+
+        expect(headerReplay).toMatchObject({ ok: true, task_id: 'task-existing', status: 'pending' });
+        expect(bodyReplay).toMatchObject({ ok: true, task_id: 'task-existing', status: 'pending' });
+        expect(headerReplay._http_status).toBe(200);
+        expect(bodyReplay._http_status).toBe(200);
+        expect(store.createMerchantPostProcessingTask).not.toHaveBeenCalled();
+        expect(store.recordMerchantJobEvent).not.toHaveBeenCalled();
+        expect(JSON.stringify({ headerReplay, bodyReplay })).not.toContain('idem-1');
+        expect(JSON.stringify({ headerReplay, bodyReplay })).not.toContain('idempotency');
+    });
+
+    it('rejects post-processing idempotency conflicts when semantic fields differ', async () => {
+        const { createTask, store } = createHandlers({
+            store: {
+                findMerchantPostProcessingTaskByIdempotencyKey: vi.fn().mockResolvedValue(taskRow({
+                    task_id: 'task-existing',
+                    task_type: 'packing',
+                    job_id: 'job-1',
+                    order_id: 'order-1',
+                    assigned_to: 'operator-1',
+                    metadata: { note: 'original' },
+                    idempotency_key: 'idem-conflict',
+                })),
+            },
+        });
+
+        await expect(createTask({
+            task_type: 'labeling',
+            job_id: 'job-1',
+            order_id: 'order-1',
+            assigned_to: 'operator-1',
+            metadata: { note: 'original' },
+            idempotency_key: 'idem-conflict',
+        })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'idempotency_conflict',
+        });
+        expect(store.createMerchantPostProcessingTask).not.toHaveBeenCalled();
+    });
+
+    it('replays a post-processing create when an idempotent insert races with another insert', async () => {
+        const existing = taskRow({
+            task_id: 'task-raced',
+            task_type: 'packing',
+            job_id: 'job-1',
+            order_id: 'order-1',
+            assigned_to: 'operator-1',
+            metadata: { note: 'same' },
+            idempotency_key: 'idem-race',
+        });
+        const { createTask, store } = createHandlers({
+            store: {
+                findMerchantPostProcessingTaskByIdempotencyKey: vi.fn()
+                    .mockResolvedValueOnce(null)
+                    .mockResolvedValueOnce(existing),
+                createMerchantPostProcessingTask: vi.fn().mockRejectedValue(new Error('duplicate key value')),
+            },
+        });
+
+        const replayed = await createTask({
+            task_type: 'packing',
+            job_id: 'job-1',
+            order_id: 'order-1',
+            assigned_to: 'operator-1',
+            metadata: { note: 'same' },
+            idempotency_key: 'idem-race',
+        });
+
+        expect(replayed).toMatchObject({ ok: true, task_id: 'task-raced', status: 'pending' });
+        expect(replayed._http_status).toBe(200);
+        expect(store.createMerchantPostProcessingTask).toHaveBeenCalledTimes(1);
+        expect(store.recordMerchantJobEvent).not.toHaveBeenCalled();
+    });
+
     it('validates task payloads and ownership checks before writing', async () => {
         const { createTask, store } = createHandlers();
 
@@ -258,6 +385,68 @@ describe('merchant post-processing handlers', () => {
             code: 'order_not_found',
         });
         expect(store.createMerchantPostProcessingTask).not.toHaveBeenCalled();
+    });
+
+    it('requires a detectable job/order relationship before creating post-processing tasks', async () => {
+        const { createTask, store } = createHandlers({
+            store: {
+                getMerchantPrintJob: vi.fn().mockResolvedValue({
+                    job_id: 'job-1',
+                    status: 'completed',
+                }),
+                getMerchantOrder: vi.fn().mockResolvedValue({
+                    order_id: 'order-1',
+                    status: 'post_processing',
+                }),
+                findMerchantOrderItemByJobAndOrder: vi.fn().mockResolvedValue(null),
+            },
+        });
+
+        await expect(createTask({
+            task_type: 'packing',
+            job_id: 'job-1',
+            order_id: 'order-1',
+        })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'post_processing_reference_mismatch',
+        });
+        expect(store.findMerchantOrderItemByJobAndOrder).toHaveBeenCalledWith({
+            merchantId: 'merchant-1',
+            jobId: 'job-1',
+            orderId: 'order-1',
+        });
+        expect(store.createMerchantPostProcessingTask).not.toHaveBeenCalled();
+    });
+
+    it('allows post-processing tasks when an order item links the supplied job and order', async () => {
+        const { createTask, store } = createHandlers({
+            store: {
+                getMerchantPrintJob: vi.fn().mockResolvedValue({
+                    job_id: 'job-1',
+                    status: 'completed',
+                }),
+                getMerchantOrder: vi.fn().mockResolvedValue({
+                    order_id: 'order-1',
+                    status: 'post_processing',
+                }),
+                findMerchantOrderItemByJobAndOrder: vi.fn().mockResolvedValue({
+                    order_item_id: 'item-1',
+                    job_id: 'job-1',
+                    order_id: 'order-1',
+                }),
+            },
+        });
+
+        await expect(createTask({
+            task_type: 'packing',
+            job_id: 'job-1',
+            order_id: 'order-1',
+        })).resolves.toMatchObject({
+            task_type: 'packing',
+            job_id: 'job-1',
+            order_id: 'order-1',
+        });
+        expect(store.createMerchantPostProcessingTask).toHaveBeenCalledTimes(1);
     });
 
     it('rejects detectable job/order relationship mismatches before creating tasks', async () => {
@@ -418,6 +607,16 @@ describe('merchant post-processing store helpers', () => {
             .mockResolvedValueOnce({
                 ok: true,
                 status: 200,
+                text: async () => JSON.stringify([{ task_id: 'task-idem' }]),
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                text: async () => JSON.stringify([{ order_item_id: 'item-1' }]),
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
                 text: async () => JSON.stringify([{ task_id: 'task-1', status: 'completed' }]),
             });
         const store = createSupabaseRestClient({
@@ -434,6 +633,15 @@ describe('merchant post-processing store helpers', () => {
             limit: 250,
         });
         await store.getMerchantPostProcessingTask({ merchantId: 'merchant-1', taskId: 'task-1' });
+        await store.findMerchantPostProcessingTaskByIdempotencyKey({
+            merchantId: 'merchant-1',
+            idempotencyKey: 'idem-1',
+        });
+        await store.findMerchantOrderItemByJobAndOrder({
+            merchantId: 'merchant-1',
+            jobId: 'job-1',
+            orderId: 'order-1',
+        });
         await store.updateMerchantPostProcessingTaskIfStatus({
             merchantId: 'merchant-1',
             taskId: 'task-1',
@@ -443,7 +651,9 @@ describe('merchant post-processing store helpers', () => {
 
         const listUrl = new URL(fetchImpl.mock.calls[0][0]);
         const getUrl = new URL(fetchImpl.mock.calls[1][0]);
-        const [updateUrl, updateInit] = fetchImpl.mock.calls[2];
+        const idempotencyUrl = new URL(fetchImpl.mock.calls[2][0]);
+        const orderItemUrl = new URL(fetchImpl.mock.calls[3][0]);
+        const [updateUrl, updateInit] = fetchImpl.mock.calls[4];
         const updateRequestUrl = new URL(updateUrl);
         expect(listUrl.pathname).toBe('/rest/v1/merchant_post_processing_tasks');
         expect(listUrl.searchParams.get('merchant_id')).toBe('eq.merchant-1');
@@ -452,6 +662,15 @@ describe('merchant post-processing store helpers', () => {
         expect(listUrl.searchParams.get('status')).toBe('eq.pending');
         expect(listUrl.searchParams.get('limit')).toBe('100');
         expect(getUrl.searchParams.get('task_id')).toBe('eq.task-1');
+        expect(idempotencyUrl.pathname).toBe('/rest/v1/merchant_post_processing_tasks');
+        expect(idempotencyUrl.searchParams.get('merchant_id')).toBe('eq.merchant-1');
+        expect(idempotencyUrl.searchParams.get('idempotency_key')).toBe('eq.idem-1');
+        expect(idempotencyUrl.searchParams.get('limit')).toBe('1');
+        expect(orderItemUrl.pathname).toBe('/rest/v1/merchant_order_items');
+        expect(orderItemUrl.searchParams.get('merchant_id')).toBe('eq.merchant-1');
+        expect(orderItemUrl.searchParams.get('job_id')).toBe('eq.job-1');
+        expect(orderItemUrl.searchParams.get('order_id')).toBe('eq.order-1');
+        expect(orderItemUrl.searchParams.get('limit')).toBe('1');
         expect(updateRequestUrl.searchParams.get('merchant_id')).toBe('eq.merchant-1');
         expect(updateRequestUrl.searchParams.get('task_id')).toBe('eq.task-1');
         expect(updateRequestUrl.searchParams.get('status')).toBe('in.(pending,running)');
@@ -494,5 +713,52 @@ describe('merchant post-processing public routes', () => {
             expect(response.headers.Allow).toBe('POST');
             expect(response.body).toMatchObject({ ok: false, error: 'method_not_allowed' });
         }
+    });
+
+    it('replays route-level post-processing creates from an Idempotency-Key header', async () => {
+        const originalPepper = process.env.MERCHANT_API_KEY_PEPPER;
+        process.env.MERCHANT_API_KEY_PEPPER = routePepper;
+        const store = createAuthenticatedRouteStore({
+            findMerchantPostProcessingTaskByIdempotencyKey: vi.fn().mockResolvedValue(taskRow({
+                task_id: 'task-route-replay',
+                task_type: 'packing',
+                job_id: 'job-1',
+                order_id: 'order-1',
+                assigned_to: 'operator-1',
+                metadata: {},
+                idempotency_key: 'route-idem',
+            })),
+        });
+        const handler = await importTaskRoute('../../api/public/post-processing/tasks/index.js', store);
+        const res = createMockResponse();
+
+        try {
+            await handler({
+                method: 'POST',
+                headers: {
+                    authorization: `Bearer ${routeRawKey}`,
+                    'Idempotency-Key': 'route-idem',
+                },
+                body: {
+                    task_type: 'packing',
+                    job_id: 'job-1',
+                    order_id: 'order-1',
+                    assigned_to: 'operator-1',
+                },
+            }, res);
+        } finally {
+            if (originalPepper === undefined) delete process.env.MERCHANT_API_KEY_PEPPER;
+            else process.env.MERCHANT_API_KEY_PEPPER = originalPepper;
+        }
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body).toMatchObject({
+            ok: true,
+            task_id: 'task-route-replay',
+            status: 'pending',
+        });
+        expect(store.createMerchantPostProcessingTask).not.toHaveBeenCalled();
+        expect(JSON.stringify(res.body)).not.toContain('route-idem');
+        expect(JSON.stringify(res.body)).not.toContain('idempotency');
     });
 });

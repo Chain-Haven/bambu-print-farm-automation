@@ -32,6 +32,7 @@ function createMockStore(overrides = {}) {
                     status: 'awaiting_quality',
                 }
         )),
+        findMerchantOrderItemByJobAndOrder: vi.fn().mockResolvedValue(null),
         getMerchantInspectionByJob: vi.fn().mockResolvedValue(null),
         getMerchantInspection: vi.fn().mockImplementation(async ({ inspectionId }) => ({
             inspection_id: inspectionId,
@@ -327,6 +328,105 @@ describe('merchant inspection handlers', () => {
             code: 'order_not_found',
         });
         await expect(requestInspection({ job_id: 'job-1', order_id: 'order-unrelated' })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'inspection_reference_mismatch',
+        });
+        expect(store.createMerchantInspection).not.toHaveBeenCalled();
+    });
+
+    it('requires a detectable job/order relationship before creating inspections', async () => {
+        const { requestInspection, store } = createHandlers({
+            store: {
+                getMerchantPrintJob: vi.fn().mockResolvedValue({
+                    job_id: 'job-1',
+                    org_id: 'org-1',
+                    merchant_id: 'merchant-1',
+                    status: 'completed',
+                }),
+                getMerchantOrder: vi.fn().mockResolvedValue({
+                    order_id: 'order-1',
+                    org_id: 'org-1',
+                    merchant_id: 'merchant-1',
+                    status: 'awaiting_quality',
+                }),
+                findMerchantOrderItemByJobAndOrder: vi.fn().mockResolvedValue(null),
+            },
+        });
+
+        await expect(requestInspection({ job_id: 'job-1', order_id: 'order-1' })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'inspection_reference_mismatch',
+        });
+        expect(store.findMerchantOrderItemByJobAndOrder).toHaveBeenCalledWith({
+            merchantId: 'merchant-1',
+            jobId: 'job-1',
+            orderId: 'order-1',
+        });
+        expect(store.createMerchantInspection).not.toHaveBeenCalled();
+    });
+
+    it('allows inspections when an order item links the supplied job and order', async () => {
+        const { requestInspection, store } = createHandlers({
+            store: {
+                getMerchantPrintJob: vi.fn().mockResolvedValue({
+                    job_id: 'job-1',
+                    org_id: 'org-1',
+                    merchant_id: 'merchant-1',
+                    status: 'completed',
+                }),
+                getMerchantOrder: vi.fn().mockResolvedValue({
+                    order_id: 'order-1',
+                    org_id: 'org-1',
+                    merchant_id: 'merchant-1',
+                    status: 'awaiting_quality',
+                }),
+                findMerchantOrderItemByJobAndOrder: vi.fn().mockResolvedValue({
+                    order_item_id: 'item-1',
+                    job_id: 'job-1',
+                    order_id: 'order-1',
+                }),
+            },
+        });
+
+        await expect(requestInspection({ job_id: 'job-1', order_id: 'order-1' })).resolves.toMatchObject({
+            job_id: 'job-1',
+            order_id: 'order-1',
+            status: 'passed',
+        });
+        expect(store.createMerchantInspection).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not replay an existing inspection for a different supplied order', async () => {
+        const { requestInspection, store } = createHandlers({
+            store: {
+                getMerchantPrintJob: vi.fn().mockResolvedValue({
+                    job_id: 'job-1',
+                    org_id: 'org-1',
+                    merchant_id: 'merchant-1',
+                    order_id: 'order-requested',
+                    status: 'completed',
+                }),
+                getMerchantOrder: vi.fn().mockResolvedValue({
+                    order_id: 'order-requested',
+                    org_id: 'org-1',
+                    merchant_id: 'merchant-1',
+                    status: 'awaiting_quality',
+                }),
+                getMerchantInspectionByJob: vi.fn().mockResolvedValue({
+                    inspection_id: 'inspection-existing',
+                    job_id: 'job-1',
+                    order_id: 'order-existing',
+                    provider: 'mock',
+                    status: 'passed',
+                    decision: null,
+                }),
+            },
+        });
+
+        await expect(requestInspection({
+            job_id: 'job-1',
+            order_id: 'order-requested',
+        })).rejects.toMatchObject({
             statusCode: 409,
             code: 'inspection_reference_mismatch',
         });

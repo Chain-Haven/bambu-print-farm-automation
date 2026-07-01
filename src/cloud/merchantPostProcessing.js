@@ -65,6 +65,15 @@ function withHttpStatus(payload, statusCode) {
     return payload;
 }
 
+function getHeader(headers = {}, name) {
+    const expected = name.toLowerCase();
+    for (const [key, value] of Object.entries(headers || {})) {
+        if (key.toLowerCase() !== expected) continue;
+        return Array.isArray(value) ? value[0] : value;
+    }
+    return null;
+}
+
 function relationId(source, keys) {
     for (const key of keys) {
         const value = optionalString(source?.[key]);
@@ -93,7 +102,17 @@ async function requireMerchantOrder(store, merchant, orderId) {
     return order;
 }
 
-function validateTaskReferences({ job, order, jobId, orderId }) {
+async function taskHasOrderItemReference({ store, merchant, jobId, orderId }) {
+    if (typeof store.findMerchantOrderItemByJobAndOrder !== 'function') return false;
+    const orderItem = await store.findMerchantOrderItemByJobAndOrder({
+        merchantId: merchant.merchant_id,
+        jobId,
+        orderId,
+    });
+    return Boolean(orderItem);
+}
+
+async function validateTaskReferences({ store, merchant, job, order, jobId, orderId }) {
     if (!job || !order) return;
     const jobOrderId = relationId(job, ['order_id'])
         || relationId(safeObject(job.options), ['order_id'])
@@ -101,40 +120,97 @@ function validateTaskReferences({ job, order, jobId, orderId }) {
     const orderJobId = relationId(order, ['job_id'])
         || relationId(safeObject(order.metadata), ['job_id']);
     if ((jobOrderId && jobOrderId !== orderId) || (orderJobId && orderJobId !== jobId)) {
-        throw createHttpError(
-            409,
-            'post_processing_reference_mismatch',
-            'Post-processing job and order references do not match',
-        );
+        taskReferenceMismatch();
     }
+
+    if (jobOrderId === orderId || orderJobId === jobId) return;
+    if (await taskHasOrderItemReference({ store, merchant, jobId, orderId })) return;
+    taskReferenceMismatch();
 }
 
-async function getCurrentTask(store, merchant, taskId) {
-    const task = await store.getMerchantPostProcessingTask({
-        merchantId: merchant.merchant_id,
-        taskId,
-    });
-    if (!task) throw createHttpError(404, 'post_processing_task_not_found', 'Post-processing task not found');
-    return task;
-}
-
-function ensureTransitionAllowed(currentStatus, allowedStatuses) {
-    const status = String(currentStatus || '').toLowerCase();
-    if (TERMINAL_TASK_STATUSES.has(status) || !allowedStatuses.includes(status)) {
-        throw createHttpError(
-            409,
-            'post_processing_transition_invalid',
-            'Post-processing task cannot transition from its current status',
-        );
-    }
-}
-
-function transitionConflict() {
+function taskReferenceMismatch() {
     throw createHttpError(
         409,
-        'post_processing_transition_invalid',
-        'Post-processing task cannot transition from its current status',
+        'post_processing_reference_mismatch',
+        'Post-processing job and order references do not match',
     );
+}
+
+function taskIdempotencyConflict() {
+    throw createHttpError(
+        409,
+        'idempotency_conflict',
+        'Idempotency key was already used with different post-processing task details',
+    );
+}
+
+function stableJsonValue(value) {
+    if (Array.isArray(value)) return value.map(stableJsonValue);
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value)
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([key, nested]) => [key, stableJsonValue(nested)]),
+        );
+    }
+    return value;
+}
+
+function stableJsonString(value) {
+    return JSON.stringify(stableJsonValue(value));
+}
+
+function taskMatchesIdempotentRequest(task, expected) {
+    return task?.task_type === expected.task_type
+        && (optionalString(task?.job_id) || null) === expected.job_id
+        && (optionalString(task?.order_id) || null) === expected.order_id
+        && (optionalString(task?.assigned_to) || null) === expected.assigned_to
+        && stableJsonString(safeObject(task?.metadata)) === stableJsonString(expected.metadata);
+}
+
+function replayIdempotentTask(task, expected, requestId) {
+    if (!taskMatchesIdempotentRequest(task, expected)) {
+        taskIdempotencyConflict();
+    }
+    return withHttpStatus(publicOk(publicTask(task), requestId), 200);
+}
+
+async function findTaskByIdempotencyKey(store, merchant, idempotencyKey) {
+    if (!idempotencyKey || typeof store.findMerchantPostProcessingTaskByIdempotencyKey !== 'function') {
+        return null;
+    }
+    return store.findMerchantPostProcessingTaskByIdempotencyKey({
+        merchantId: merchant.merchant_id,
+        idempotencyKey,
+    });
+}
+
+async function replayIdempotentTaskIfPresent(store, merchant, idempotencyKey, expected, requestId) {
+    const existing = await findTaskByIdempotencyKey(store, merchant, idempotencyKey);
+    if (!existing) return null;
+    return replayIdempotentTask(existing, expected, requestId);
+}
+
+function taskIdempotencyKey(source, request) {
+    return optionalString(getHeader(request?.headers, 'idempotency-key'))
+        || optionalString(source.idempotency_key);
+}
+
+async function createTaskWithIdempotency({
+    store,
+    merchant,
+    payload,
+    idempotencyKey,
+    expected,
+    requestId,
+}) {
+    try {
+        return await store.createMerchantPostProcessingTask(payload);
+    } catch (error) {
+        const replay = await replayIdempotentTaskIfPresent(store, merchant, idempotencyKey, expected, requestId);
+        if (replay) return replay;
+        throw error;
+    }
 }
 
 async function recordPostProcessingEvent({
@@ -170,6 +246,34 @@ async function recordPostProcessingEventBestEffort(options) {
     }
 }
 
+async function getCurrentTask(store, merchant, taskId) {
+    const task = await store.getMerchantPostProcessingTask({
+        merchantId: merchant.merchant_id,
+        taskId,
+    });
+    if (!task) throw createHttpError(404, 'post_processing_task_not_found', 'Post-processing task not found');
+    return task;
+}
+
+function ensureTransitionAllowed(currentStatus, allowedStatuses) {
+    const status = String(currentStatus || '').toLowerCase();
+    if (TERMINAL_TASK_STATUSES.has(status) || !allowedStatuses.includes(status)) {
+        throw createHttpError(
+            409,
+            'post_processing_transition_invalid',
+            'Post-processing task cannot transition from its current status',
+        );
+    }
+}
+
+function transitionConflict() {
+    throw createHttpError(
+        409,
+        'post_processing_transition_invalid',
+        'Post-processing task cannot transition from its current status',
+    );
+}
+
 export function createPostProcessingHandlers({
     store,
     authenticateMerchant,
@@ -182,23 +286,47 @@ export function createPostProcessingHandlers({
         const source = safeObject(body);
         const jobId = optionalString(source.job_id);
         const orderId = optionalString(source.order_id);
+        const taskType = normalizeTaskType(source.task_type);
+        const assignedTo = optionalString(source.assigned_to);
+        const metadata = safeObject(source.metadata);
+        const idempotencyKey = taskIdempotencyKey(source, request);
+        const expected = {
+            task_type: taskType,
+            job_id: jobId,
+            order_id: orderId,
+            assigned_to: assignedTo,
+            metadata,
+        };
+        const replay = await replayIdempotentTaskIfPresent(store, merchant, idempotencyKey, expected, requestId);
+        if (replay) return replay;
+
         const job = await requireMerchantPrintJob(store, merchant, jobId);
         const order = await requireMerchantOrder(store, merchant, orderId);
-        validateTaskReferences({ job, order, jobId, orderId });
+        await validateTaskReferences({ store, merchant, job, order, jobId, orderId });
         const timestamp = now().toISOString();
-        const task = await store.createMerchantPostProcessingTask({
+        const payload = {
             ...merchantScope(merchant),
             task_id: crypto.randomUUID(),
             job_id: jobId,
             order_id: orderId,
-            task_type: normalizeTaskType(source.task_type),
+            idempotency_key: idempotencyKey,
+            task_type: taskType,
             status: 'pending',
-            assigned_to: optionalString(source.assigned_to),
+            assigned_to: assignedTo,
             started_at: null,
             completed_at: null,
-            metadata: safeObject(source.metadata),
+            metadata,
             created_at: timestamp,
+        };
+        const task = await createTaskWithIdempotency({
+            store,
+            merchant,
+            payload,
+            idempotencyKey,
+            expected,
+            requestId,
         });
+        if (task?.ok === true && task?._http_status === 200) return task;
         await recordPostProcessingEventBestEffort({
             store,
             merchant,

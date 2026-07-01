@@ -990,6 +990,18 @@ export function createSupabaseRestClient({
             return createMerchantV2Row('merchant_order_items', orderItem);
         },
 
+        async findMerchantOrderItemByJobAndOrder({ merchantId, jobId, orderId }) {
+            const rows = await request(merchantV2ListPath('merchant_order_items', {
+                merchantId,
+                filters: [
+                    `job_id=${eqFilter(jobId, 'job_id')}`,
+                    `order_id=${eqFilter(orderId, 'order_id')}`,
+                ],
+                limit: 1,
+            }));
+            return firstRow(rows);
+        },
+
         async createMerchantMaterialReservation(reservation) {
             return createMerchantV2Row('merchant_material_reservations', reservation);
         },
@@ -1218,6 +1230,14 @@ export function createSupabaseRestClient({
                 merchantId,
                 idColumn: MERCHANT_V2_IDS.merchant_post_processing_tasks,
                 id: taskId,
+            });
+        },
+
+        async findMerchantPostProcessingTaskByIdempotencyKey({ merchantId, idempotencyKey }) {
+            return getMerchantV2Row('merchant_post_processing_tasks', {
+                merchantId,
+                idColumn: 'idempotency_key',
+                id: idempotencyKey,
             });
         },
 

@@ -86,13 +86,34 @@ async function validateInspectionOrderReference({ store, merchant, job, orderId 
     const orderJobId = relationId(order, ['job_id'])
         || relationId(safeObject(order.metadata), ['job_id']);
     if ((jobOrderId && jobOrderId !== orderId) || (orderJobId && orderJobId !== job.job_id)) {
-        throw createHttpError(
-            409,
-            'inspection_reference_mismatch',
-            'Inspection job and order references do not match',
-        );
+        inspectionReferenceMismatch();
     }
-    return order;
+    if (jobOrderId === orderId || orderJobId === job.job_id) return order;
+
+    if (typeof store.findMerchantOrderItemByJobAndOrder === 'function') {
+        const orderItem = await store.findMerchantOrderItemByJobAndOrder({
+            merchantId: merchant.merchant_id,
+            jobId: job.job_id,
+            orderId,
+        });
+        if (orderItem) return order;
+    }
+    inspectionReferenceMismatch();
+}
+
+function inspectionReferenceMismatch() {
+    throw createHttpError(
+        409,
+        'inspection_reference_mismatch',
+        'Inspection job and order references do not match',
+    );
+}
+
+function assertInspectionReplayOrderMatches(current, requestedOrderId) {
+    const currentOrderId = optionalString(current?.order_id);
+    if (currentOrderId && requestedOrderId && currentOrderId !== requestedOrderId) {
+        inspectionReferenceMismatch();
+    }
 }
 
 function inspectionMetadata(adapterInspection) {
@@ -212,13 +233,17 @@ export function createInspectionHandlers({
         const source = safeObject(body);
         const jobId = requiredJobId(source.job_id);
         const job = await requireMerchantPrintJob(store, merchant, jobId);
-        const orderId = optionalString(source.order_id) || optionalString(job.order_id);
+        const requestedOrderId = optionalString(source.order_id);
+        const orderId = requestedOrderId || optionalString(job.order_id);
         await validateInspectionOrderReference({ store, merchant, job, orderId });
         const current = await store.getMerchantInspectionByJob({
             merchantId: merchant.merchant_id,
             jobId,
         });
-        if (current) return withHttpStatus(publicOk(publicInspection(current), requestId), 200);
+        if (current) {
+            assertInspectionReplayOrderMatches(current, requestedOrderId);
+            return withHttpStatus(publicOk(publicInspection(current), requestId), 200);
+        }
 
         const scope = merchantScope(merchant);
         const timestamp = now().toISOString();
@@ -245,7 +270,10 @@ export function createInspectionHandlers({
                 merchantId: merchant.merchant_id,
                 jobId,
             });
-            if (duplicate) return withHttpStatus(publicOk(publicInspection(duplicate), requestId), 200);
+            if (duplicate) {
+                assertInspectionReplayOrderMatches(duplicate, requestedOrderId);
+                return withHttpStatus(publicOk(publicInspection(duplicate), requestId), 200);
+            }
             throw error;
         }
 
