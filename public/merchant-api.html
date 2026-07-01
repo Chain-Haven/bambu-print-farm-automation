@@ -157,9 +157,9 @@
           <tr><th>Area</th><th>Public paths</th></tr>
         </thead>
         <tbody>
-          <tr><td>Files</td><td><code>POST /api/public/files</code><br><code>GET /api/public/files</code> reserved list path<br><code>GET /api/public/files/{file_id}</code><br><code>DELETE /api/public/files/{file_id}</code><br><code>POST /api/public/files/{file_id}/complete</code></td></tr>
+          <tr><td>Files</td><td><code>POST /api/public/files</code> create/upload<br><code>GET /api/public/files</code> not implemented; read by ID<br><code>GET /api/public/files/{file_id}</code><br><code>DELETE /api/public/files/{file_id}</code><br><code>POST /api/public/files/{file_id}/complete</code></td></tr>
           <tr><td>Slices</td><td><code>POST /api/public/slices</code><br><code>GET /api/public/slices/{slice_id}</code><br><code>POST /api/public/slices/{slice_id}/cancel</code></td></tr>
-          <tr><td>Orders</td><td><code>POST /api/public/orders</code><br><code>GET /api/public/orders</code> reserved list path<br><code>GET /api/public/orders/{order_id}</code><br><code>POST /api/public/orders/{order_id}/cancel</code></td></tr>
+          <tr><td>Orders</td><td><code>POST /api/public/orders</code> create<br><code>GET /api/public/orders</code> not implemented; read by ID<br><code>GET /api/public/orders/{order_id}</code><br><code>POST /api/public/orders/{order_id}/cancel</code></td></tr>
           <tr><td>Routing</td><td><code>POST /api/public/routing/estimate</code><br><code>GET /api/public/routing/options</code></td></tr>
           <tr><td>Timeline and artifacts</td><td><code>GET /api/public/print-jobs/{job_id}/events</code><br><code>GET /api/public/print-jobs/{job_id}/artifacts</code></td></tr>
           <tr><td>Inspection and QA</td><td><code>GET /api/public/print-jobs/{job_id}/inspection</code><br><code>POST /api/public/print-jobs/{job_id}/inspection</code><br><code>POST /api/public/inspections/{inspection_id}/accept</code><br><code>POST /api/public/inspections/{inspection_id}/reject</code><br><code>POST /api/public/inspections/{inspection_id}/manual-review</code></td></tr>

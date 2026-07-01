@@ -98,6 +98,15 @@ describe('merchant API docs', () => {
         }
     });
 
+    it('does not advertise unsupported v2 collection methods for files and orders', () => {
+        const spec = JSON.parse(fs.readFileSync('public/openapi/merchant-api-v2.json', 'utf8'));
+
+        expect(spec.paths['/api/public/files'].post).toBeTruthy();
+        expect(spec.paths['/api/public/files'].get).toBeUndefined();
+        expect(spec.paths['/api/public/orders'].post).toBeTruthy();
+        expect(spec.paths['/api/public/orders'].get).toBeUndefined();
+    });
+
     it('serves the v2 OpenAPI document as static JSON from the public API route', async () => {
         const { default: handler } = await import('../../api/public/openapi-v2.js');
         const headers = {};

@@ -71,7 +71,7 @@ Use `Authorization: Bearer pkx_live_...` for all authenticated v2 calls. Include
 Files:
 
 - `POST /api/public/files` creates a file record.
-- `GET /api/public/files` is reserved in the public v2 contract for file listing; the current implementation creates at this path and reads individual files by ID.
+- `GET /api/public/files` is not currently implemented; read individual files by ID.
 - `GET /api/public/files/{file_id}` reads one file.
 - `DELETE /api/public/files/{file_id}` deletes one file.
 - `POST /api/public/files/{file_id}/complete` marks upload complete.
@@ -85,7 +85,7 @@ Slices:
 Orders and routing:
 
 - `POST /api/public/orders` creates an order.
-- `GET /api/public/orders` is reserved in the public v2 contract for order listing; the current implementation creates at this path and reads individual orders by ID.
+- `GET /api/public/orders` is not currently implemented; read individual orders by ID.
 - `GET /api/public/orders/{order_id}` reads one order.
 - `POST /api/public/orders/{order_id}/cancel` cancels one order.
 - `POST /api/public/routing/estimate` estimates routing, capacity, cost, and lead time.

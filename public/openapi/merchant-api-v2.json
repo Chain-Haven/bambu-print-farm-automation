@@ -184,12 +184,6 @@
       }
     },
     "/api/public/files": {
-      "get": {
-        "tags": ["Files"],
-        "summary": "Reserved v2 file-list path",
-        "description": "The public v2 docs reserve GET /api/public/files for merchant file listing. Current route implementation accepts POST for create and exposes individual reads at /api/public/files/{file_id}.",
-        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
-      },
       "post": {
         "tags": ["Files"],
         "summary": "Create a merchant file record",
@@ -248,12 +242,6 @@
       }
     },
     "/api/public/orders": {
-      "get": {
-        "tags": ["Orders"],
-        "summary": "Reserved v2 order-list path",
-        "description": "The public v2 docs reserve GET /api/public/orders for merchant order listing. Current route implementation accepts POST for create and exposes individual reads at /api/public/orders/{order_id}.",
-        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
-      },
       "post": {
         "tags": ["Orders"],
         "summary": "Create an order from merchant files and requirements",
