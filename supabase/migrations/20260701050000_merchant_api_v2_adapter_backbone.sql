@@ -200,6 +200,7 @@ create table public.merchant_shipments (
   org_id uuid not null references public.organizations(org_id) on delete cascade,
   merchant_id uuid not null references public.merchants(merchant_id) on delete cascade,
   order_id uuid references public.merchant_orders(order_id) on delete set null,
+  idempotency_key text,
   status text not null default 'created' check (status in ('created','label_requested','label_created','shipped','delivered','canceled')),
   carrier text,
   service_level text,
@@ -394,8 +395,14 @@ alter table public.merchant_post_processing_tasks
 alter table public.merchant_shipments
   add constraint merchant_shipments_org_merchant_shipment_id_unique unique (org_id, merchant_id, shipment_id);
 
+alter table public.merchant_shipments
+  add constraint merchant_shipments_org_merchant_idempotency_key_unique unique (org_id, merchant_id, idempotency_key);
+
 alter table public.merchant_shipping_labels
   add constraint merchant_shipping_labels_org_merchant_label_id_unique unique (org_id, merchant_id, label_id);
+
+alter table public.merchant_shipping_labels
+  add constraint merchant_shipping_labels_org_merchant_shipment_id_unique unique (org_id, merchant_id, shipment_id);
 
 alter table public.merchant_rate_cards
   add constraint merchant_rate_cards_org_merchant_rate_card_id_unique unique (org_id, merchant_id, rate_card_id);

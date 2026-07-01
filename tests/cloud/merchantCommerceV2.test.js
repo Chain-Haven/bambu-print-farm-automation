@@ -196,6 +196,10 @@ function createMockStore(overrides = {}) {
             shipmentRow({ shipment_id: shipmentId, status })
         )),
         createMerchantShippingLabel: vi.fn().mockImplementation(async (label) => labelRow(label)),
+        updateMerchantShippingLabel: vi.fn().mockImplementation(async ({ labelId, fields }) => labelRow({
+            label_id: labelId,
+            ...fields,
+        })),
         listMerchantShippingLabels: vi.fn().mockResolvedValue([labelRow()]),
         getMerchantShippingLabelByShipment: vi.fn().mockResolvedValue(null),
         recordMerchantJobEvent: vi.fn().mockImplementation(async (event) => event),
@@ -433,9 +437,9 @@ describe('merchant shipping public handlers', () => {
         };
         const existingShipment = shipmentRow({
             shipment_id: 'shipment-idem',
+            idempotency_key: 'idem-ship',
             metadata: {
                 note: 'merchant visible',
-                idempotency_key: 'idem-ship',
                 idempotency_request: idempotencyRequest,
             },
         });
@@ -475,6 +479,153 @@ describe('merchant shipping public handlers', () => {
         expect(JSON.stringify(replayed)).not.toContain('idempotency');
     });
 
+    it('claims idempotent shipment rows before adapter calls and finalizes only the claimant row', async () => {
+        const operations = [];
+        const {
+            createShipment,
+            store,
+            adapters,
+        } = createHandlers(createShippingHandlers, {
+            store: {
+                createMerchantShipment: vi.fn().mockImplementation(async (shipment) => {
+                    operations.push(`claim:${shipment.status}`);
+                    return shipmentRow({
+                        ...shipment,
+                        shipment_id: 'shipment-claim',
+                        status: 'label_requested',
+                    });
+                }),
+                updateMerchantShipmentStatus: vi.fn().mockImplementation(async ({ shipmentId, status, fields }) => {
+                    operations.push(`finalize:${status}`);
+                    return shipmentRow({
+                        shipment_id: shipmentId,
+                        status,
+                        ...fields,
+                    });
+                }),
+                createMerchantShippingLabel: vi.fn().mockImplementation(async (label) => labelRow({
+                    ...label,
+                    label_id: 'label-claim',
+                })),
+            },
+            adapters: {
+                shipping: {
+                    createShipment: vi.fn().mockImplementation(async () => {
+                        operations.push('adapter');
+                        return {
+                            provider: 'mock',
+                            shipment_id: 'provider-shipment-id',
+                            status: 'label_created',
+                            carrier: 'mock_carrier',
+                            service_level: 'mock_ground',
+                            tracking_number: 'mock-track-claim',
+                            label: {
+                                provider: 'mock',
+                                label_id: 'provider-label-id',
+                                label_url: 'mock://shipments/shipment-claim/label.pdf',
+                                tracking_number: 'mock-track-claim',
+                                format: 'pdf',
+                            },
+                            created_at: '2026-07-01T12:00:00.000Z',
+                        };
+                    }),
+                },
+            },
+        });
+
+        const result = await createShipment({
+            order_id: 'order-1',
+            service_level: 'mock_ground',
+            ship_to: { name: 'Ada Lovelace', country: 'US' },
+            packages: [{ weight_grams: 250 }],
+            idempotency_key: 'idem-claim',
+        });
+
+        expect(operations).toEqual(['claim:label_requested', 'adapter', 'finalize:label_created']);
+        expect(result).toMatchObject({
+            ok: true,
+            shipment_id: 'shipment-claim',
+            status: 'label_created',
+            tracking_number: 'mock-track-claim',
+            label: { label_id: 'label-claim' },
+        });
+        expect(store.createMerchantShipment).toHaveBeenCalledWith(expect.objectContaining({
+            idempotency_key: 'idem-claim',
+            status: 'label_requested',
+            carrier: null,
+            tracking_number: null,
+            metadata: expect.objectContaining({
+                idempotency_request: {
+                    order_id: 'order-1',
+                    service_level: 'mock_ground',
+                    ship_to: { name: 'Ada Lovelace', country: 'US' },
+                    packages: [{ weight_grams: 250 }],
+                },
+            }),
+        }));
+        expect(adapters.shipping.createShipment).toHaveBeenCalledTimes(1);
+        expect(store.updateMerchantShipmentStatus).toHaveBeenCalledWith(expect.objectContaining({
+            merchantId: 'merchant-1',
+            shipmentId: 'shipment-claim',
+            status: 'label_created',
+            fields: expect.objectContaining({
+                carrier: 'mock_carrier',
+                tracking_number: 'mock-track-claim',
+            }),
+        }));
+        expect(JSON.stringify(result)).not.toContain('idempotency');
+    });
+
+    it('replays a raced idempotency claim without calling the shipping adapter', async () => {
+        const idempotencyRequest = {
+            order_id: 'order-1',
+            service_level: 'mock_ground',
+            ship_to: { name: 'Ada Lovelace', country: 'US' },
+            packages: [{ weight_grams: 250 }],
+        };
+        const existingShipment = shipmentRow({
+            shipment_id: 'shipment-race',
+            idempotency_key: 'idem-race',
+            status: 'label_requested',
+            metadata: {
+                adapter_failure: {
+                    message: 'provider timeout detail',
+                    failed_at: '2026-07-01T12:00:00.000Z',
+                },
+                idempotency_request: idempotencyRequest,
+            },
+        });
+        const {
+            createShipment,
+            store,
+            adapters,
+        } = createHandlers(createShippingHandlers, {
+            store: {
+                createMerchantShipment: vi.fn().mockRejectedValue(new Error('duplicate idempotency claim')),
+                findMerchantShipmentByIdempotencyKey: vi.fn()
+                    .mockResolvedValueOnce(null)
+                    .mockResolvedValue(existingShipment),
+            },
+        });
+
+        const result = await createShipment({
+            ...idempotencyRequest,
+            idempotency_key: 'idem-race',
+        });
+
+        expect(result).toMatchObject({
+            ok: true,
+            shipment_id: 'shipment-race',
+            status: 'label_requested',
+        });
+        expect(result._http_status).toBe(200);
+        expect(adapters.shipping.createShipment).not.toHaveBeenCalled();
+        expect(store.createMerchantShipment).toHaveBeenCalledTimes(1);
+        expect(JSON.stringify(result)).not.toContain('idempotency');
+        expect(JSON.stringify(result)).not.toContain('adapter_failure');
+        expect(JSON.stringify(result)).not.toContain('provider timeout detail');
+    });
+
     it('replays an existing label when label insert loses a race', async () => {
         const existingLabel = labelRow({ label_id: 'label-race', shipment_id: 'shipment-1' });
         const {
@@ -502,6 +653,72 @@ describe('merchant shipping public handlers', () => {
         expect(store.createMerchantShippingLabel).toHaveBeenCalledTimes(1);
         expect(JSON.stringify(result)).not.toContain('provider-secret');
         expect(JSON.stringify(result)).not.toContain('signed.example');
+    });
+
+    it('claims a placeholder label before adapter work and finalizes the claimed label', async () => {
+        const operations = [];
+        const {
+            createLabel,
+            store,
+            adapters,
+        } = createHandlers(createShippingHandlers, {
+            store: {
+                createMerchantShippingLabel: vi.fn().mockImplementation(async (label) => {
+                    operations.push(`claim-label:${label.label_url ?? 'pending'}`);
+                    return labelRow({
+                        ...label,
+                        label_id: 'label-claim',
+                        label_url: null,
+                        tracking_number: null,
+                        metadata: { label_claim_status: 'pending' },
+                    });
+                }),
+                updateMerchantShippingLabel: vi.fn().mockImplementation(async ({ labelId, fields }) => {
+                    operations.push('finalize-label');
+                    return labelRow({
+                        label_id: labelId,
+                        ...fields,
+                    });
+                }),
+            },
+            adapters: {
+                shipping: {
+                    createShipment: vi.fn().mockImplementation(async () => {
+                        operations.push('adapter');
+                        return {
+                            provider: 'mock',
+                            tracking_number: 'mock-track-label',
+                            label: {
+                                provider: 'mock',
+                                label_url: 'mock://shipments/shipment-1/label.pdf',
+                                tracking_number: 'mock-track-label',
+                                format: 'pdf',
+                            },
+                        };
+                    }),
+                },
+            },
+        });
+
+        const result = await createLabel({ shipment_id: 'shipment-1' });
+
+        expect(operations).toEqual(['claim-label:pending', 'adapter', 'finalize-label']);
+        expect(result).toMatchObject({
+            ok: true,
+            label: {
+                label_id: 'label-claim',
+                label_url: 'mock://shipments/shipment-1/label.pdf',
+                tracking_number: 'mock-track-label',
+            },
+        });
+        expect(store.createMerchantShippingLabel).toHaveBeenCalledWith(expect.objectContaining({
+            shipment_id: 'shipment-1',
+            provider: 'mock',
+            label_url: null,
+            tracking_number: null,
+            metadata: expect.objectContaining({ label_claim_status: 'pending' }),
+        }));
+        expect(adapters.shipping.createShipment).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -657,10 +874,11 @@ describe('merchant realtime public handlers', () => {
             merchant_id: 'merchant-1',
             token_prefix: 'pkx_mock_rt_secret',
             scopes: ['jobs:read'],
-            channel_names: ['pkx_rt_3333333333334333_jobs'],
+            channel_names: [expect.stringMatching(/^pkx_rt_[a-f0-9]{16}_jobs$/)],
             expires_at: '2026-07-01T13:00:00.000Z',
         }));
         const persisted = store.createMerchantRealtimeToken.mock.calls[0][0];
+        expect(persisted.channel_names[0]).not.toContain('3333333333334333');
         expect(persisted.token_hash).not.toBe('pkx_mock_rt_secret_raw_token');
         expect(persisted.token_hash).not.toBe('33333333-3333-4333-8333-333333333333');
         expect(store.listMerchantRealtimeTokens).toHaveBeenCalledWith({
@@ -695,14 +913,77 @@ describe('merchant realtime public handlers', () => {
             ok: true,
             token_record: {
                 expires_at: '2026-07-01T12:01:00.000Z',
-                channel_names: ['pkx_rt_4444444444444444_events'],
+                channel_names: [expect.stringMatching(/^pkx_rt_[a-f0-9]{16}_events$/)],
             },
         });
         expect(store.createMerchantRealtimeToken).toHaveBeenCalledWith(expect.objectContaining({
             expires_at: '2026-07-01T12:01:00.000Z',
-            channel_names: ['pkx_rt_4444444444444444_events'],
+            channel_names: [expect.stringMatching(/^pkx_rt_[a-f0-9]{16}_events$/)],
         }));
+        expect(store.createMerchantRealtimeToken.mock.calls[0][0].channel_names[0]).not.toContain('4444444444444444');
         expect(JSON.stringify(result)).not.toContain('merchant-1');
+    });
+
+    it('uses server time when adapter issued_at is future dated or malformed', async () => {
+        const future = createHandlers(createRealtimeHandlers, {
+            adapters: {
+                realtime: {
+                    createMerchantToken: vi.fn().mockResolvedValue({
+                        provider: 'mock',
+                        token_id: '55555555-5555-4555-8555-555555555555',
+                        token: 'pkx_mock_rt_future',
+                        scopes: ['billing:read'],
+                        issued_at: '2026-07-02T12:00:00.000Z',
+                        expires_at: '2026-07-02T13:00:00.000Z',
+                    }),
+                },
+            },
+        });
+        const malformed = createHandlers(createRealtimeHandlers, {
+            adapters: {
+                realtime: {
+                    createMerchantToken: vi.fn().mockResolvedValue({
+                        provider: 'mock',
+                        token_id: '66666666-6666-4666-8666-666666666666',
+                        token: 'pkx_mock_rt_malformed',
+                        scopes: ['shipments:read'],
+                        issued_at: 'not-a-date',
+                        expires_at: 'also-not-a-date',
+                    }),
+                },
+            },
+        });
+
+        const futureResult = await future.createToken({ scopes: ['billing:read'], ttl_seconds: 120 });
+        const malformedResult = await malformed.createToken({ scopes: ['shipments:read'], ttl_seconds: 60 });
+
+        expect(futureResult).toMatchObject({
+            ok: true,
+            token_record: {
+                expires_at: '2026-07-01T12:02:00.000Z',
+            },
+        });
+        expect(future.store.createMerchantRealtimeToken).toHaveBeenCalledWith(expect.objectContaining({
+            created_at: '2026-07-01T12:00:00.000Z',
+            expires_at: '2026-07-01T12:02:00.000Z',
+            metadata: expect.objectContaining({
+                issued_at: '2026-07-01T12:00:00.000Z',
+            }),
+        }));
+        expect(malformedResult).toMatchObject({
+            ok: true,
+            token_record: {
+                expires_at: '2026-07-01T12:01:00.000Z',
+            },
+        });
+        expect(malformed.store.createMerchantRealtimeToken).toHaveBeenCalledWith(expect.objectContaining({
+            created_at: '2026-07-01T12:00:00.000Z',
+            expires_at: '2026-07-01T12:01:00.000Z',
+            metadata: expect.objectContaining({
+                issued_at: '2026-07-01T12:00:00.000Z',
+            }),
+        }));
+        expect(JSON.stringify({ futureResult, malformedResult })).not.toContain('merchant-1');
     });
 
     it('rejects realtime scopes outside the public allowlist', async () => {

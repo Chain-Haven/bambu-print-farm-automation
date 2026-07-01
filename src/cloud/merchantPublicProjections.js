@@ -3,7 +3,9 @@ import { createHttpError } from './merchantApiV2.js';
 const INTERNAL_EXACT_KEYS = new Set([
     'accesscode',
     'apikey',
+    'adapterfailure',
     'authorization',
+    'claimstatus',
     'commandid',
     'downloadurl',
     'href',
@@ -24,6 +26,7 @@ const INTERNAL_EXACT_KEYS = new Set([
     'providerresponse',
     'providershipmentid',
     'rateid',
+    'labelclaimstatus',
     'secret',
     'selectednodeid',
     'selectedprinterid',

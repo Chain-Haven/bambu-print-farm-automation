@@ -47,14 +47,13 @@ function normalizeTtlSeconds(source) {
     return Math.max(MIN_TTL_SECONDS, Math.min(parsed, MAX_TTL_SECONDS));
 }
 
-function channelForScope(tokenId, scope) {
+function channelSeed() {
+    return crypto.randomUUID().replaceAll('-', '').slice(0, 16);
+}
+
+function channelForScope(seed, scope) {
     const resource = scope.split(':')[0];
-    const tokenSegment = String(tokenId || '')
-        .replace(/[^A-Za-z0-9]/g, '')
-        .slice(0, 16)
-        .toLowerCase();
-    const opaqueSegment = tokenSegment || crypto.randomUUID().replaceAll('-', '').slice(0, 16);
-    return `pkx_rt_${opaqueSegment}_${resource}`;
+    return `pkx_rt_${seed}_${resource}`;
 }
 
 function hashRealtimeToken(token, pepper = '') {
@@ -63,15 +62,10 @@ function hashRealtimeToken(token, pepper = '') {
     return crypto.createHash('sha256').update(input, 'utf8').digest('hex');
 }
 
-function boundedExpiresAt({ issuedAt, adapterExpiresAt, expiresInSeconds }) {
+function boundedExpiresAt({ issuedAt, expiresInSeconds }) {
     const issuedTime = Date.parse(issuedAt);
     const safeIssuedTime = Number.isNaN(issuedTime) ? Date.now() : issuedTime;
-    const maxExpiryTime = safeIssuedTime + expiresInSeconds * 1000;
-    const adapterExpiryTime = Date.parse(adapterExpiresAt);
-    if (!Number.isNaN(adapterExpiryTime)) {
-        return new Date(Math.min(adapterExpiryTime, maxExpiryTime)).toISOString();
-    }
-    return new Date(maxExpiryTime).toISOString();
+    return new Date(safeIssuedTime + expiresInSeconds * 1000).toISOString();
 }
 
 function publicTokenRecord(record) {
@@ -118,11 +112,11 @@ export function createRealtimeHandlers({
         const rawToken = optionalString(adapterToken.token);
         if (!rawToken) throw createHttpError(502, 'realtime_token_unavailable', 'Realtime token could not be created');
         const tokenId = optionalString(adapterToken.token_id) || crypto.randomUUID();
-        const channelNames = scopes.map((scope) => channelForScope(tokenId, scope));
-        const issuedAt = optionalString(adapterToken.issued_at) || now().toISOString();
+        const seed = channelSeed();
+        const channelNames = scopes.map((scope) => channelForScope(seed, scope));
+        const issuedAt = now().toISOString();
         const expiresAt = boundedExpiresAt({
             issuedAt,
-            adapterExpiresAt: optionalString(adapterToken.expires_at),
             expiresInSeconds,
         });
         const tokenRecord = await store.createMerchantRealtimeToken({

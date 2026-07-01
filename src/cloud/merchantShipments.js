@@ -103,6 +103,57 @@ function assertIdempotentShipmentMatches(shipment, expectedRequest) {
     }
 }
 
+function shipmentClaimPayload({
+    merchant,
+    source,
+    order,
+    idempotencyKey,
+    expectedRequest,
+    timestamp,
+}) {
+    return {
+        ...merchantScope(merchant),
+        shipment_id: crypto.randomUUID(),
+        order_id: order.order_id,
+        idempotency_key: idempotencyKey,
+        status: 'label_requested',
+        carrier: null,
+        service_level: expectedRequest.service_level,
+        tracking_number: null,
+        ship_to: expectedRequest.ship_to,
+        packages: expectedRequest.packages,
+        shipped_at: null,
+        delivered_at: null,
+        metadata: {
+            ...redactPublicValue(safeObject(source.metadata)),
+            provider: 'pending',
+            idempotency_request: expectedRequest,
+        },
+        created_at: timestamp,
+    };
+}
+
+function shipmentFinalFields({
+    shipment,
+    source,
+    adapterShipment,
+    expectedRequest,
+}) {
+    return {
+        carrier: optionalString(adapterShipment.carrier),
+        service_level: optionalString(adapterShipment.service_level) || optionalString(source.service_level),
+        tracking_number: optionalString(adapterShipment.tracking_number),
+        ship_to: redactPublicValue(safeObject(adapterShipment.ship_to || expectedRequest.ship_to)),
+        packages: Array.isArray(adapterShipment.packages)
+            ? redactPublicValue(adapterShipment.packages)
+            : expectedRequest.packages,
+        metadata: {
+            ...safeObject(shipment.metadata),
+            provider: optionalString(adapterShipment.provider) || 'mock',
+        },
+    };
+}
+
 function safePublicLabelUrl(value) {
     const url = optionalString(value);
     if (!url) return null;
@@ -198,6 +249,83 @@ async function findShipmentByIdempotencyKey(store, merchant, idempotencyKey) {
     });
 }
 
+async function claimIdempotentShipment({
+    store,
+    merchant,
+    source,
+    order,
+    idempotencyKey,
+    expectedRequest,
+    timestamp,
+    requestId,
+}) {
+    const existingShipment = await findShipmentByIdempotencyKey(store, merchant, idempotencyKey);
+    if (existingShipment) {
+        return {
+            shipment: null,
+            replay: await replayIdempotentShipment({
+                store,
+                merchant,
+                shipment: existingShipment,
+                expectedRequest,
+                requestId,
+            }),
+        };
+    }
+
+    try {
+        return {
+            shipment: await store.createMerchantShipment(shipmentClaimPayload({
+                merchant,
+                source,
+                order,
+                idempotencyKey,
+                expectedRequest,
+                timestamp,
+            })),
+            replay: null,
+        };
+    } catch (error) {
+        const replayShipment = await findShipmentByIdempotencyKey(store, merchant, idempotencyKey);
+        if (replayShipment) {
+            return {
+                shipment: null,
+                replay: await replayIdempotentShipment({
+                    store,
+                    merchant,
+                    shipment: replayShipment,
+                    expectedRequest,
+                    requestId,
+                }),
+            };
+        }
+        throw error;
+    }
+}
+
+async function markShipmentAdapterFailure({ store, merchant, shipment, error, timestamp }) {
+    if (typeof store.updateMerchantShipmentStatus !== 'function') return;
+    try {
+        await store.updateMerchantShipmentStatus({
+            merchantId: merchant.merchant_id,
+            shipmentId: shipment.shipment_id,
+            status: 'label_requested',
+            fields: {
+                metadata: {
+                    ...safeObject(shipment.metadata),
+                    provider: safeObject(shipment.metadata).provider || 'pending',
+                    adapter_failure: {
+                        message: error instanceof Error ? error.message : 'Shipping adapter failed',
+                        failed_at: timestamp,
+                    },
+                },
+            },
+        });
+    } catch {
+        // The idempotency claim is already durable; failure metadata is best-effort.
+    }
+}
+
 async function recordShipmentEvent({
     store,
     merchant,
@@ -269,6 +397,68 @@ async function persistAdapterLabel({
     }
 }
 
+async function claimShipmentLabel({ store, merchant, shipment, timestamp }) {
+    const existingLabel = await getExistingShipmentLabel(store, merchant, shipment.shipment_id);
+    if (existingLabel) return { label: null, existingLabel };
+    try {
+        return {
+            label: await store.createMerchantShippingLabel({
+                ...merchantScope(merchant),
+                label_id: crypto.randomUUID(),
+                shipment_id: shipment.shipment_id,
+                provider: 'mock',
+                label_url: null,
+                tracking_number: null,
+                label_payload: {},
+                metadata: {
+                    label_claim_status: 'pending',
+                },
+                created_at: timestamp,
+            }),
+            existingLabel: null,
+        };
+    } catch (error) {
+        const racedLabel = await getExistingShipmentLabel(store, merchant, shipment.shipment_id);
+        if (racedLabel) return { label: null, existingLabel: racedLabel };
+        throw error;
+    }
+}
+
+async function finalizeClaimedLabel({
+    store,
+    merchant,
+    claimedLabel,
+    adapterLabel,
+    trackingNumber,
+}) {
+    if (!adapterLabel || typeof store.updateMerchantShippingLabel !== 'function') return null;
+    const fields = {
+        provider: optionalString(adapterLabel.provider) || claimedLabel.provider || 'mock',
+        label_url: optionalString(adapterLabel.label_url),
+        tracking_number: optionalString(adapterLabel.tracking_number) || trackingNumber || null,
+        label_payload: labelPayload(adapterLabel),
+        metadata: {
+            ...safeObject(claimedLabel.metadata),
+            label_claim_status: 'completed',
+            format: optionalString(adapterLabel.format),
+        },
+    };
+    try {
+        const updatedLabel = await store.updateMerchantShippingLabel({
+            merchantId: merchant.merchant_id,
+            labelId: claimedLabel.label_id,
+            fields,
+        });
+        return updatedLabel
+            ? { ...claimedLabel, ...updatedLabel, shipment_id: claimedLabel.shipment_id }
+            : { ...claimedLabel, ...fields };
+    } catch (error) {
+        const existingLabel = await getExistingShipmentLabel(store, merchant, claimedLabel.shipment_id);
+        if (existingLabel) return existingLabel;
+        throw error;
+    }
+}
+
 export function createShippingHandlers({
     store,
     authenticateMerchant,
@@ -296,69 +486,78 @@ export function createShippingHandlers({
         const order = await requireMerchantOrder(store, merchant, orderId);
         const idempotencyKey = shipmentIdempotencyKey(source, request);
         const expectedRequest = normalizedShipmentRequest({ orderId, source, order });
-        const existingShipment = await findShipmentByIdempotencyKey(store, merchant, idempotencyKey);
-        if (existingShipment) {
-            return replayIdempotentShipment({
+        const timestamp = now().toISOString();
+        let shipment = null;
+        if (idempotencyKey) {
+            const claim = await claimIdempotentShipment({
                 store,
                 merchant,
-                shipment: existingShipment,
+                source,
+                order,
+                idempotencyKey,
                 expectedRequest,
+                timestamp,
                 requestId,
             });
+            if (claim.replay) return claim.replay;
+            shipment = claim.shipment;
         }
         if (!adapters?.shipping || typeof adapters.shipping.createShipment !== 'function') {
             throw new Error('shipping adapter is required');
         }
 
-        const timestamp = now().toISOString();
-        const adapterShipment = await adapters.shipping.createShipment({
-            merchant,
-            order,
-            address: expectedRequest.ship_to,
-            packages: expectedRequest.packages,
-            serviceLevel: expectedRequest.service_level,
-        });
-        const shipmentPayload = {
-            ...merchantScope(merchant),
-            shipment_id: optionalString(adapterShipment.shipment_id) || crypto.randomUUID(),
-            order_id: order.order_id,
-            status: normalizeShipmentStatus(adapterShipment.status) || 'label_requested',
-            carrier: optionalString(adapterShipment.carrier),
-            service_level: optionalString(adapterShipment.service_level) || optionalString(source.service_level),
-            tracking_number: optionalString(adapterShipment.tracking_number),
-            ship_to: redactPublicValue(safeObject(adapterShipment.ship_to || expectedRequest.ship_to)),
-            packages: Array.isArray(adapterShipment.packages)
-                ? redactPublicValue(adapterShipment.packages)
-                : expectedRequest.packages,
-            shipped_at: null,
-            delivered_at: null,
-            metadata: {
-                ...redactPublicValue(safeObject(source.metadata)),
-                provider: optionalString(adapterShipment.provider) || 'mock',
-                ...(idempotencyKey
-                    ? {
-                        idempotency_key: idempotencyKey,
-                        idempotency_request: expectedRequest,
-                    }
-                    : {}),
-            },
-            created_at: optionalString(adapterShipment.created_at) || timestamp,
-        };
-        let shipment;
+        let adapterShipment;
         try {
-            shipment = await store.createMerchantShipment(shipmentPayload);
+            adapterShipment = await adapters.shipping.createShipment({
+                merchant,
+                order,
+                address: expectedRequest.ship_to,
+                packages: expectedRequest.packages,
+                serviceLevel: expectedRequest.service_level,
+            });
         } catch (error) {
-            const replayShipment = await findShipmentByIdempotencyKey(store, merchant, idempotencyKey);
-            if (replayShipment) {
-                return replayIdempotentShipment({
+            if (shipment) {
+                await markShipmentAdapterFailure({
                     store,
                     merchant,
-                    shipment: replayShipment,
-                    expectedRequest,
-                    requestId,
+                    shipment,
+                    error,
+                    timestamp,
                 });
             }
             throw error;
+        }
+        const finalStatus = normalizeShipmentStatus(adapterShipment.status) || 'label_requested';
+        if (shipment) {
+            const fields = shipmentFinalFields({
+                shipment,
+                source,
+                adapterShipment,
+                expectedRequest,
+            });
+            shipment = await store.updateMerchantShipmentStatus({
+                merchantId: merchant.merchant_id,
+                shipmentId: shipment.shipment_id,
+                status: finalStatus,
+                fields,
+            }) || { ...shipment, status: finalStatus, ...fields };
+        } else {
+            shipment = await store.createMerchantShipment({
+                ...merchantScope(merchant),
+                shipment_id: optionalString(adapterShipment.shipment_id) || crypto.randomUUID(),
+                order_id: order.order_id,
+                idempotency_key: null,
+                status: finalStatus,
+                shipped_at: null,
+                delivered_at: null,
+                created_at: optionalString(adapterShipment.created_at) || timestamp,
+                ...shipmentFinalFields({
+                    shipment: { metadata: redactPublicValue(safeObject(source.metadata)) },
+                    source,
+                    adapterShipment,
+                    expectedRequest,
+                }),
+            });
         }
         const label = await persistAdapterLabel({
             store,
@@ -391,31 +590,30 @@ export function createShippingHandlers({
         const merchant = await getAuthenticatedMerchant(authenticateMerchant, request);
         const shipmentId = requiredShipmentId(safeObject(body).shipment_id);
         const shipment = await getCurrentShipment(store, merchant, shipmentId);
-        const existingLabel = await getExistingShipmentLabel(store, merchant, shipmentId);
-        if (existingLabel) return publicOk({ label: publicLabel(existingLabel) }, requestId);
         if (!adapters?.shipping || typeof adapters.shipping.createShipment !== 'function') {
             throw new Error('shipping adapter is required');
         }
 
-        // Check-before-call plus insert-failure replay keeps mock/local retries idempotent and
-        // minimizes duplicate persisted labels when an external provider purchase races.
+        // The placeholder row is a durable per-shipment label claim. If another request
+        // already owns the claim, replay it and do not call the provider again.
+        const timestamp = now().toISOString();
+        const labelClaim = await claimShipmentLabel({ store, merchant, shipment, timestamp });
+        if (labelClaim.existingLabel) return publicOk({ label: publicLabel(labelClaim.existingLabel) }, requestId);
         const order = shipment.order_id
             ? await store.getMerchantOrder({ merchantId: merchant.merchant_id, orderId: shipment.order_id })
             : null;
-        const timestamp = now().toISOString();
         const adapterShipment = await adapters.shipping.createShipment({
             merchant,
             order: order || { order_id: shipment.order_id },
             address: safeObject(shipment.ship_to),
             packages: Array.isArray(shipment.packages) ? shipment.packages : [],
         });
-        const label = await persistAdapterLabel({
+        const label = await finalizeClaimedLabel({
             store,
             merchant,
-            shipment,
+            claimedLabel: labelClaim.label,
             adapterLabel: adapterShipment.label,
             trackingNumber: optionalString(adapterShipment.tracking_number) || shipment.tracking_number,
-            timestamp,
         });
         if (!label) throw createHttpError(502, 'label_unavailable', 'Shipping label could not be created');
         const updatedShipment = typeof store.updateMerchantShipmentStatus === 'function'

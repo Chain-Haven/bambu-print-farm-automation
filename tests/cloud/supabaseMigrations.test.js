@@ -87,7 +87,9 @@ describe('Supabase migrations', () => {
             'merchant_post_processing_tasks_org_merchant_task_id_unique unique (org_id, merchant_id, task_id)',
             'merchant_post_processing_tasks_org_merchant_idempotency_key_unique unique (org_id, merchant_id, idempotency_key)',
             'merchant_shipments_org_merchant_shipment_id_unique unique (org_id, merchant_id, shipment_id)',
+            'merchant_shipments_org_merchant_idempotency_key_unique unique (org_id, merchant_id, idempotency_key)',
             'merchant_shipping_labels_org_merchant_label_id_unique unique (org_id, merchant_id, label_id)',
+            'merchant_shipping_labels_org_merchant_shipment_id_unique unique (org_id, merchant_id, shipment_id)',
             'merchant_rate_cards_org_merchant_rate_card_id_unique unique (org_id, merchant_id, rate_card_id)',
             'merchant_invoices_org_merchant_invoice_id_unique unique (org_id, merchant_id, invoice_id)',
             'merchant_invoice_lines_org_merchant_invoice_line_id_unique unique (org_id, merchant_id, invoice_line_id)',
@@ -178,6 +180,7 @@ describe('Supabase migrations', () => {
         expect(sql).toContain('Existing print_jobs.merchant_id is nullable for non-merchant jobs');
         expect(compact).toContain('preserving non-merchant jobs while enforcing org/merchant pairing');
         expect(compact).toContain('merchant_post_processing_tasks ( task_id uuid primary key default gen_random_uuid(), org_id uuid not null references public.organizations(org_id) on delete cascade, merchant_id uuid not null references public.merchants(merchant_id) on delete cascade, job_id uuid references public.print_jobs(job_id) on delete set null, order_id uuid references public.merchant_orders(order_id) on delete set null, idempotency_key text, task_type text not null check');
+        expect(compact).toContain('merchant_shipments ( shipment_id uuid primary key default gen_random_uuid(), org_id uuid not null references public.organizations(org_id) on delete cascade, merchant_id uuid not null references public.merchants(merchant_id) on delete cascade, order_id uuid references public.merchant_orders(order_id) on delete set null, idempotency_key text, status text not null default');
     });
 
     it('requires Merchant API v2 lifecycle statuses', () => {

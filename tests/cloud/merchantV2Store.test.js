@@ -47,6 +47,7 @@ const requiredMethods = [
     'getMerchantShipment',
     'updateMerchantShipmentStatus',
     'createMerchantShippingLabel',
+    'updateMerchantShippingLabel',
     'listMerchantShippingLabels',
     'getMerchantShippingLabelByShipment',
     'getMerchantRateCard',
@@ -290,7 +291,7 @@ describe('merchant API v2 store surface', () => {
         const idempotencyUrl = new URL(fetchImpl.mock.calls[1][0]);
         expect(idempotencyUrl.pathname).toBe('/rest/v1/merchant_shipments');
         expect(idempotencyUrl.searchParams.get('merchant_id')).toBe('eq.m1');
-        expect(idempotencyUrl.searchParams.get('metadata->>idempotency_key')).toBe('eq.idem-ship');
+        expect(idempotencyUrl.searchParams.get('idempotency_key')).toBe('eq.idem-ship');
         expect(idempotencyUrl.searchParams.get('limit')).toBe('1');
 
         const labelsUrl = new URL(fetchImpl.mock.calls[2][0]);
@@ -378,5 +379,35 @@ describe('merchant API v2 store surface', () => {
         expect(tokensUrl.searchParams.get('expires_at')).toMatch(/^gt\./);
         expect(tokensUrl.searchParams.get('select')).not.toContain('token_hash');
         expect(tokensUrl.searchParams.get('limit')).toBe('7');
+    });
+
+    it('updates claimed shipping labels through a merchant-scoped PATCH', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([{ label_id: 'l1', label_url: 'mock://label' }]));
+        const store = await createStore(fetchImpl);
+
+        await store.updateMerchantShippingLabel({
+            merchantId: 'm1',
+            labelId: 'l1',
+            fields: {
+                label_url: 'mock://label',
+                tracking_number: 'track-1',
+                metadata: { label_claim_status: 'completed' },
+            },
+        });
+
+        const [url, init] = fetchImpl.mock.calls[0];
+        const requestUrl = new URL(url);
+        expect(requestUrl.pathname).toBe('/rest/v1/merchant_shipping_labels');
+        expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(requestUrl.searchParams.get('label_id')).toBe('eq.l1');
+        expect(init).toMatchObject({
+            method: 'PATCH',
+            headers: expect.objectContaining({ Prefer: 'return=representation' }),
+            body: JSON.stringify({
+                label_url: 'mock://label',
+                tracking_number: 'track-1',
+                metadata: { label_claim_status: 'completed' },
+            }),
+        });
     });
 });

@@ -1309,7 +1309,7 @@ export function createSupabaseRestClient({
         async findMerchantShipmentByIdempotencyKey({ merchantId, idempotencyKey }) {
             const rows = await request(merchantV2ListPath('merchant_shipments', {
                 merchantId,
-                filters: [`metadata->>idempotency_key=${eqFilter(idempotencyKey, 'idempotency_key')}`],
+                filters: [`idempotency_key=${eqFilter(idempotencyKey, 'idempotency_key')}`],
                 limit: 1,
             }));
             return firstRow(rows);
@@ -1356,6 +1356,15 @@ export function createSupabaseRestClient({
 
         async createMerchantShippingLabel(label) {
             return createMerchantV2Row('merchant_shipping_labels', label);
+        },
+
+        async updateMerchantShippingLabel({ merchantId, labelId, fields = {} }) {
+            return updateMerchantV2Row('merchant_shipping_labels', {
+                merchantId,
+                idColumn: 'label_id',
+                id: labelId,
+                body: fields,
+            });
         },
 
         async listMerchantShippingLabels({
