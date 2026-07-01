@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PrintKinetix Merchant API v1</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --text: #18202f;
+      --muted: #526073;
+      --line: #d9e0ea;
+      --accent: #0f766e;
+      --code: #111827;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #10141d;
+        --panel: #171d29;
+        --text: #eff4fb;
+        --muted: #a8b3c2;
+        --line: #2d3748;
+        --accent: #2dd4bf;
+        --code: #0b1020;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 48px 20px 72px;
+    }
+    header {
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 28px;
+      padding-bottom: 24px;
+    }
+    h1 {
+      font-size: clamp(2rem, 6vw, 3.6rem);
+      line-height: 1;
+      margin: 0 0 12px;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 36px 0 12px;
+      font-size: 1.35rem;
+      letter-spacing: 0;
+    }
+    h3 {
+      margin: 22px 0 8px;
+      font-size: 1.05rem;
+      letter-spacing: 0;
+    }
+    p, li { color: var(--muted); }
+    a { color: var(--accent); }
+    code {
+      background: rgba(15, 118, 110, 0.12);
+      color: var(--text);
+      border-radius: 4px;
+      padding: 0.1rem 0.25rem;
+    }
+    pre {
+      overflow-x: auto;
+      background: var(--code);
+      color: #eef6ff;
+      border-radius: 8px;
+      padding: 16px;
+      border: 1px solid var(--line);
+    }
+    pre code {
+      background: transparent;
+      color: inherit;
+      padding: 0;
+    }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 20px;
+      margin: 18px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 8px;
+      vertical-align: top;
+    }
+    th { color: var(--text); }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>PrintKinetix Merchant API v1</h1>
+      <p>Submit merchant print files, route them to the best available Bambu printer, and track usage through the live PrintKinetix cloud control plane.</p>
+      <p><a href="/openapi/merchant-api-v1.json">OpenAPI JSON</a></p>
+    </header>
+
+    <section>
+      <h2>Onboarding</h2>
+      <ol>
+        <li>Call <code>POST /api/public/merchants/signup</code> with company and contact details.</li>
+        <li>Signup is approval-required by default. Pending merchants receive no live credentials.</li>
+        <li>An admin approves the merchant with <code>POST /api/cloud/merchants</code>.</li>
+        <li>The admin issues a one-time <code>pkx_setup_...</code> token during approval or with <code>POST /api/cloud/merchant-setup-token</code>.</li>
+        <li>The merchant exchanges that setup token at <code>POST /api/public/api-keys</code> for a live <code>pkx_live_...</code> API key.</li>
+      </ol>
+      <p>Full-auto merchant signup exists as an admin option, but <code>full_auto_merchant_mode</code> defaults to disabled.</p>
+    </section>
+
+    <section>
+      <h2>Authentication</h2>
+      <h3>Merchant live API key</h3>
+      <pre><code>Authorization: Bearer pkx_live_...</code></pre>
+      <h3>One-time setup token exchange</h3>
+      <pre><code>X-Merchant-Setup-Token: pkx_setup_...</code></pre>
+      <h3>Admin cloud token</h3>
+      <pre><code>Authorization: Bearer &lt;CLOUD_ADMIN_TOKEN&gt;</code></pre>
+    </section>
+
+    <section>
+      <h2>Submit A Print Job</h2>
+      <p><code>POST /api/public/print-jobs</code></p>
+      <pre><code>{
+  "name": "Order 1001",
+  "file": {
+    "name": "part.gcode.3mf",
+    "content_type": "application/octet-stream",
+    "base64": "..."
+  },
+  "requirements": {
+    "dimensions_mm": { "x": 100, "y": 100, "z": 80 },
+    "materials": ["PLA"],
+    "colors": ["#ffffff"]
+  },
+  "options": {
+    "merchant_order_id": "1001"
+  }
+}</code></pre>
+      <table>
+        <thead>
+          <tr><th>File type</th><th>Behavior</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>.gcode</code>, <code>.3mf</code>, <code>.gcode.3mf</code></td><td>Stored privately, routed with <code>fastest_fulfillment</code>, and queued for the selected local node when capacity matches.</td></tr>
+          <tr><td><code>.stl</code>, <code>.obj</code>, <code>.step</code>, <code>.stp</code></td><td>Stored and tracked as <code>needs_slicing</code> until slicer automation is attached.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Core Endpoints</h2>
+      <table>
+        <thead>
+          <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>POST</td><td><code>/api/public/merchants/signup</code></td><td>Create a merchant signup request.</td></tr>
+          <tr><td>POST</td><td><code>/api/public/api-keys</code></td><td>Exchange setup token or create an additional live key.</td></tr>
+          <tr><td>GET</td><td><code>/api/public/api-keys</code></td><td>List live keys without hashes or raw secrets.</td></tr>
+          <tr><td>POST</td><td><code>/api/public/api-keys/revoke</code></td><td>Revoke a merchant API key.</td></tr>
+          <tr><td>GET</td><td><code>/api/public/merchant/me</code></td><td>Read the authenticated merchant account.</td></tr>
+          <tr><td>POST</td><td><code>/api/public/print-jobs</code></td><td>Submit a file for routing and fulfillment.</td></tr>
+          <tr><td>GET</td><td><code>/api/public/print-jobs</code></td><td>List merchant jobs.</td></tr>
+          <tr><td>GET</td><td><code>/api/public/print-jobs/status?job_id=...</code></td><td>Read one job status.</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

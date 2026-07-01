@@ -1,0 +1,491 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PrintKinetix Merchant API",
+    "version": "1.0.0",
+    "summary": "Merchant signup, API keys, print job ingestion, routing, and usage tracking."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "security": [
+    {
+      "MerchantApiKey": []
+    }
+  ],
+  "paths": {
+    "/api/public/merchants/signup": {
+      "post": {
+        "summary": "Create a merchant signup request",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MerchantSignupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Merchant created"
+          },
+          "409": {
+            "description": "Merchant email already exists"
+          }
+        }
+      }
+    },
+    "/api/public/merchant/me": {
+      "get": {
+        "summary": "Read authenticated merchant account",
+        "responses": {
+          "200": {
+            "description": "Authenticated merchant"
+          }
+        }
+      }
+    },
+    "/api/public/api-keys": {
+      "get": {
+        "summary": "List merchant API keys",
+        "responses": {
+          "200": {
+            "description": "API key list without raw secrets or hashes"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a live merchant API key",
+        "description": "Use MerchantApiKey to create an additional key, or MerchantSetupToken to exchange a one-time setup token.",
+        "security": [
+          {
+            "MerchantApiKey": []
+          },
+          {
+            "MerchantSetupToken": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiKeyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created live key. The raw key is returned once as api_key_secret."
+          }
+        }
+      }
+    },
+    "/api/public/api-keys/revoke": {
+      "post": {
+        "summary": "Revoke a merchant API key",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeApiKeyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Key revoked"
+          }
+        }
+      }
+    },
+    "/api/public/print-jobs": {
+      "get": {
+        "summary": "List merchant print jobs",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Merchant jobs"
+          }
+        }
+      },
+      "post": {
+        "summary": "Submit a print file",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePrintJobRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Print job accepted"
+          }
+        }
+      }
+    },
+    "/api/public/print-jobs/status": {
+      "get": {
+        "summary": "Read one print job by id",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Print job status"
+          },
+          "404": {
+            "description": "Print job not found"
+          }
+        }
+      }
+    },
+    "/api/cloud/merchants": {
+      "get": {
+        "summary": "Admin list merchants",
+        "security": [
+          {
+            "CloudAdminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Merchant list"
+          }
+        }
+      },
+      "post": {
+        "summary": "Admin approve, activate, reject, or suspend merchant",
+        "security": [
+          {
+            "CloudAdminToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminMerchantActionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Merchant status updated"
+          }
+        }
+      }
+    },
+    "/api/cloud/merchant-settings": {
+      "get": {
+        "summary": "Admin read merchant settings",
+        "security": [
+          {
+            "CloudAdminToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Merchant settings"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Admin update full-auto merchant mode",
+        "security": [
+          {
+            "CloudAdminToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["full_auto_merchant_mode"],
+                "properties": {
+                  "full_auto_merchant_mode": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Settings updated"
+          }
+        }
+      }
+    },
+    "/api/cloud/merchant-setup-token": {
+      "post": {
+        "summary": "Admin issue one-time setup token for an active merchant",
+        "security": [
+          {
+            "CloudAdminToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["merchant_id"],
+                "properties": {
+                  "merchant_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Setup token returned once"
+          }
+        }
+      }
+    },
+    "/api/cloud/merchant-jobs": {
+      "get": {
+        "summary": "Admin list jobs for a merchant",
+        "security": [
+          {
+            "CloudAdminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "merchant_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Merchant print jobs"
+          }
+        }
+      }
+    },
+    "/api/cloud/merchant-usage": {
+      "get": {
+        "summary": "Admin list tracked usage for a merchant",
+        "security": [
+          {
+            "CloudAdminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "merchant_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Merchant usage events"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "MerchantApiKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "pkx_live"
+      },
+      "MerchantSetupToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Merchant-Setup-Token"
+      },
+      "CloudAdminToken": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "parameters": {
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      }
+    },
+    "schemas": {
+      "MerchantSignupRequest": {
+        "type": "object",
+        "required": ["company_name", "contact_email"],
+        "properties": {
+          "company_name": {
+            "type": "string"
+          },
+          "contact_email": {
+            "type": "string",
+            "format": "email"
+          },
+          "contact_name": {
+            "type": "string"
+          },
+          "website": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "CreateApiKeyRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "default": "Production"
+          }
+        }
+      },
+      "RevokeApiKeyRequest": {
+        "type": "object",
+        "required": ["key_id"],
+        "properties": {
+          "key_id": {
+            "type": "string"
+          }
+        }
+      },
+      "CreatePrintJobRequest": {
+        "type": "object",
+        "required": ["file"],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "file": {
+            "type": "object",
+            "required": ["name", "base64"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "examples": ["part.gcode.3mf"]
+              },
+              "content_type": {
+                "type": "string",
+                "default": "application/octet-stream"
+              },
+              "base64": {
+                "type": "string",
+                "contentEncoding": "base64"
+              }
+            }
+          },
+          "requirements": {
+            "type": "object",
+            "properties": {
+              "dimensions_mm": {
+                "type": "object",
+                "properties": {
+                  "x": { "type": "number" },
+                  "y": { "type": "number" },
+                  "z": { "type": "number" }
+                }
+              },
+              "materials": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "colors": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            },
+            "additionalProperties": true
+          },
+          "options": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "AdminMerchantActionRequest": {
+        "type": "object",
+        "required": ["merchant_id", "action"],
+        "properties": {
+          "merchant_id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["approve", "activate", "reject", "suspend"]
+          },
+          "issue_setup_token": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      }
+    }
+  }
+}
