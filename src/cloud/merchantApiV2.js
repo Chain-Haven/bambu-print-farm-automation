@@ -12,13 +12,32 @@ export function merchantScope(merchant) {
 }
 
 export function publicOk(payload = {}, requestId = createRequestId()) {
-    return { ok: true, request_id: requestId, ...payload };
+    return { ...payload, ok: true, request_id: requestId };
 }
 
 export function publicError(error, requestId = createRequestId()) {
+    const isObjectError = error !== null && typeof error === 'object';
+    const isClientError = (
+        isObjectError
+        && Number.isInteger(error.statusCode)
+        && error.statusCode >= 400
+        && error.statusCode < 500
+        && typeof error.code === 'string'
+        && error.code.length > 0
+    );
+
+    if (!isClientError) {
+        return {
+            ok: false,
+            error: 'internal_error',
+            message: 'Unexpected server error',
+            request_id: requestId,
+        };
+    }
+
     return {
         ok: false,
-        error: error.code || 'internal_error',
+        error: error.code,
         message: error.message || 'Unexpected server error',
         request_id: requestId,
     };
