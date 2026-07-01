@@ -32,6 +32,11 @@ export class PrinterWorker {
         this.activeJobId = null; // Track if current print was started by Antigravity
         this.lastReportTime = null; // Timestamp of last MQTT report
         this._alertedErrorCode = 0; // de-dupe: last print_error we already alerted on
+        // Self-healing state
+        this._reconnectAttempts = 0;
+        this._lastReconnectAt = 0;
+        this._staleNudged = false;
+        this.staleReportMs = parseInt(process.env.PRINTER_STALE_REPORT_MS) || 120000; // 2min
     }
 
     /**
@@ -254,6 +259,10 @@ export class PrinterWorker {
         this.lastReportTime = Date.now();
         const print = data.print || {};
 
+        // Capture prior error state so we can log transitions to the event log below.
+        const priorPrintError = this.latestStatus?.print_error || 0;
+        const priorHms = Array.isArray(this.latestStatus?.hms_errors) ? this.latestStatus.hms_errors : [];
+
         // Merge incremental updates (Bambu sends partial reports)
         const update = {};
         if (print.gcode_state !== undefined || print.mc_print_stage !== undefined) {
@@ -303,8 +312,52 @@ export class PrinterWorker {
         PrinterModel.updateStatus(this.printerId, this.latestStatus);
         if (this.onStatusUpdate) this.onStatusUpdate(this.latestStatus);
 
+        // Persist error transitions as a queryable per-printer error log.
+        this._logErrorTransitions(priorPrintError, priorHms);
+
         // Camera/logs/motor-stat driven safety: react to a NEW blocking fault mid-print.
         this._checkForFailures();
+    }
+
+    /**
+     * Write a durable, queryable error-history entry whenever the printer's
+     * print_error or HMS set changes. Fires only on transitions (not every report),
+     * so the events table stays bounded. Queryable via GET /events/printer/:id or
+     * GET /printers/:id/errors.
+     */
+    _logErrorTransitions(priorPrintError, priorHms) {
+        try {
+            const err = this.latestStatus?.print_error || 0;
+            if (err && err !== priorPrintError) {
+                const decoded = decodePrintError(err);
+                EventModel.create({
+                    entity_type: 'printer', entity_id: this.printerId,
+                    event_type: 'printer.error',
+                    payload: {
+                        code: err, formatted: decoded?.formatted, message: decoded?.message,
+                        severity: decoded?.severity, state: this.state,
+                    },
+                });
+            } else if (!err && priorPrintError) {
+                EventModel.create({
+                    entity_type: 'printer', entity_id: this.printerId,
+                    event_type: 'printer.error_cleared',
+                    payload: { previous_code: priorPrintError, formatted: formatErrorCode(priorPrintError) },
+                });
+            }
+
+            const hms = Array.isArray(this.latestStatus?.hms_errors) ? this.latestStatus.hms_errors : [];
+            const keyOf = (h) => `${h?.attr}-${h?.code}`;
+            const priorKeys = new Set((priorHms || []).map(keyOf));
+            for (const h of hms.filter((x) => !priorKeys.has(keyOf(x)))) {
+                const hex = `${(h?.attr ?? 0).toString(16).toUpperCase()}_${(h?.code ?? 0).toString(16).toUpperCase()}`;
+                EventModel.create({
+                    entity_type: 'printer', entity_id: this.printerId,
+                    event_type: 'printer.hms',
+                    payload: { attr: h?.attr, code: h?.code, hms: hex, state: this.state },
+                });
+            }
+        } catch { /* error logging must never break status handling */ }
     }
 
     _autoCancelEnabled() {
@@ -422,6 +475,28 @@ export class PrinterWorker {
             return;
         }
         const live = !!(this.mqttClient && this.mqttClient.connected);
+
+        if (!this.mqttClient) {
+            // No transport at all (e.g. started before auth was configured, or a
+            // previous connect threw). Self-heal by re-attempting on a backoff
+            // instead of staying offline forever. A client that merely dropped is
+            // left to the mqtt library's own auto-reconnect (don't recreate it).
+            await this._attemptReconnect();
+        } else if (live) {
+            // Connected at the socket level — detect a hung printer (socket open
+            // but no fresh status reports) and nudge it with a status request.
+            const age = this.lastReportTime ? Date.now() - this.lastReportTime : Infinity;
+            if (age > this.staleReportMs) {
+                if (!this._staleNudged) {
+                    log.warn(`Printer ${this.printer.name}: no status for ${Math.round(age / 1000)}s — requesting refresh`);
+                    this._staleNudged = true;
+                }
+                this.requestStatusRefresh();
+            } else {
+                this._staleNudged = false;
+            }
+        }
+
         if (!live && this.connected !== false) {
             // Just went offline — update state and notify the UI so the dashboard
             // reflects the disconnection without waiting for a manual refresh.
@@ -429,6 +504,33 @@ export class PrinterWorker {
             this._transitionState('offline');
             this.latestStatus = { ...this.latestStatus, state: 'offline' };
             if (this.onStatusUpdate) this.onStatusUpdate(this.latestStatus);
+        }
+    }
+
+    /**
+     * Self-healing (re)connect for a worker with no live MQTT transport, throttled
+     * with exponential backoff (5s → 80s). Only recreates when there is no client;
+     * a disconnected-but-present client is handled by the mqtt library.
+     */
+    async _attemptReconnect() {
+        const now = Date.now();
+        const backoff = Math.min(80000, 5000 * 2 ** Math.min(this._reconnectAttempts, 4));
+        if (this._lastReconnectAt && (now - this._lastReconnectAt) < backoff) return;
+        this._lastReconnectAt = now;
+
+        const authData = PrinterModel.getAuth(this.printerId);
+        if (!authData) return; // still unconfigured — nothing to connect with
+
+        this._reconnectAttempts += 1;
+        try {
+            log.info(`Self-heal: (re)connecting ${this.printer.name} (attempt ${this._reconnectAttempts})`);
+            this.mqttClient = new BambuMqttClient(this.printer, authData);
+            this.mqttClient.onStatus((data) => this._handleStatus(data));
+            await this.mqttClient.connect();
+            this._reconnectAttempts = 0; // success resets the backoff
+        } catch (err) {
+            log.warn(`Self-heal reconnect failed for ${this.printer.name}: ${err.message}`);
+            this.mqttClient = null; // drop the half-built client so we retry cleanly
         }
     }
 

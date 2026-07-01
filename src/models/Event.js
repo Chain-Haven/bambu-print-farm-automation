@@ -19,6 +19,18 @@ export class EventModel {
         ).map(r => ({ ...r, payload: _pj(r.payload, {}) }));
     }
 
+    /**
+     * Delete events older than `days` to bound table growth on a long-running node
+     * (critical at 300 printers, where status/error events accumulate forever and
+     * the periodic full-DB export gets slower with every row). Returns rows removed.
+     */
+    static pruneOlderThan(days = 30) {
+        const before = dbGet('SELECT COUNT(*) AS n FROM events')?.n || 0;
+        dbRun("DELETE FROM events WHERE created_at < datetime('now', ?)", [`-${Math.max(1, days)} days`]);
+        const after = dbGet('SELECT COUNT(*) AS n FROM events')?.n || 0;
+        return Math.max(0, before - after);
+    }
+
     static findAll({ entity_type, event_type, limit = 100, offset = 0 } = {}) {
         let sql = 'SELECT * FROM events';
         const conds = []; const vals = [];

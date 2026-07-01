@@ -369,6 +369,40 @@ router.delete('/:id/overrides/:key', requireAdmin, asyncHandler(async (req, res)
     res.json({ ok: true });
 }));
 
+// Per-printer error log — decoded print_error / HMS / failure history.
+router.get('/:id/errors', requireAuth, asyncHandler(async (req, res) => {
+    const printer = PrinterRegistry.findById(req.params.id);
+    if (!printer) return res.status(404).json({ error: 'Printer not found' });
+    const { EventLog } = await import('../../services/EventLog.js');
+    const { decodePrintError } = await import('../../utils/PrinterErrors.js');
+    const ERROR_TYPES = new Set([
+        'printer.error', 'printer.error_cleared', 'printer.hms',
+        'printer.failure_detected', 'printer.auto_canceled',
+    ]);
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+    // Pull a window of entity events and keep the error-related ones.
+    const events = EventLog.getByEntity('printer', req.params.id, { limit: limit * 3, offset: 0 }) || [];
+    const errors = events
+        .filter((e) => ERROR_TYPES.has(e.event_type))
+        .slice(0, limit)
+        .map((e) => {
+            const p = typeof e.payload === 'string' ? (() => { try { return JSON.parse(e.payload); } catch { return {}; } })() : (e.payload || {});
+            const decoded = p.code ? decodePrintError(p.code) : null;
+            return {
+                event_id: e.event_id,
+                type: e.event_type,
+                created_at: e.created_at,
+                code: p.code ?? null,
+                formatted: p.formatted ?? decoded?.formatted ?? p.hms ?? null,
+                message: p.message ?? decoded?.message ?? null,
+                severity: p.severity ?? decoded?.severity ?? (e.event_type === 'printer.error_cleared' ? 'info' : 'error'),
+                remediation: decoded?.remediation ?? null,
+                state: p.state ?? null,
+            };
+        });
+    res.json({ printer_id: req.params.id, count: errors.length, errors });
+}));
+
 // ─── Camera feed ────────────────────────────────────────────────────
 // The SPA's camera widget calls these (authenticated via ?token= for <img>/MJPEG,
 // which requireAuth supports). The CameraProxy handles model-specific transport
