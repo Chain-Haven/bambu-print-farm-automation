@@ -1,6 +1,6 @@
 import { MerchantAuthError, authenticateMerchantRequest } from '../../../src/cloud/merchantAuth.js';
 import { createFileHandlers } from '../../../src/cloud/merchantFiles.js';
-import { publicError } from '../../../src/cloud/merchantApiV2.js';
+import { createHttpError, createRequestId, publicError } from '../../../src/cloud/merchantApiV2.js';
 import { createSupabaseRestClient } from '../../../src/cloud/supabaseRest.js';
 
 function sendJson(res, statusCode, payload) {
@@ -12,9 +12,13 @@ function sendJson(res, statusCode, payload) {
     return res.end(JSON.stringify(payload));
 }
 
-function methodNotAllowed(res, methods) {
+function methodNotAllowed(res, methods, requestId) {
     if (typeof res.setHeader === 'function') res.setHeader('Allow', methods);
-    return sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
+    return sendJson(
+        res,
+        405,
+        publicError(createHttpError(405, 'method_not_allowed', 'Method not allowed'), requestId),
+    );
 }
 
 function routeFileId(req) {
@@ -28,9 +32,19 @@ function statusForError(error) {
         : 500;
 }
 
+function publicAuthError(error, requestId) {
+    return {
+        ok: false,
+        error: error.code || 'merchant_auth_failed',
+        message: 'Merchant authentication failed',
+        request_id: requestId,
+    };
+}
+
 export default async function handler(req, res) {
+    const requestId = createRequestId();
     if (req.method && !['GET', 'DELETE'].includes(req.method)) {
-        return methodNotAllowed(res, 'GET, DELETE');
+        return methodNotAllowed(res, 'GET, DELETE', requestId);
     }
 
     const store = createSupabaseRestClient();
@@ -48,13 +62,13 @@ export default async function handler(req, res) {
     try {
         const payload = { file_id: routeFileId(req) };
         const result = req.method === 'DELETE'
-            ? await deleteFile(payload, req)
-            : await getFile(payload, req);
+            ? await deleteFile(payload, req, requestId)
+            : await getFile(payload, req, requestId);
         return sendJson(res, 200, result);
     } catch (error) {
         if (error instanceof MerchantAuthError) {
-            return sendJson(res, error.statusCode, { ok: false, error: error.code });
+            return sendJson(res, error.statusCode, publicAuthError(error, requestId));
         }
-        return sendJson(res, statusForError(error), publicError(error));
+        return sendJson(res, statusForError(error), publicError(error, requestId));
     }
 }

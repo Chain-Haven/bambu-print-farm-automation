@@ -42,9 +42,25 @@ function classifyFileName(name) {
 
 function decodeBase64(value) {
     const source = requiredString(value, 'file.base64');
-    const buffer = Buffer.from(source, 'base64');
+    const compact = source.replace(/\s+/g, '');
+    const paddingIndex = compact.indexOf('=');
+    const hasInvalidPadding = paddingIndex !== -1 && !/^=+$/.test(compact.slice(paddingIndex));
+    if (
+        compact.length === 0
+        || !/^[A-Za-z0-9+/]+={0,2}$/.test(compact)
+        || hasInvalidPadding
+        || compact.length % 4 === 1
+    ) {
+        throw createHttpError(400, 'invalid_base64', 'file.base64 must be valid base64');
+    }
+
+    const padded = compact.padEnd(Math.ceil(compact.length / 4) * 4, '=');
+    const buffer = Buffer.from(padded, 'base64');
     if (buffer.length === 0) {
         throw createHttpError(400, 'invalid_payload', 'file.base64 decoded to an empty file');
+    }
+    if (buffer.toString('base64') !== padded) {
+        throw createHttpError(400, 'invalid_base64', 'file.base64 must be valid base64');
     }
     return buffer;
 }
@@ -85,7 +101,7 @@ export function createFileHandlers({
 } = {}) {
     if (!store) throw new Error('store is required');
 
-    async function createFile(body = {}, request = null) {
+    async function createFile(body = {}, request = null, requestId = undefined) {
         const merchant = await getAuthenticatedMerchant(authenticateMerchant, request);
         const scope = merchantScope(merchant);
         const source = isPlainObject(body) ? body : {};
@@ -94,22 +110,29 @@ export function createFileHandlers({
         const buffer = decodeBase64(file.base64);
         const fileMode = classifyFileName(safeName);
         const fileId = crypto.randomUUID();
+        const contentType = normalizeContentType(file);
+        const storagePath = `${scope.org_id}/${scope.merchant_id}/files/${fileId}/${safeName}`;
+        if (typeof store.uploadPrintArtifact !== 'function') {
+            throw new Error('store.uploadPrintArtifact is required');
+        }
+        await store.uploadPrintArtifact(storagePath, buffer, contentType);
+
         const record = await store.createMerchantFile({
             ...scope,
             file_id: fileId,
             original_name: safeName,
-            content_type: normalizeContentType(file),
+            content_type: contentType,
             byte_size: buffer.length,
             checksum_sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
             file_mode: fileMode,
-            storage_path: `${scope.org_id}/${scope.merchant_id}/files/${fileId}/${safeName}`,
+            storage_path: storagePath,
             status: 'uploaded',
         });
 
-        return publicOk(redactFile(record));
+        return publicOk(redactFile(record), requestId);
     }
 
-    async function completeFile(body = {}, request = null) {
+    async function completeFile(body = {}, request = null, requestId = undefined) {
         const merchant = await getAuthenticatedMerchant(authenticateMerchant, request);
         const fileId = requiredFileId(isPlainObject(body) ? body.file_id : null);
         const file = await store.updateMerchantFile({
@@ -121,10 +144,10 @@ export function createFileHandlers({
             },
         });
         if (!file) throw createHttpError(404, 'file_not_found', 'File not found');
-        return publicOk(redactFile(file));
+        return publicOk(redactFile(file), requestId);
     }
 
-    async function getFile(body = {}, request = null) {
+    async function getFile(body = {}, request = null, requestId = undefined) {
         const merchant = await getAuthenticatedMerchant(authenticateMerchant, request);
         const fileId = requiredFileId(isPlainObject(body) ? body.file_id : null);
         const file = await store.getMerchantFile({
@@ -132,10 +155,10 @@ export function createFileHandlers({
             fileId,
         });
         if (!file) throw createHttpError(404, 'file_not_found', 'File not found');
-        return publicOk(redactFile(file));
+        return publicOk(redactFile(file), requestId);
     }
 
-    async function deleteFile(body = {}, request = null) {
+    async function deleteFile(body = {}, request = null, requestId = undefined) {
         const merchant = await getAuthenticatedMerchant(authenticateMerchant, request);
         const fileId = requiredFileId(isPlainObject(body) ? body.file_id : null);
         const file = await store.deleteMerchantFile({
@@ -144,7 +167,7 @@ export function createFileHandlers({
             deletedAt: now().toISOString(),
         });
         if (!file) throw createHttpError(404, 'file_not_found', 'File not found');
-        return publicOk(redactFile(file));
+        return publicOk(redactFile(file), requestId);
     }
 
     return {
