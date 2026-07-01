@@ -2,6 +2,19 @@ import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('Vercel cloud node package config', () => {
+    it('serves the root SPA statically and bundles sql.js wasm for legacy server fallback', () => {
+        const config = JSON.parse(fs.readFileSync('vercel.json', 'utf8'));
+
+        expect(config.rewrites).toContainEqual({
+            source: '/',
+            destination: '/index.html',
+        });
+        expect(config.functions['server.js']).toMatchObject({
+            maxDuration: 30,
+        });
+        expect(config.functions['server.js'].includeFiles).toContain('node_modules/sql.js/dist/sql-wasm.wasm');
+    });
+
     it('includes local runtime files in the node-package function bundle', () => {
         const config = JSON.parse(fs.readFileSync('vercel.json', 'utf8'));
 
