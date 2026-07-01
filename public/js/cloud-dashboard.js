@@ -46,6 +46,13 @@ const state = {
   provisionedNode: null,
 };
 
+let farmAutomationRequestSequence = 0;
+
+function markFarmAutomationMutation() {
+  farmAutomationRequestSequence += 1;
+  return farmAutomationRequestSequence;
+}
+
 const commandTemplates = {
   status: {
     commandType: 'printer.status',
@@ -952,11 +959,16 @@ async function refreshMerchantSettings() {
 }
 
 async function refreshFarmAutomation() {
+  const requestSequence = farmAutomationRequestSequence + 1;
+  farmAutomationRequestSequence = requestSequence;
   const params = new URLSearchParams();
   const orgId = getOrgId();
   if (orgId) params.set('org_id', orgId);
   params.set('limit', String(getRowLimit()));
   const payload = await apiRequest(`/api/cloud/farm-automation?${params.toString()}`);
+  if (requestSequence !== farmAutomationRequestSequence) {
+    return state.farmAutomation;
+  }
   renderFarmAutomation(payload.automation);
   updateCounts();
   renderMetrics();
@@ -1347,6 +1359,7 @@ async function handleMerchantSettingsSubmit(event) {
 
 async function handleFarmAutomationSubmit(event) {
   event.preventDefault();
+  markFarmAutomationMutation();
   const policy = {
     smart_queue_enabled: elements.smartQueueEnabled.checked,
     auto_eject_enabled: elements.autoEjectEnabled.checked,
@@ -1365,6 +1378,7 @@ async function handleFarmAutomationSubmit(event) {
 
 async function handleFilamentInventorySubmit(event) {
   event.preventDefault();
+  markFarmAutomationMutation();
   const inventory = parseJsonField(elements.filamentInventoryJson.value, { spools: [] });
   const payload = await apiRequest('/api/cloud/farm-automation', {
     method: 'PATCH',
@@ -1376,6 +1390,7 @@ async function handleFilamentInventorySubmit(event) {
 
 async function handleIntegrationsSubmit(event) {
   event.preventDefault();
+  markFarmAutomationMutation();
   const integrations = parseJsonField(elements.integrationsJson.value, {});
   const payload = await apiRequest('/api/cloud/farm-automation', {
     method: 'PATCH',

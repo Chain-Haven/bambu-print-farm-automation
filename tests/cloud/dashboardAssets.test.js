@@ -110,6 +110,14 @@ describe('cloud dashboard assets', () => {
         expect(js).toContain('/api/cloud/merchant-v2');
     });
 
+    it('guards farm automation JSON editors from stale refresh responses', () => {
+        const js = fs.readFileSync('public/js/cloud-dashboard.js', 'utf8');
+
+        expect(js).toContain('farmAutomationRequestSequence');
+        expect(js).toContain('markFarmAutomationMutation');
+        expect(js).toContain('if (requestSequence !== farmAutomationRequestSequence)');
+    });
+
     it('makes Windows node onboarding one-click and exposes local printer sync commands', () => {
         const html = fs.readFileSync('public/cloud.html', 'utf8');
         const js = fs.readFileSync('public/js/cloud-dashboard.js', 'utf8');
