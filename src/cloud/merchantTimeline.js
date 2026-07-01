@@ -17,8 +17,18 @@ function encodeTimelineCursor(ts, id) {
     return Buffer.from(JSON.stringify({ ts, id }), 'utf8').toString('base64url');
 }
 
+const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+
 function validTimestamp(value) {
-    return typeof value === 'string' && value.trim() && !Number.isNaN(Date.parse(value));
+    return (
+        typeof value === 'string'
+        && ISO_TIMESTAMP_PATTERN.test(value.trim())
+        && !Number.isNaN(Date.parse(value.trim()))
+    );
+}
+
+function validCursorId(value) {
+    return typeof value === 'string' && value.trim() !== '';
 }
 
 function invalidCursor() {
@@ -28,20 +38,24 @@ function invalidCursor() {
 function decodeTimelineCursor(value) {
     const cursor = optionalString(value);
     if (!cursor) return null;
+    let parsed;
+    let decodedJson = false;
     try {
-        const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-        if (parsed?.ts && parsed?.id && validTimestamp(parsed.ts)) {
-            return {
-                ts: String(parsed.ts),
-                id: String(parsed.id),
-            };
-        }
+        parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+        decodedJson = true;
     } catch {
         // Raw timestamp cursors from the initial API are still accepted below.
     }
+    if (decodedJson) {
+        if (!validTimestamp(parsed?.ts) || !validCursorId(parsed?.id)) invalidCursor();
+        return {
+            ts: parsed.ts.trim(),
+            id: parsed.id.trim(),
+        };
+    }
     if (!validTimestamp(cursor)) invalidCursor();
     return {
-        ts: cursor,
+        ts: cursor.trim(),
         id: null,
     };
 }

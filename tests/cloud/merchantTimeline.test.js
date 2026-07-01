@@ -10,6 +10,10 @@ function decodeCursor(cursor) {
     return JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
 }
 
+function encodeCursorPayload(payload) {
+    return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+}
+
 function createMockStore(overrides = {}) {
     return {
         getMerchantPrintJob: vi.fn().mockImplementation(async ({ jobId }) => (
@@ -262,17 +266,29 @@ describe('merchant print job timeline handlers', () => {
         expect(JSON.stringify(result)).not.toContain('internal/event/path');
     });
 
-    it('rejects malformed raw cursors before querying timeline children', async () => {
+    it('rejects malformed encoded and raw cursors before querying timeline children', async () => {
         const { listJobEvents, listJobArtifacts, store } = createHandlers();
+        const validTs = '2026-07-01T12:05:00.000Z';
+        const invalidCursors = [
+            encodeCursorPayload({ ts: validTs, id: {} }),
+            encodeCursorPayload({ ts: validTs, id: 123 }),
+            encodeCursorPayload({ ts: '1', id: 'event-1' }),
+            encodeCursorPayload({ ts: validTs, id: '' }),
+            '1',
+            'not-a-date',
+        ];
 
-        await expect(listJobEvents({ job_id: 'job-1', cursor: 'not-a-date' })).rejects.toMatchObject({
-            statusCode: 400,
-            code: 'invalid_payload',
-        });
-        await expect(listJobArtifacts({ job_id: 'job-1', cursor: 'also-not-a-date' })).rejects.toMatchObject({
-            statusCode: 400,
-            code: 'invalid_payload',
-        });
+        for (const cursor of invalidCursors) {
+            await expect(listJobEvents({ job_id: 'job-1', cursor })).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'invalid_payload',
+            });
+            await expect(listJobArtifacts({ job_id: 'job-1', cursor })).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'invalid_payload',
+            });
+        }
+        expect(store.getMerchantPrintJob).not.toHaveBeenCalled();
         expect(store.listMerchantJobEvents).not.toHaveBeenCalled();
         expect(store.listMerchantJobArtifacts).not.toHaveBeenCalled();
     });
@@ -497,20 +513,34 @@ describe('merchant timeline public routes', () => {
         const store = createAuthenticatedRouteStore();
         const eventsHandler = await importTimelineRoute('../../api/public/print-jobs/[job_id]/events.js', store);
         const artifactsHandler = await importTimelineRoute('../../api/public/print-jobs/[job_id]/artifacts.js', store);
-        const eventsRes = createMockResponse();
-        const artifactsRes = createMockResponse();
+        const validTs = '2026-07-01T12:05:00.000Z';
+        const invalidCursors = [
+            encodeCursorPayload({ ts: validTs, id: {} }),
+            encodeCursorPayload({ ts: validTs, id: 123 }),
+            encodeCursorPayload({ ts: '1', id: 'event-1' }),
+            '1',
+            'not-a-date',
+        ];
+        const eventResponses = [];
+        const artifactResponses = [];
 
         try {
-            await eventsHandler({
-                method: 'GET',
-                headers: { authorization: `Bearer ${routeRawKey}` },
-                query: { job_id: 'job-1', cursor: 'not-a-date' },
-            }, eventsRes);
-            await artifactsHandler({
-                method: 'GET',
-                headers: { authorization: `Bearer ${routeRawKey}` },
-                query: { job_id: 'job-1', cursor: 'not-a-date' },
-            }, artifactsRes);
+            for (const cursor of invalidCursors) {
+                const eventsRes = createMockResponse();
+                const artifactsRes = createMockResponse();
+                await eventsHandler({
+                    method: 'GET',
+                    headers: { authorization: `Bearer ${routeRawKey}` },
+                    query: { job_id: 'job-1', cursor },
+                }, eventsRes);
+                await artifactsHandler({
+                    method: 'GET',
+                    headers: { authorization: `Bearer ${routeRawKey}` },
+                    query: { job_id: 'job-1', cursor },
+                }, artifactsRes);
+                eventResponses.push(eventsRes);
+                artifactResponses.push(artifactsRes);
+            }
         } finally {
             if (previousPepper === undefined) {
                 delete process.env.MERCHANT_API_KEY_PEPPER;
@@ -519,20 +549,16 @@ describe('merchant timeline public routes', () => {
             }
         }
 
-        expect(eventsRes.statusCode).toBe(400);
-        expect(eventsRes.body).toMatchObject({
-            ok: false,
-            error: 'invalid_payload',
-            message: 'cursor must be a valid timeline cursor',
-            request_id: expect.stringMatching(/^req_/),
-        });
-        expect(artifactsRes.statusCode).toBe(400);
-        expect(artifactsRes.body).toMatchObject({
-            ok: false,
-            error: 'invalid_payload',
-            message: 'cursor must be a valid timeline cursor',
-            request_id: expect.stringMatching(/^req_/),
-        });
+        for (const response of [...eventResponses, ...artifactResponses]) {
+            expect(response.statusCode).toBe(400);
+            expect(response.body).toMatchObject({
+                ok: false,
+                error: 'invalid_payload',
+                message: 'cursor must be a valid timeline cursor',
+                request_id: expect.stringMatching(/^req_/),
+            });
+        }
+        expect(store.getMerchantPrintJob).not.toHaveBeenCalled();
         expect(store.listMerchantJobEvents).not.toHaveBeenCalled();
         expect(store.listMerchantJobArtifacts).not.toHaveBeenCalled();
     });
