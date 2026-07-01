@@ -433,6 +433,43 @@ describe('merchant inspection handlers', () => {
         expect(store.createMerchantInspection).not.toHaveBeenCalled();
     });
 
+    it('rejects an order-specific replay when the existing inspection is orderless', async () => {
+        const { requestInspection, store } = createHandlers({
+            store: {
+                getMerchantPrintJob: vi.fn().mockResolvedValue({
+                    job_id: 'job-1',
+                    org_id: 'org-1',
+                    merchant_id: 'merchant-1',
+                    order_id: 'order-requested',
+                    status: 'completed',
+                }),
+                getMerchantOrder: vi.fn().mockResolvedValue({
+                    order_id: 'order-requested',
+                    org_id: 'org-1',
+                    merchant_id: 'merchant-1',
+                    status: 'awaiting_quality',
+                }),
+                getMerchantInspectionByJob: vi.fn().mockResolvedValue({
+                    inspection_id: 'inspection-orderless',
+                    job_id: 'job-1',
+                    order_id: null,
+                    provider: 'mock',
+                    status: 'passed',
+                    decision: null,
+                }),
+            },
+        });
+
+        await expect(requestInspection({
+            job_id: 'job-1',
+            order_id: 'order-requested',
+        })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'inspection_reference_mismatch',
+        });
+        expect(store.createMerchantInspection).not.toHaveBeenCalled();
+    });
+
     it('sets merchant inspection decisions by inspection_id without exposing internal fields', async () => {
         const { acceptInspection, rejectInspection, manualReviewInspection, store } = createHandlers();
 
@@ -628,6 +665,54 @@ describe('merchant inspection public routes', () => {
         expect(res.body).toMatchObject({
             ok: false,
             error: 'inspection_not_found',
+            request_id: expect.stringMatching(/^req_/),
+        });
+    });
+
+    it('rejects route-level GET inspection replays when order_id query mismatches the stored inspection', async () => {
+        const originalPepper = process.env.MERCHANT_API_KEY_PEPPER;
+        process.env.MERCHANT_API_KEY_PEPPER = routePepper;
+        const store = createAuthenticatedRouteStore({
+            getMerchantPrintJob: vi.fn().mockResolvedValue({
+                job_id: 'job-1',
+                org_id: 'org-1',
+                merchant_id: 'merchant-1',
+                order_id: 'order-B',
+                status: 'completed',
+            }),
+            getMerchantOrder: vi.fn().mockResolvedValue({
+                order_id: 'order-B',
+                org_id: 'org-1',
+                merchant_id: 'merchant-1',
+                status: 'awaiting_quality',
+            }),
+            getMerchantInspectionByJob: vi.fn().mockResolvedValue({
+                inspection_id: 'inspection-order-a',
+                job_id: 'job-1',
+                order_id: 'order-A',
+                provider: 'mock',
+                status: 'passed',
+                decision: null,
+            }),
+        });
+        const handler = await importInspectionRoute('../../api/public/print-jobs/[job_id]/inspection.js', store);
+        const res = createMockResponse();
+
+        try {
+            await handler({
+                method: 'GET',
+                headers: { authorization: `Bearer ${routeRawKey}` },
+                query: { job_id: 'job-1', order_id: 'order-B' },
+            }, res);
+        } finally {
+            if (originalPepper === undefined) delete process.env.MERCHANT_API_KEY_PEPPER;
+            else process.env.MERCHANT_API_KEY_PEPPER = originalPepper;
+        }
+
+        expect(res.statusCode).toBe(409);
+        expect(res.body).toMatchObject({
+            ok: false,
+            error: 'inspection_reference_mismatch',
             request_id: expect.stringMatching(/^req_/),
         });
     });

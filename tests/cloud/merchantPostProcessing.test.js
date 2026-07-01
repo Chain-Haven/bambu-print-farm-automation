@@ -365,6 +365,39 @@ describe('merchant post-processing handlers', () => {
         expect(store.recordMerchantJobEvent).not.toHaveBeenCalled();
     });
 
+    it('rejects a raced idempotent create when the winning row has different semantic fields', async () => {
+        const existing = taskRow({
+            task_id: 'task-raced-conflict',
+            task_type: 'packing',
+            job_id: 'job-1',
+            order_id: 'order-1',
+            assigned_to: 'operator-1',
+            metadata: { note: 'winner' },
+            idempotency_key: 'idem-race-conflict',
+        });
+        const { createTask, store } = createHandlers({
+            store: {
+                findMerchantPostProcessingTaskByIdempotencyKey: vi.fn()
+                    .mockResolvedValueOnce(null)
+                    .mockResolvedValueOnce(existing),
+                createMerchantPostProcessingTask: vi.fn().mockRejectedValue(new Error('duplicate key value')),
+            },
+        });
+
+        await expect(createTask({
+            task_type: 'packing',
+            job_id: 'job-1',
+            order_id: 'order-1',
+            assigned_to: 'operator-1',
+            metadata: { note: 'request' },
+            idempotency_key: 'idem-race-conflict',
+        })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'idempotency_conflict',
+        });
+        expect(store.recordMerchantJobEvent).not.toHaveBeenCalled();
+    });
+
     it('validates task payloads and ownership checks before writing', async () => {
         const { createTask, store } = createHandlers();
 
@@ -383,6 +416,49 @@ describe('merchant post-processing handlers', () => {
         await expect(createTask({ task_type: 'packing', order_id: 'missing-order' })).rejects.toMatchObject({
             statusCode: 404,
             code: 'order_not_found',
+        });
+        expect(store.createMerchantPostProcessingTask).not.toHaveBeenCalled();
+    });
+
+    it('validates current job/order ownership and relationship before idempotent task replay', async () => {
+        const existing = taskRow({
+            task_id: 'task-existing',
+            task_type: 'packing',
+            job_id: 'job-1',
+            order_id: 'order-unrelated',
+            assigned_to: 'operator-1',
+            metadata: {},
+            idempotency_key: 'idem-unrelated',
+        });
+        const { createTask, store } = createHandlers({
+            store: {
+                findMerchantPostProcessingTaskByIdempotencyKey: vi.fn().mockResolvedValue(existing),
+                getMerchantPrintJob: vi.fn().mockResolvedValue({
+                    job_id: 'job-1',
+                    status: 'completed',
+                }),
+                getMerchantOrder: vi.fn().mockResolvedValue({
+                    order_id: 'order-unrelated',
+                    status: 'post_processing',
+                }),
+                findMerchantOrderItemByJobAndOrder: vi.fn().mockResolvedValue(null),
+            },
+        });
+
+        await expect(createTask({
+            task_type: 'packing',
+            job_id: 'job-1',
+            order_id: 'order-unrelated',
+            assigned_to: 'operator-1',
+            idempotency_key: 'idem-unrelated',
+        })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'post_processing_reference_mismatch',
+        });
+        expect(store.findMerchantOrderItemByJobAndOrder).toHaveBeenCalledWith({
+            merchantId: 'merchant-1',
+            jobId: 'job-1',
+            orderId: 'order-unrelated',
         });
         expect(store.createMerchantPostProcessingTask).not.toHaveBeenCalled();
     });

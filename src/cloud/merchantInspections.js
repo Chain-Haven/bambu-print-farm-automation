@@ -111,7 +111,7 @@ function inspectionReferenceMismatch() {
 
 function assertInspectionReplayOrderMatches(current, requestedOrderId) {
     const currentOrderId = optionalString(current?.order_id);
-    if (currentOrderId && requestedOrderId && currentOrderId !== requestedOrderId) {
+    if (requestedOrderId && currentOrderId !== requestedOrderId) {
         inspectionReferenceMismatch();
     }
 }
@@ -218,13 +218,19 @@ export function createInspectionHandlers({
 
     async function getInspectionForJob(body = {}, request = null, requestId = undefined) {
         const merchant = await getAuthenticatedMerchant(authenticateMerchant, request);
-        const jobId = requiredJobId(safeObject(body).job_id);
-        await requireMerchantPrintJob(store, merchant, jobId);
+        const source = safeObject(body);
+        const jobId = requiredJobId(source.job_id);
+        const requestedOrderId = optionalString(source.order_id);
+        const job = await requireMerchantPrintJob(store, merchant, jobId);
+        if (requestedOrderId) {
+            await validateInspectionOrderReference({ store, merchant, job, orderId: requestedOrderId });
+        }
         const inspection = await store.getMerchantInspectionByJob({
             merchantId: merchant.merchant_id,
             jobId,
         });
         if (!inspection) throw createHttpError(404, 'inspection_not_found', 'Inspection not found');
+        assertInspectionReplayOrderMatches(inspection, requestedOrderId);
         return publicOk(publicInspection(inspection), requestId);
     }
 

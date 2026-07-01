@@ -297,12 +297,13 @@ export function createPostProcessingHandlers({
             assigned_to: assignedTo,
             metadata,
         };
-        const replay = await replayIdempotentTaskIfPresent(store, merchant, idempotencyKey, expected, requestId);
-        if (replay) return replay;
 
         const job = await requireMerchantPrintJob(store, merchant, jobId);
         const order = await requireMerchantOrder(store, merchant, orderId);
         await validateTaskReferences({ store, merchant, job, order, jobId, orderId });
+        const replay = await replayIdempotentTaskIfPresent(store, merchant, idempotencyKey, expected, requestId);
+        if (replay) return replay;
+
         const timestamp = now().toISOString();
         const payload = {
             ...merchantScope(merchant),
