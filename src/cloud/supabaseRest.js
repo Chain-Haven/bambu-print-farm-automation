@@ -322,6 +322,18 @@ export function createSupabaseRestClient({
             return firstRow(rows);
         },
 
+        async updateMerchantMetadata(merchantId, metadata) {
+            const rows = await request(
+                `/rest/v1/merchants?merchant_id=eq.${encodeURIComponent(merchantId)}&select=${MERCHANT_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: { metadata: metadata && typeof metadata === 'object' ? metadata : {} },
+                },
+            );
+            return firstRow(rows);
+        },
+
         async createMerchantApiKey(apiKey) {
             const rows = await request(
                 `/rest/v1/merchant_api_keys?select=${MERCHANT_API_KEY_SELECT}`,
@@ -502,6 +514,16 @@ export function createSupabaseRestClient({
             const rows = await request(
                 `/rest/v1/print_jobs?merchant_id=eq.${encodeURIComponent(merchantId)}&job_id=eq.${encodeURIComponent(jobId)}&select=${PRINT_JOB_SELECT}&limit=1`,
             );
+            return firstRow(rows);
+        },
+
+        async findMerchantPrintJobByIdempotencyKey({ merchantId, idempotencyKey }) {
+            const params = new URLSearchParams();
+            params.set('merchant_id', `eq.${merchantId}`);
+            params.set('options->>idempotency_key', `eq.${idempotencyKey}`);
+            params.set('select', PRINT_JOB_SELECT);
+            params.set('limit', '1');
+            const rows = await request(`/rest/v1/print_jobs?${params.toString()}`);
             return firstRow(rows);
         },
 

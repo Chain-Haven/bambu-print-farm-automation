@@ -210,4 +210,32 @@ describe('supabase REST cloud admin methods', () => {
             }),
         );
     });
+
+    it('updates merchant metadata and finds jobs by idempotency key', async () => {
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse([{ merchant_id: 'merchant-1', metadata: { webhook: { enabled: true } } }]))
+            .mockResolvedValueOnce(jsonResponse([{ job_id: 'job-1', options: { idempotency_key: 'idem-1' } }]));
+        const client = createSupabaseRestClient({
+            url: 'https://example.supabase.co',
+            serviceKey: 'service-key',
+            fetchImpl,
+        });
+
+        const merchant = await client.updateMerchantMetadata('merchant-1', { webhook: { enabled: true } });
+        const job = await client.findMerchantPrintJobByIdempotencyKey({
+            merchantId: 'merchant-1',
+            idempotencyKey: 'idem-1',
+        });
+
+        expect(merchant).toEqual({ merchant_id: 'merchant-1', metadata: { webhook: { enabled: true } } });
+        expect(job).toEqual({ job_id: 'job-1', options: { idempotency_key: 'idem-1' } });
+        expect(fetchImpl.mock.calls[0][0]).toContain('/rest/v1/merchants?merchant_id=eq.merchant-1&select=');
+        expect(fetchImpl.mock.calls[0][1]).toMatchObject({
+            method: 'PATCH',
+            body: JSON.stringify({ metadata: { webhook: { enabled: true } } }),
+        });
+        expect(fetchImpl.mock.calls[1][0]).toContain('/rest/v1/print_jobs?');
+        expect(fetchImpl.mock.calls[1][0]).toContain('merchant_id=eq.merchant-1');
+        expect(fetchImpl.mock.calls[1][0]).toContain('options-%3E%3Eidempotency_key=eq.idem-1');
+    });
 });

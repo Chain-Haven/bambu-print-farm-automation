@@ -125,6 +125,7 @@
       </ol>
       <p>Full-auto merchant signup exists as an admin option, but <code>full_auto_merchant_mode</code> defaults to disabled.</p>
       <p>The Vercel farm admin at <code>/cloud</code> also manages smart material queueing, filament/AMS inventory, auto-eject policy, failure-detection hooks, and integrations for alerts, ecommerce, shipping, and remote access through <code>GET/PATCH /api/cloud/farm-automation</code>.</p>
+      <p>Public farm capabilities are available at <code>GET /api/public/farm/capabilities</code> with accepted file types, routing strategies, max build volume, enabled automation features, and safe filament availability.</p>
       <p>Merchants can check public material and color availability with <code>GET /api/public/farm/filaments</code>. The response is aggregate-only and does not expose spool IDs, printer IDs, rack locations, lot codes, or reserved jobs.</p>
     </section>
 
@@ -136,11 +137,13 @@
       <pre><code>X-Merchant-Setup-Token: pkx_setup_...</code></pre>
       <h3>Admin cloud token</h3>
       <pre><code>Authorization: Bearer &lt;CLOUD_ADMIN_TOKEN&gt;</code></pre>
+      <h3>Idempotent print submission</h3>
+      <pre><code>Idempotency-Key: order-1001-print-v1</code></pre>
     </section>
 
     <section>
       <h2>Submit A Print Job</h2>
-      <p><code>POST /api/public/print-jobs</code></p>
+      <p><code>POST /api/public/print-jobs</code>. Use <code>fastest_fulfillment</code>, <code>batch_by_material</code>, <code>least_printer_wear</code>, or <code>ship_cutoff</code> in <code>options.routing_strategy</code>.</p>
       <pre><code>{
   "name": "Order 1001",
   "file": {
@@ -169,6 +172,14 @@
     </section>
 
     <section>
+      <h2>Quote, Preflight, Webhooks</h2>
+      <p><code>POST /api/public/quotes</code> estimates material grams, queue time, print time, price, and lead time without creating a job.</p>
+      <p><code>POST /api/public/print-jobs/preflight</code> validates file type, build volume, routing capacity, and review warnings before upload.</p>
+      <p><code>GET/POST /api/public/webhooks</code> manages signed merchant webhooks. Deliveries include <code>X-PrintKinetix-Event</code>, <code>X-PrintKinetix-Timestamp</code>, and <code>X-PrintKinetix-Signature</code>.</p>
+      <p><code>GET /api/public/integrations</code> lists supported Shopify, WooCommerce, Etsy, ShipStation, Slack, Zapier, Make, and webhook integrations.</p>
+    </section>
+
+    <section>
       <h2>Core Endpoints</h2>
       <table>
         <thead>
@@ -176,14 +187,22 @@
         </thead>
         <tbody>
           <tr><td>POST</td><td><code>/api/public/merchants/signup</code></td><td>Create a merchant signup request.</td></tr>
+          <tr><td>GET</td><td><code>/api/public/farm/capabilities</code></td><td>Read public accepted files, routing modes, build volume, features, and availability.</td></tr>
           <tr><td>GET</td><td><code>/api/public/farm/filaments</code></td><td>Read public aggregate material and color availability.</td></tr>
           <tr><td>POST</td><td><code>/api/public/api-keys</code></td><td>Exchange setup token or create an additional live key.</td></tr>
           <tr><td>GET</td><td><code>/api/public/api-keys</code></td><td>List live keys without hashes or raw secrets.</td></tr>
           <tr><td>POST</td><td><code>/api/public/api-keys/revoke</code></td><td>Revoke a merchant API key.</td></tr>
           <tr><td>GET</td><td><code>/api/public/merchant/me</code></td><td>Read the authenticated merchant account.</td></tr>
+          <tr><td>POST</td><td><code>/api/public/quotes</code></td><td>Estimate price, material, routing, and lead time.</td></tr>
           <tr><td>POST</td><td><code>/api/public/print-jobs</code></td><td>Submit a file for routing and fulfillment.</td></tr>
+          <tr><td>POST</td><td><code>/api/public/print-jobs/preflight</code></td><td>Validate job requirements before creating a job.</td></tr>
           <tr><td>GET</td><td><code>/api/public/print-jobs</code></td><td>List merchant jobs.</td></tr>
           <tr><td>GET</td><td><code>/api/public/print-jobs/status?job_id=...</code></td><td>Read one job status.</td></tr>
+          <tr><td>POST</td><td><code>/api/public/print-jobs/approve</code></td><td>Approve an approval-required job.</td></tr>
+          <tr><td>POST</td><td><code>/api/public/print-jobs/cancel</code></td><td>Cancel a job and release reserved filament.</td></tr>
+          <tr><td>POST</td><td><code>/api/public/print-jobs/reprint</code></td><td>Create a reprint request from an existing job.</td></tr>
+          <tr><td>GET/POST</td><td><code>/api/public/webhooks</code></td><td>Read or configure merchant webhook delivery.</td></tr>
+          <tr><td>GET</td><td><code>/api/public/integrations</code></td><td>List supported ecommerce, shipping, alerting, and automation integrations.</td></tr>
         </tbody>
       </table>
     </section>

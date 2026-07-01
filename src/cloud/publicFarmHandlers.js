@@ -1,6 +1,9 @@
+import { buildPublicFarmCapabilities } from './farmCapabilities.js';
 import { buildPublicFilamentAvailability } from './filamentAvailability.js';
 
+const FARM_AUTOMATION_POLICY_KEY = 'farm_automation_policy';
 const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
+const FARM_INTEGRATIONS_KEY = 'farm_integrations';
 
 function sendJson(res, statusCode, payload) {
     if (typeof res.status === 'function' && typeof res.json === 'function') {
@@ -39,6 +42,39 @@ export function createPublicFarmFilamentsHandler({ store }) {
             return sendJson(res, 500, {
                 ok: false,
                 error: 'farm_filaments_failed',
+                message: error.message,
+            });
+        }
+    };
+}
+
+export function createPublicFarmCapabilitiesHandler({ store }) {
+    if (!store) throw new Error('store is required');
+
+    return async function publicFarmCapabilitiesHandler(req, res) {
+        if (req.method && req.method !== 'GET') {
+            return methodNotAllowed(res, 'GET');
+        }
+
+        try {
+            const [policy, inventory, integrations, overview] = await Promise.all([
+                store.getPlatformSetting(FARM_AUTOMATION_POLICY_KEY, {}),
+                store.getPlatformSetting(FARM_FILAMENT_INVENTORY_KEY, { spools: [] }),
+                store.getPlatformSetting(FARM_INTEGRATIONS_KEY, {}),
+                store.getCloudOverview({ orgId: null, limit: 100 }),
+            ]);
+
+            return sendJson(res, 200, {
+                ok: true,
+                capabilities: buildPublicFarmCapabilities({
+                    overview,
+                    settings: { policy, inventory, integrations },
+                }),
+            });
+        } catch (error) {
+            return sendJson(res, 500, {
+                ok: false,
+                error: 'farm_capabilities_failed',
                 message: error.message,
             });
         }

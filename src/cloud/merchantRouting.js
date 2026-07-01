@@ -184,6 +184,45 @@ function countActiveJobs(printer, jobs = []) {
     )).length;
 }
 
+function jobMaterials(job) {
+    const requirements = job.requirements || job.options?.requirements || job.routing_summary?.requirements || {};
+    return normalizeMaterials(requirements.materials || requirements.material);
+}
+
+function countMaterialBatchMatches(printer, jobs = [], requirements = {}) {
+    const requiredMaterials = normalizeMaterials(requirements.materials || requirements.material);
+    if (requiredMaterials.size === 0) return 0;
+    return jobs.filter((job) => (
+        job?.printer_id === printer.printer_id
+        && ACTIVE_JOB_STATUSES.has(String(job.status || '').toLowerCase())
+        && allRequiredPresent(requiredMaterials, jobMaterials(job))
+    )).length;
+}
+
+function getPrinterWearHours(printer) {
+    const capabilities = printer.capabilities || {};
+    return getNumber(
+        capabilities.print_hours,
+        capabilities.total_print_hours,
+        capabilities.lifetime_print_hours,
+        capabilities.maintenance?.print_hours,
+        printer.status_snapshot?.print_hours,
+    ) || 0;
+}
+
+function scoreSortWeight({ strategy, queueDepth, nodePenalty, materialBatchMatches, printerWearHours }) {
+    if (strategy === 'batch_by_material') {
+        return queueDepth * 100 + nodePenalty - materialBatchMatches * 150;
+    }
+    if (strategy === 'least_printer_wear') {
+        return queueDepth * 100 + nodePenalty + printerWearHours * 0.1;
+    }
+    if (strategy === 'ship_cutoff') {
+        return queueDepth * 160 + nodePenalty;
+    }
+    return queueDepth * 100 + nodePenalty;
+}
+
 function evaluatePrinter({ node, printer, jobs, requirements }) {
     const reasons = [];
 
@@ -226,6 +265,9 @@ function evaluatePrinter({ node, printer, jobs, requirements }) {
     const nodeStatus = String(node.status || 'unknown').toLowerCase();
     const nodePenalty = nodeStatus === 'degraded' ? 1 : 0;
 
+    const materialBatchMatches = countMaterialBatchMatches(printer, jobs, requirements);
+    const printerWearHours = getPrinterWearHours(printer);
+
     return {
         ok: true,
         score: {
@@ -234,6 +276,8 @@ function evaluatePrinter({ node, printer, jobs, requirements }) {
             printer_state: getPrinterState(printer),
             material_matches: requiredMaterials.size,
             color_matches: requiredColors.size,
+            material_batch_matches: materialBatchMatches,
+            printer_wear_hours: printerWearHours,
             sort_weight: queueDepth * 100 + nodePenalty,
         },
     };
@@ -266,7 +310,16 @@ export function routeMerchantPrintJob({
         accepted.push({
             node,
             printer,
-            score: evaluation.score,
+            score: {
+                ...evaluation.score,
+                sort_weight: scoreSortWeight({
+                    strategy,
+                    queueDepth: evaluation.score.queue_depth,
+                    nodePenalty: evaluation.score.node_status === 'degraded' ? 1 : 0,
+                    materialBatchMatches: evaluation.score.material_batch_matches,
+                    printerWearHours: evaluation.score.printer_wear_hours,
+                }),
+            },
         });
     }
 

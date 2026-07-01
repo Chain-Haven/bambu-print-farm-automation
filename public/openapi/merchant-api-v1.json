@@ -311,7 +311,9 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["full_auto_merchant_mode"],
+                "required": [
+                  "full_auto_merchant_mode"
+                ],
                 "properties": {
                   "full_auto_merchant_mode": {
                     "type": "boolean",
@@ -343,7 +345,9 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["merchant_id"],
+                "required": [
+                  "merchant_id"
+                ],
                 "properties": {
                   "merchant_id": {
                     "type": "string"
@@ -489,6 +493,159 @@
           }
         }
       }
+    },
+    "/api/public/farm/capabilities": {
+      "get": {
+        "summary": "Read public aggregate farm capabilities",
+        "description": "Unauthenticated public capabilities: accepted file types, routing strategies, max build volume, feature readiness, and safe filament availability.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Public farm capabilities"
+          }
+        }
+      }
+    },
+    "/api/public/quotes": {
+      "post": {
+        "summary": "Estimate print cost and lead time",
+        "description": "Merchant-authenticated quote endpoint. Does not create a print job.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuoteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Quote and route estimate"
+          }
+        }
+      }
+    },
+    "/api/public/print-jobs/preflight": {
+      "post": {
+        "summary": "Preflight a print request before creating a job",
+        "description": "Validates file type, dimensions, routing capacity, review flags, and estimated quote.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreflightRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Preflight result"
+          }
+        }
+      }
+    },
+    "/api/public/print-jobs/approve": {
+      "post": {
+        "summary": "Approve a print job",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrintJobLifecycleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "approve result"
+          }
+        }
+      }
+    },
+    "/api/public/print-jobs/cancel": {
+      "post": {
+        "summary": "Cancel a print job",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrintJobLifecycleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "cancel result"
+          }
+        }
+      }
+    },
+    "/api/public/print-jobs/reprint": {
+      "post": {
+        "summary": "Reprint a print job",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrintJobLifecycleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "reprint result"
+          }
+        }
+      }
+    },
+    "/api/public/webhooks": {
+      "get": {
+        "summary": "Read merchant webhook configuration",
+        "responses": {
+          "200": {
+            "description": "Webhook configuration with secret redacted"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create or update merchant webhook configuration",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookConfigRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook configuration saved"
+          }
+        }
+      }
+    },
+    "/api/public/integrations": {
+      "get": {
+        "summary": "List supported merchant integrations",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Integration catalog"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -524,7 +681,10 @@
     "schemas": {
       "MerchantSignupRequest": {
         "type": "object",
-        "required": ["company_name", "contact_email"],
+        "required": [
+          "company_name",
+          "contact_email"
+        ],
         "properties": {
           "company_name": {
             "type": "string"
@@ -553,7 +713,9 @@
       },
       "RevokeApiKeyRequest": {
         "type": "object",
-        "required": ["key_id"],
+        "required": [
+          "key_id"
+        ],
         "properties": {
           "key_id": {
             "type": "string"
@@ -562,18 +724,25 @@
       },
       "CreatePrintJobRequest": {
         "type": "object",
-        "required": ["file"],
+        "required": [
+          "file"
+        ],
         "properties": {
           "name": {
             "type": "string"
           },
           "file": {
             "type": "object",
-            "required": ["name", "base64"],
+            "required": [
+              "name",
+              "base64"
+            ],
             "properties": {
               "name": {
                 "type": "string",
-                "examples": ["part.gcode.3mf"]
+                "examples": [
+                  "part.gcode.3mf"
+                ]
               },
               "content_type": {
                 "type": "string",
@@ -591,18 +760,28 @@
               "dimensions_mm": {
                 "type": "object",
                 "properties": {
-                  "x": { "type": "number" },
-                  "y": { "type": "number" },
-                  "z": { "type": "number" }
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  },
+                  "z": {
+                    "type": "number"
+                  }
                 }
               },
               "materials": {
                 "type": "array",
-                "items": { "type": "string" }
+                "items": {
+                  "type": "string"
+                }
               },
               "colors": {
                 "type": "array",
-                "items": { "type": "string" }
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "additionalProperties": true
@@ -615,14 +794,22 @@
       },
       "AdminMerchantActionRequest": {
         "type": "object",
-        "required": ["merchant_id", "action"],
+        "required": [
+          "merchant_id",
+          "action"
+        ],
         "properties": {
           "merchant_id": {
             "type": "string"
           },
           "action": {
             "type": "string",
-            "enum": ["approve", "activate", "reject", "suspend"]
+            "enum": [
+              "approve",
+              "activate",
+              "reject",
+              "suspend"
+            ]
           },
           "issue_setup_token": {
             "type": "boolean",
@@ -632,7 +819,9 @@
       },
       "AdminMerchantApiKeyRequest": {
         "type": "object",
-        "required": ["merchant_id"],
+        "required": [
+          "merchant_id"
+        ],
         "properties": {
           "merchant_id": {
             "type": "string"
@@ -645,7 +834,10 @@
       },
       "AdminMerchantApiKeyRevokeRequest": {
         "type": "object",
-        "required": ["merchant_id", "key_id"],
+        "required": [
+          "merchant_id",
+          "key_id"
+        ],
         "properties": {
           "merchant_id": {
             "type": "string"
@@ -662,12 +854,24 @@
             "type": "object",
             "additionalProperties": true,
             "properties": {
-              "smart_queue_enabled": { "type": "boolean" },
-              "auto_eject_enabled": { "type": "boolean" },
-              "failure_detection_enabled": { "type": "boolean" },
-              "release_temperature_c": { "type": "number" },
-              "max_eject_attempts": { "type": "integer" },
-              "bed_clear_verification": { "type": "string" }
+              "smart_queue_enabled": {
+                "type": "boolean"
+              },
+              "auto_eject_enabled": {
+                "type": "boolean"
+              },
+              "failure_detection_enabled": {
+                "type": "boolean"
+              },
+              "release_temperature_c": {
+                "type": "number"
+              },
+              "max_eject_attempts": {
+                "type": "integer"
+              },
+              "bed_clear_verification": {
+                "type": "string"
+              }
             }
           },
           "inventory": {
@@ -691,14 +895,21 @@
       },
       "PublicFilamentAvailabilityResponse": {
         "type": "object",
-        "required": ["ok", "filaments"],
+        "required": [
+          "ok",
+          "filaments"
+        ],
         "properties": {
           "ok": {
             "type": "boolean"
           },
           "filaments": {
             "type": "object",
-            "required": ["materials", "colors", "updated_at"],
+            "required": [
+              "materials",
+              "colors",
+              "updated_at"
+            ],
             "properties": {
               "materials": {
                 "type": "array",
@@ -713,7 +924,10 @@
                 }
               },
               "updated_at": {
-                "type": ["string", "null"],
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "format": "date-time"
               }
             }
@@ -733,7 +947,9 @@
         "properties": {
           "material": {
             "type": "string",
-            "examples": ["PLA"]
+            "examples": [
+              "PLA"
+            ]
           },
           "spool_count": {
             "type": "integer"
@@ -768,11 +984,18 @@
         "properties": {
           "color_hex": {
             "type": "string",
-            "examples": ["#FFFFFF"]
+            "examples": [
+              "#FFFFFF"
+            ]
           },
           "color_name": {
-            "type": ["string", "null"],
-            "examples": ["White"]
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "White"
+            ]
           },
           "materials": {
             "type": "array",
@@ -791,6 +1014,131 @@
           },
           "available_grams_remaining": {
             "type": "number"
+          }
+        }
+      },
+      "QuoteRequest": {
+        "type": "object",
+        "properties": {
+          "requirements": {
+            "$ref": "#/components/schemas/PrintRequirements"
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "routing_strategy": {
+                "type": "string",
+                "enum": [
+                  "fastest_fulfillment",
+                  "batch_by_material",
+                  "least_printer_wear",
+                  "ship_cutoff"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "PreflightRequest": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "byte_size": {
+                "type": "number"
+              }
+            }
+          },
+          "requirements": {
+            "$ref": "#/components/schemas/PrintRequirements"
+          },
+          "options": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "PrintRequirements": {
+        "type": "object",
+        "properties": {
+          "dimensions_mm": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "z": {
+                "type": "number"
+              }
+            }
+          },
+          "materials": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "colors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "estimated_grams": {
+            "type": "number"
+          }
+        }
+      },
+      "PrintJobLifecycleRequest": {
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "WebhookConfigRequest": {
+        "type": "object",
+        "properties": {
+          "endpoint_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "secret": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "job.accepted",
+                "job.needs_approval",
+                "job.approved",
+                "job.canceled",
+                "job.reprint_requested",
+                "job.failed",
+                "job.completed",
+                "job.shipped",
+                "filament.unavailable"
+              ]
+            }
           }
         }
       }

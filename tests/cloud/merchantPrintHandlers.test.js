@@ -158,6 +158,133 @@ describe('merchant print jobs handler', () => {
         });
     });
 
+    it('returns an existing job for duplicate idempotency keys without uploading again', async () => {
+        const store = createAuthStore({
+            findMerchantPrintJobByIdempotencyKey: vi.fn().mockResolvedValue({
+                job_id: 'job-existing',
+                merchant_id: 'merchant-1',
+                status: 'queued',
+                options: { idempotency_key: 'idem-1' },
+            }),
+            uploadPrintArtifact: vi.fn(),
+        });
+        const handler = createMerchantPrintJobsHandler({ store, pepper: 'pepper', now });
+        const res = createMockResponse();
+
+        await handler({
+            method: 'POST',
+            headers: {
+                authorization: 'Bearer pkx_live_secret',
+                'idempotency-key': 'idem-1',
+            },
+            body: {
+                file: {
+                    name: 'part.gcode',
+                    base64: Buffer.from('project bytes').toString('base64'),
+                },
+            },
+        }, res);
+
+        expect(store.findMerchantPrintJobByIdempotencyKey).toHaveBeenCalledWith({
+            merchantId: 'merchant-1',
+            idempotencyKey: 'idem-1',
+        });
+        expect(store.uploadPrintArtifact).not.toHaveBeenCalled();
+        expect(res.statusCode).toBe(200);
+        expect(res.body).toEqual({
+            ok: true,
+            idempotent_replay: true,
+            job: {
+                job_id: 'job-existing',
+                merchant_id: 'merchant-1',
+                status: 'queued',
+                options: { idempotency_key: 'idem-1' },
+            },
+        });
+    });
+
+    it('reserves matching filament for routed ready-print jobs', async () => {
+        const fileBytes = Buffer.from('project bytes');
+        const store = createAuthStore({
+            findMerchantPrintJobByIdempotencyKey: vi.fn().mockResolvedValue(null),
+            uploadPrintArtifact: vi.fn().mockResolvedValue({ Key: 'print-artifacts/path' }),
+            createJobFile: vi.fn().mockImplementation(async (file) => ({ file_id: 'file-1', ...file })),
+            getCloudOverview: vi.fn().mockResolvedValue({
+                nodes: [{ node_id: 'node-1', status: 'online' }],
+                printers: [{
+                    printer_id: 'printer-1',
+                    node_id: 'node-1',
+                    local_printer_id: 'local-printer-1',
+                    status: 'online',
+                    status_snapshot: { print: { gcode_state: 'IDLE' } },
+                    capabilities: {
+                        max_x: 256,
+                        max_y: 256,
+                        max_z: 256,
+                        materials: ['PLA'],
+                        colors: ['#FFFFFF'],
+                    },
+                }],
+                jobs: [],
+            }),
+            createPrintJob: vi.fn().mockImplementation(async (job) => ({ job_id: 'job-1', ...job })),
+            updatePrintJob: vi.fn().mockImplementation(async (jobId, fields) => ({ job_id: jobId, ...fields })),
+            createRoutingDecision: vi.fn().mockResolvedValue({ decision_id: 'decision-1' }),
+            createSignedPrintArtifactUrl: vi.fn().mockResolvedValue('https://signed.example/file'),
+            createNodeCommand: vi.fn().mockResolvedValue({ command_id: 'command-1' }),
+            createMerchantUsageEvent: vi.fn().mockResolvedValue({ usage_event_id: 'usage-1' }),
+            getPlatformSetting: vi.fn().mockResolvedValue({
+                spools: [{ spool_id: 'spool-pla-white', material: 'PLA', color_hex: '#FFFFFF', grams_remaining: 700 }],
+            }),
+            upsertPlatformSetting: vi.fn().mockResolvedValue({ key: 'farm_filament_inventory' }),
+        });
+        const handler = createMerchantPrintJobsHandler({ store, pepper: 'pepper', now });
+        const res = createMockResponse();
+
+        await handler({
+            method: 'POST',
+            headers: {
+                authorization: 'Bearer pkx_live_secret',
+                'idempotency-key': 'idem-reserve-1',
+            },
+            body: {
+                file: {
+                    name: 'part.gcode.3mf',
+                    base64: fileBytes.toString('base64'),
+                },
+                requirements: {
+                    materials: ['PLA'],
+                    colors: ['#fff'],
+                    estimated_grams: 250,
+                },
+                options: { routing_strategy: 'batch_by_material' },
+            },
+        }, res);
+
+        expect(store.upsertPlatformSetting).toHaveBeenCalledWith('farm_filament_inventory', {
+            spools: [expect.objectContaining({
+                spool_id: 'spool-pla-white',
+                reserved_for_job_id: 'job-1',
+            })],
+        });
+        expect(store.updatePrintJob).toHaveBeenCalledWith('job-1', expect.objectContaining({
+            options: expect.objectContaining({
+                idempotency_key: 'idem-reserve-1',
+                routing_strategy: 'batch_by_material',
+                filament_reservation: expect.objectContaining({
+                    spool_id: 'spool-pla-white',
+                    reserved_grams: 250,
+                }),
+            }),
+        }));
+        expect(res.body).toMatchObject({
+            reservation: {
+                status: 'reserved',
+                reservation: { spool_id: 'spool-pla-white' },
+            },
+        });
+    });
+
     it('accepts source models but marks them as needing slicing before routing or commands', async () => {
         const fileBytes = Buffer.from('solid model');
         const store = createAuthStore({

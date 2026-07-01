@@ -221,4 +221,72 @@ describe('merchant fastest-fulfillment routing', () => {
             expect.objectContaining({ printer_id: 'error-printer', reasons: ['printer_unavailable'] }),
         ]);
     });
+
+    it('can batch by material even when the matching printer has a small queue', () => {
+        const result = routeMerchantPrintJob({
+            strategy: 'batch_by_material',
+            overview: {
+                nodes: [
+                    { node_id: 'node-a', status: 'online' },
+                    { node_id: 'node-b', status: 'online' },
+                ],
+                printers: [
+                    {
+                        printer_id: 'printer-a',
+                        node_id: 'node-a',
+                        status: 'online',
+                        status_snapshot: { print: { gcode_state: 'IDLE' } },
+                        capabilities: { max_x: 256, max_y: 256, max_z: 256, materials: ['PLA'], colors: ['#FFFFFF'] },
+                    },
+                    {
+                        printer_id: 'printer-b',
+                        node_id: 'node-b',
+                        status: 'online',
+                        status_snapshot: { print: { gcode_state: 'IDLE' } },
+                        capabilities: { max_x: 256, max_y: 256, max_z: 256, materials: ['PLA'], colors: ['#FFFFFF'] },
+                    },
+                ],
+                jobs: [
+                    { job_id: 'job-1', printer_id: 'printer-a', status: 'queued', requirements: { materials: ['PLA'] } },
+                ],
+            },
+            requirements: { materials: ['PLA'], colors: ['#FFFFFF'] },
+        });
+
+        expect(result.selected_printer_id).toBe('printer-a');
+        expect(result.score.material_batch_matches).toBe(1);
+    });
+
+    it('can prefer the least-worn printer when capacity is otherwise equal', () => {
+        const result = routeMerchantPrintJob({
+            strategy: 'least_printer_wear',
+            overview: {
+                nodes: [
+                    { node_id: 'node-a', status: 'online' },
+                    { node_id: 'node-b', status: 'online' },
+                ],
+                printers: [
+                    {
+                        printer_id: 'printer-high-hours',
+                        node_id: 'node-a',
+                        status: 'online',
+                        status_snapshot: { print: { gcode_state: 'IDLE' } },
+                        capabilities: { max_x: 256, max_y: 256, max_z: 256, print_hours: 1200 },
+                    },
+                    {
+                        printer_id: 'printer-low-hours',
+                        node_id: 'node-b',
+                        status: 'online',
+                        status_snapshot: { print: { gcode_state: 'IDLE' } },
+                        capabilities: { max_x: 256, max_y: 256, max_z: 256, print_hours: 200 },
+                    },
+                ],
+                jobs: [],
+            },
+            requirements: {},
+        });
+
+        expect(result.selected_printer_id).toBe('printer-low-hours');
+        expect(result.score.printer_wear_hours).toBe(200);
+    });
 });

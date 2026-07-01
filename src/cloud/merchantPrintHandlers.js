@@ -5,9 +5,13 @@ import {
     authenticateMerchantRequest,
 } from './merchantAuth.js';
 import { routeMerchantPrintJob } from './merchantRouting.js';
+import { reserveFilamentForJob } from './filamentReservations.js';
+import { normalizeRoutingStrategy } from './printIntake.js';
+import { deliverMerchantWebhook } from './webhooks.js';
 
 const MAX_JSON_FILE_BYTES = 25 * 1024 * 1024;
 const SIGNED_URL_TTL_SECONDS = 3600;
+const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
 
 const READY_EXTENSIONS = ['.gcode.3mf', '.3mf', '.gcode'];
 const SOURCE_EXTENSIONS = ['.stl', '.obj', '.step', '.stp'];
@@ -57,6 +61,19 @@ function handleMerchantAuthError(res, error) {
         return sendJson(res, error.statusCode, { ok: false, error: error.code });
     }
     return null;
+}
+
+function getHeader(headers = {}, name) {
+    const lowerName = name.toLowerCase();
+    for (const [key, value] of Object.entries(headers || {})) {
+        if (String(key).toLowerCase() === lowerName) return value;
+    }
+    return null;
+}
+
+function getIdempotencyKey(req) {
+    const value = getHeader(req.headers || {}, 'idempotency-key');
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 function safeFileName(name) {
@@ -167,14 +184,48 @@ function findSelectedPrinter(overview, route) {
     return (overview.printers || []).find((printer) => printer.printer_id === route.selected_printer_id) || null;
 }
 
+async function reserveFilamentIfPossible({ store, job, upload }) {
+    if (
+        typeof store.getPlatformSetting !== 'function'
+        || typeof store.upsertPlatformSetting !== 'function'
+        || typeof store.updatePrintJob !== 'function'
+    ) {
+        return null;
+    }
+
+    const inventory = await store.getPlatformSetting(FARM_FILAMENT_INVENTORY_KEY, { spools: [] });
+    const result = reserveFilamentForJob({
+        inventory,
+        jobId: job.job_id,
+        requirements: upload.requirements,
+    });
+
+    if (result.status !== 'reserved') return result;
+
+    await store.upsertPlatformSetting(FARM_FILAMENT_INVENTORY_KEY, result.inventory);
+    const updatedJob = await store.updatePrintJob(job.job_id, {
+        options: {
+            ...(job.options || {}),
+            filament_reservation: result.reservation,
+        },
+    });
+
+    return {
+        ...result,
+        job: updatedJob ? { ...job, ...updatedJob } : job,
+    };
+}
+
 async function createReadyPrintJob({ store, merchant, upload, file, now }) {
     const overview = await store.getCloudOverview({ orgId: merchant.org_id, limit: 100 });
+    const strategy = normalizeRoutingStrategy(upload.options.routing_strategy || upload.requirements.routing_strategy);
     const route = routeMerchantPrintJob({
         overview,
         requirements: upload.requirements,
+        strategy,
     });
     const jobStatus = route.status === 'routed' ? 'queued' : 'waiting_for_capacity';
-    const job = await store.createPrintJob({
+    let job = await store.createPrintJob({
         org_id: merchant.org_id,
         merchant_id: merchant.merchant_id,
         node_id: route.selected_node_id,
@@ -185,6 +236,10 @@ async function createReadyPrintJob({ store, merchant, upload, file, now }) {
         options: upload.options,
         routing_summary: route,
     });
+    const reservation = route.status === 'routed'
+        ? await reserveFilamentIfPossible({ store, job, upload })
+        : null;
+    if (reservation?.job) job = reservation.job;
 
     await store.createRoutingDecision({
         org_id: merchant.org_id,
@@ -221,7 +276,7 @@ async function createReadyPrintJob({ store, merchant, upload, file, now }) {
         });
     }
 
-    return { job, routing: route };
+    return { job, routing: route, reservation };
 }
 
 async function createSourceModelJob({ store, merchant, upload, file }) {
@@ -240,7 +295,7 @@ async function createSourceModelJob({ store, merchant, upload, file }) {
         },
     });
 
-    return { job, routing: null };
+    return { job, routing: null, reservation: null };
 }
 
 async function createPrintJob({ store, merchant, upload, now }) {
@@ -271,6 +326,7 @@ export function createMerchantPrintJobsHandler({
     store,
     pepper = process.env.MERCHANT_API_KEY_PEPPER || process.env.NODE_TOKEN_PEPPER,
     now = () => new Date(),
+    fetchImpl = globalThis.fetch,
 }) {
     if (!store) throw new Error('store is required');
 
@@ -300,19 +356,66 @@ export function createMerchantPrintJobsHandler({
 
         try {
             const context = await authenticateMerchantRequest(req, { store, pepper, now });
-            const upload = normalizeUpload(parseJsonBody(req.body));
+            const body = parseJsonBody(req.body);
+            const idempotencyKey = getIdempotencyKey(req);
+            if (idempotencyKey && typeof store.findMerchantPrintJobByIdempotencyKey === 'function') {
+                const existing = await store.findMerchantPrintJobByIdempotencyKey({
+                    merchantId: context.merchant.merchant_id,
+                    idempotencyKey,
+                });
+                if (existing) {
+                    return sendJson(res, 200, {
+                        ok: true,
+                        idempotent_replay: true,
+                        job: redactedJob(existing),
+                    });
+                }
+            }
+
+            const upload = normalizeUpload(body);
+            if (idempotencyKey) {
+                upload.options = {
+                    ...upload.options,
+                    idempotency_key: idempotencyKey,
+                };
+            }
+            upload.options = {
+                ...upload.options,
+                routing_strategy: normalizeRoutingStrategy(upload.options.routing_strategy || body.routing_strategy),
+            };
             const result = await createPrintJob({
                 store,
                 merchant: context.merchant,
                 upload,
                 now,
             });
+            await deliverMerchantWebhook({
+                merchant: context.merchant,
+                eventType: result.job.status === 'needs_approval' ? 'job.needs_approval' : 'job.accepted',
+                data: {
+                    job: redactedJob(result.job),
+                    routing: result.routing,
+                    reservation: result.reservation,
+                },
+                fetchImpl,
+                now,
+            });
+            if (result.reservation?.status === 'unavailable') {
+                await deliverMerchantWebhook({
+                    merchant: context.merchant,
+                    eventType: 'filament.unavailable',
+                    data: { job: redactedJob(result.job), requirements: upload.requirements },
+                    fetchImpl,
+                    now,
+                });
+            }
 
             return sendJson(res, 201, {
                 ok: true,
                 file: redactedFile(result.file),
                 job: redactedJob(result.job),
                 routing: result.routing,
+                reservation: result.reservation,
             });
         } catch (error) {
             const handled = handleMerchantAuthError(res, error);

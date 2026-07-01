@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createPublicFarmFilamentsHandler } from '../../src/cloud/publicFarmHandlers.js';
+import {
+    createPublicFarmCapabilitiesHandler,
+    createPublicFarmFilamentsHandler,
+} from '../../src/cloud/publicFarmHandlers.js';
 
 function createMockResponse() {
     return {
@@ -76,5 +79,40 @@ describe('public farm filament handler', () => {
 
         expect(res.statusCode).toBe(405);
         expect(res.headers.Allow).toBe('GET');
+    });
+});
+
+describe('public farm capabilities handler', () => {
+    it('publishes aggregate farm capabilities without auth', async () => {
+        const store = {
+            getPlatformSetting: vi.fn()
+                .mockResolvedValueOnce({ smart_queue_enabled: true, auto_eject_enabled: true })
+                .mockResolvedValueOnce({ spools: [{ spool_id: 'spool-1', material: 'PLA', color_hex: '#FFFFFF', grams_remaining: 900 }] })
+                .mockResolvedValueOnce({ ecommerce: [{ type: 'shopify', enabled: true }] }),
+            getCloudOverview: vi.fn().mockResolvedValue({
+                nodes: [{ node_id: 'node-1', status: 'online' }],
+                printers: [{
+                    printer_id: 'printer-1',
+                    node_id: 'node-1',
+                    status: 'online',
+                    capabilities: { max_x: 256, max_y: 256, max_z: 256, auto_eject: true },
+                }],
+                jobs: [],
+            }),
+        };
+        const handler = createPublicFarmCapabilitiesHandler({ store });
+        const res = createMockResponse();
+
+        await handler({ method: 'GET', headers: {}, query: {} }, res);
+
+        expect(store.getCloudOverview).toHaveBeenCalledWith({ orgId: null, limit: 100 });
+        expect(res.statusCode).toBe(200);
+        expect(res.body.capabilities).toMatchObject({
+            accepting_jobs: true,
+            max_build_volume_mm: { x: 256, y: 256, z: 256 },
+            features: expect.objectContaining({ smart_queue: true, auto_ejection: true, shopify: true }),
+        });
+        expect(JSON.stringify(res.body)).not.toContain('printer-1');
+        expect(JSON.stringify(res.body)).not.toContain('node-1');
     });
 });
