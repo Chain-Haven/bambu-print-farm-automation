@@ -3,6 +3,7 @@ import { dbAll, dbGet, dbRun } from '../db/database.js';
 import { generateId } from '../utils/uuid.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import { getUploadRoot } from '../utils/uploadPaths.js';
 
 export class JobModel {
     static create({ name, printer_id, profile_id, source_file_name, ams_roles, repeat_total }) {
@@ -73,8 +74,7 @@ export class JobModel {
         if (ids.length === 0) return 0;
 
         // Delete associated files
-        const UPLOADS_DIR = process.env.UPLOADS_DIR || './uploads';
-        const uploadsPath = path.resolve(UPLOADS_DIR);
+        const uploadsPath = getUploadRoot();
 
         for (const job of jobs) {
             const patterns = [

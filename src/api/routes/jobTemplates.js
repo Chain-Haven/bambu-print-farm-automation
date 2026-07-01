@@ -6,13 +6,15 @@ import { asyncHandler } from '../middleware/errorHandler.js';
 import multer from 'multer';
 import fs from 'node:fs';
 import path from 'node:path';
+import { getUploadPath } from '../../utils/uploadPaths.js';
 
 const router = Router();
-const TEMPLATES_DIR = path.resolve(process.env.UPLOADS_DIR || './uploads', 'templates');
+const TEMPLATES_DIR = getUploadPath('templates');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } }); // 200MB
 
-// Ensure templates directory exists
-if (!fs.existsSync(TEMPLATES_DIR)) fs.mkdirSync(TEMPLATES_DIR, { recursive: true });
+function ensureTemplatesDir() {
+    fs.mkdirSync(TEMPLATES_DIR, { recursive: true });
+}
 
 // List all templates
 router.get('/', requireAuth, asyncHandler(async (req, res) => {
@@ -53,6 +55,7 @@ router.post('/', requireAuth, upload.single('file'), asyncHandler(async (req, re
         });
 
         // Save file with template_id prefix
+        ensureTemplatesDir();
         source_file_path = path.join(TEMPLATES_DIR, `${tmpl.template_id}_${source_file_name}`);
         fs.writeFileSync(source_file_path, req.file.buffer);
 
@@ -95,6 +98,7 @@ router.patch('/:id', requireAuth, upload.single('file'), asyncHandler(async (req
         if (existing.source_file_path && fs.existsSync(existing.source_file_path)) {
             fs.unlinkSync(existing.source_file_path);
         }
+        ensureTemplatesDir();
         updates.source_file_name = req.file.originalname;
         updates.source_file_path = path.join(TEMPLATES_DIR, `${req.params.id}_${req.file.originalname}`);
         fs.writeFileSync(updates.source_file_path, req.file.buffer);

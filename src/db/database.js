@@ -2,6 +2,7 @@
 // Provides a synchronous-like API wrapper around sql.js
 import initSqlJs from 'sql.js';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLogger } from '../utils/logger.js';
@@ -13,13 +14,20 @@ let _db = null;
 let _dbPath = null;
 let _saveTimer = null;
 
+function getDefaultDbPath() {
+    if (process.env.VERCEL === '1' || process.env.VERCEL === 'true') {
+        return path.join(os.tmpdir(), 'printkinetix-data', 'antigravity.db');
+    }
+    return './data/antigravity.db';
+}
+
 /**
  * Initialize the database (async — must be called once at startup).
  */
 export async function initDb() {
     if (_db) return _db;
 
-    _dbPath = process.env.DB_PATH || './data/antigravity.db';
+    _dbPath = process.env.DB_PATH || getDefaultDbPath();
     const dir = path.dirname(_dbPath);
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });

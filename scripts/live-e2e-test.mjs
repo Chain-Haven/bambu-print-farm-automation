@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { loadCloudSmokeEnv } from '../src/cloud/cloudSmokeEnv.js';
 
 loadCloudSmokeEnv();
@@ -80,8 +81,43 @@ async function readJsonResponse(response) {
     }
 }
 
+async function resolvePlaywrightPackageFromPath() {
+    const delimiter = path.delimiter;
+    const pathEntries = String(process.env.PATH || '').split(delimiter).filter(Boolean);
+    const executableNames = process.platform === 'win32'
+        ? ['playwright.cmd', 'playwright.ps1', 'playwright']
+        : ['playwright'];
+
+    for (const entry of pathEntries) {
+        for (const executableName of executableNames) {
+            try {
+                const realPath = await fs.realpath(path.join(entry, executableName));
+                const marker = `${path.sep}node_modules${path.sep}playwright${path.sep}`;
+                const markerIndex = realPath.indexOf(marker);
+                if (markerIndex === -1) continue;
+                return realPath.slice(0, markerIndex + marker.length - 1);
+            } catch {
+                // Keep walking PATH entries.
+            }
+        }
+    }
+
+    return null;
+}
+
+async function loadPlaywright() {
+    try {
+        return await import('playwright');
+    } catch (error) {
+        const packageDir = await resolvePlaywrightPackageFromPath();
+        if (!packageDir) throw error;
+        const requireFromPlaywright = createRequire(path.join(packageDir, 'package.json'));
+        return requireFromPlaywright('playwright');
+    }
+}
+
 async function main() {
-    const { chromium } = await import('playwright');
+    const { chromium } = await loadPlaywright();
 
     const baseUrl = normalizeBaseUrl(getArgValue('--cloud-url') || process.env.CLOUD_API_URL || DEFAULT_BASE_URL);
     const adminToken = getArgValue('--admin-token') || requiredEnv('CLOUD_ADMIN_TOKEN');
@@ -536,6 +572,7 @@ async function main() {
             await waitForText(adminPage, '#node-token-output', 'LOCAL_NODE_TOKEN=');
             return {
                 node_id: payload.node.node_id,
+                node_name: payload.node.name || `E2E Windows Print Manager ${RUN_ID}`,
                 local_node_token_issued: true,
                 localNodeToken: payload.local_node_token,
             };
@@ -594,7 +631,7 @@ async function main() {
             await adminPage.locator('#refresh').click();
             await waitForCountAtLeast(adminPage, '#node-count', 1, 45000);
             await waitForCountAtLeast(adminPage, '#printer-count', 1, 45000);
-            await waitForText(adminPage, '#nodes-table', shortId(node.node_id), 45000);
+            await waitForText(adminPage, '#nodes-table', node.node_name, 45000);
             await waitForText(adminPage, '#printers-table', localPrinterId, 45000);
             await screenshot(adminPage, 'cloud-admin-printer-management', [
                 '#admin-token',

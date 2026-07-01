@@ -68,6 +68,13 @@ describe('merchant API docs', () => {
         }
     });
 
+    it('ships static root favicon fallbacks so missing icon requests never invoke the Express serverless function', () => {
+        for (const file of ['public/favicon.ico', 'public/favicon.png']) {
+            expect(fs.existsSync(file)).toBe(true);
+            expect(fs.readFileSync(file, 'utf8')).toContain('<svg');
+        }
+    });
+
     it('keeps the local controller shell bootable with API and app scripts', () => {
         const html = fs.readFileSync('public/index.html', 'utf8');
 

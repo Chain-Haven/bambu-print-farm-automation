@@ -12,9 +12,10 @@ import { createLogger } from '../utils/logger.js';
 import { decodePrintError } from '../utils/PrinterErrors.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import { getUploadRoot } from '../utils/uploadPaths.js';
 
 const log = createLogger('JobOrchestrator');
-const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR || './uploads');
+const UPLOADS_DIR = getUploadRoot();
 
 export class JobOrchestrator {
     static wsBroadcast = null;

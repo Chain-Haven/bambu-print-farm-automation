@@ -9,8 +9,9 @@ import { isZipFile, is3mfFilename, extractGcodeFrom3mf } from '../../gcode/Extra
 import multer from 'multer';
 import fs from 'node:fs';
 import path from 'node:path';
+import { getUploadRoot } from '../../utils/uploadPaths.js';
 
-const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR || './uploads');
+const UPLOADS_DIR = getUploadRoot();
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } }); // 200MB
