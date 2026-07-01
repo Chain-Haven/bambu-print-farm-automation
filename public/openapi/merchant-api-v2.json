@@ -517,14 +517,6 @@
         "responses": { "200": { "$ref": "#/components/responses/RateCard" } }
       }
     },
-    "/api/public/rate-card": {
-      "get": {
-        "tags": ["Billing"],
-        "summary": "Compatibility reference for the merchant billing rate card",
-        "description": "Public docs include this short path for merchant discovery. The built API route is /api/public/billing/rate-card.",
-        "responses": { "200": { "$ref": "#/components/responses/RateCard" } }
-      }
-    },
     "/api/public/billing/usage": {
       "get": {
         "tags": ["Billing"],
@@ -538,14 +530,6 @@
         "tags": ["Billing"],
         "summary": "List merchant invoices",
         "parameters": [{ "$ref": "#/components/parameters/Limit" }],
-        "responses": { "200": { "$ref": "#/components/responses/Invoices" } }
-      }
-    },
-    "/api/public/invoices": {
-      "get": {
-        "tags": ["Billing"],
-        "summary": "Compatibility reference for merchant invoices",
-        "description": "Public docs include this short path for merchant discovery. The built API route is /api/public/billing/invoices.",
         "responses": { "200": { "$ref": "#/components/responses/Invoices" } }
       }
     },

@@ -1,11 +1,31 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+
+function collectPublicRoutePaths(dir = 'api/public') {
+    const routePaths = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const entryPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            routePaths.push(...collectPublicRoutePaths(entryPath));
+            continue;
+        }
+        if (!entry.isFile() || !entry.name.endsWith('.js')) continue;
+        const routePath = `/${entryPath
+            .replace(/^api\/public\//, 'api/public/')
+            .replace(/\/index\.js$/, '')
+            .replace(/\.js$/, '')
+            .replace(/\[([^\]]+)\]/g, '{$1}')}`;
+        routePaths.push(routePath);
+    }
+    return routePaths;
+}
 
 describe('merchant API docs', () => {
     it('publishes public v2 merchant docs and OpenAPI coverage for the adapter backbone', async () => {
         const html = fs.readFileSync('public/merchant-api.html', 'utf8');
         const spec = JSON.parse(fs.readFileSync('public/openapi/merchant-api-v2.json', 'utf8'));
-        const requiredV2Paths = [
+        const planDiscoveryLabels = [
             '/api/public/files',
             '/api/public/slices',
             '/api/public/orders',
@@ -18,11 +38,24 @@ describe('merchant API docs', () => {
             '/api/public/realtime/tokens',
         ];
 
-        for (const path of requiredV2Paths) {
+        for (const path of [
+            ...planDiscoveryLabels,
+            '/api/public/billing/rate-card',
+            '/api/public/billing/usage',
+            '/api/public/billing/invoices',
+            '/api/public/billing/invoices/preview',
+        ]) {
             expect(html).toContain(path);
-            expect(spec.paths[path]).toBeTruthy();
         }
         for (const path of [
+            '/api/public/files',
+            '/api/public/slices',
+            '/api/public/orders',
+            '/api/public/routing/estimate',
+            '/api/public/material-reservations',
+            '/api/public/batches',
+            '/api/public/shipments',
+            '/api/public/realtime/tokens',
             '/api/public/billing/rate-card',
             '/api/public/billing/usage',
             '/api/public/billing/invoices',
@@ -32,9 +65,10 @@ describe('merchant API docs', () => {
             '/api/public/post-processing/tasks/{task_id}/complete',
             '/api/public/inspections/{inspection_id}/manual-review',
         ]) {
-            expect(html).toContain(path);
             expect(spec.paths[path]).toBeTruthy();
         }
+        expect(spec.paths['/api/public/rate-card']).toBeUndefined();
+        expect(spec.paths['/api/public/invoices']).toBeUndefined();
         expect(html).toContain('mock adapter');
         expect(html).toContain('merchant-api-v2.json');
         expect(html).toContain('MERCHANT_WEBHOOK_SIGNING_SECRET_KEY');
@@ -53,6 +87,15 @@ describe('merchant API docs', () => {
             'RealtimeToken',
             'WebhookEndpoint',
         ]));
+    });
+
+    it('only advertises implemented public API routes in the v2 OpenAPI path table', () => {
+        const spec = JSON.parse(fs.readFileSync('public/openapi/merchant-api-v2.json', 'utf8'));
+        const implementedPublicRoutes = new Set(collectPublicRoutePaths());
+
+        for (const specPath of Object.keys(spec.paths).filter((route) => route.startsWith('/api/public/'))) {
+            expect(implementedPublicRoutes.has(specPath), specPath).toBe(true);
+        }
     });
 
     it('serves the v2 OpenAPI document as static JSON from the public API route', async () => {

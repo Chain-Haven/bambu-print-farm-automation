@@ -131,11 +131,11 @@ Shipping:
 
 Billing:
 
-- `GET /api/public/billing/rate-card` reads the canonical rate-card route.
-- `GET /api/public/rate-card` is documented as a short compatibility reference; use `/api/public/billing/rate-card` in live integrations.
+- `GET /api/public/billing/rate-card` reads the rate-card route. Use this path in live integrations.
+- `/api/public/rate-card` may appear in planning notes as a short discovery label only. It is not an executable route; use `/api/public/billing/rate-card`.
 - `GET /api/public/billing/usage` lists usage lines.
-- `GET /api/public/billing/invoices` lists invoices.
-- `GET /api/public/invoices` is documented as a short compatibility reference; use `/api/public/billing/invoices` in live integrations.
+- `GET /api/public/billing/invoices` lists invoices. Use this path in live integrations.
+- `/api/public/invoices` may appear in planning notes as a short discovery label only. It is not an executable route; use `/api/public/billing/invoices`.
 - `GET /api/public/billing/invoices/{invoice_id}` reads one invoice.
 - `POST /api/public/billing/invoices/preview` previews invoice totals.
 
