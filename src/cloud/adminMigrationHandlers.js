@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { AdminAuthError, authenticateCloudAdmin } from './adminAuth.js';
-import { parseJsonBody } from './agentProtocol.js';
 
 export const ALLOWED_SUPABASE_MIGRATION_FILES = Object.freeze([
     '20260701050000_merchant_api_v2_adapter_backbone.sql',
@@ -97,6 +96,23 @@ function normalizeRequestedMigrations(body, allowlistedMigrations) {
     }
 
     return allowlistedMigrations.filter((migration) => selected.has(migration.filename));
+}
+
+function parsePostJsonObjectBody(body) {
+    if (body === undefined || body === null) return {};
+    if (isPlainObject(body)) return body;
+
+    if (typeof body === 'string') {
+        if (body.trim() === '') return {};
+        try {
+            const parsed = JSON.parse(body);
+            if (isPlainObject(parsed)) return parsed;
+        } catch {
+            throw new PublicMigrationError(400, 'invalid_json_body');
+        }
+    }
+
+    throw new PublicMigrationError(400, 'invalid_json_body');
 }
 
 function publicMigrationResult(migration, status) {
@@ -249,7 +265,7 @@ export function createCloudAdminMigrationHandler({
                 pepper,
             });
 
-            const body = req.method === 'POST' ? parseJsonBody(req.body) : {};
+            const body = req.method === 'POST' ? parsePostJsonObjectBody(req.body) : {};
             const allowlistedMigrations = loadAllowlistedMigrations({ rootDir });
             const migrations = normalizeRequestedMigrations(body, allowlistedMigrations);
             const dryRun = req.method === 'GET' || body.dry_run === true;

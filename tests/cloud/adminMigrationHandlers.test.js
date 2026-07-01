@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
     ALLOWED_SUPABASE_MIGRATION_FILES,
@@ -87,6 +88,35 @@ describe('cloud admin migration handler auth gate', () => {
 });
 
 describe('cloud admin migration allowlist', () => {
+    it('rejects malformed JSON and non-object POST bodies before touching Postgres', async () => {
+        const clientFactory = vi.fn();
+        const handler = createCloudAdminMigrationHandler({
+            store: {},
+            adminToken: 'admin-secret',
+            clientFactory,
+        });
+
+        const malformedRes = createMockResponse();
+        await handler({
+            method: 'POST',
+            headers: { authorization: 'Bearer admin-secret' },
+            body: '{"migrations": [',
+        }, malformedRes);
+
+        const arrayRes = createMockResponse();
+        await handler({
+            method: 'POST',
+            headers: { authorization: 'Bearer admin-secret' },
+            body: '["20260701050000_merchant_api_v2_adapter_backbone.sql"]',
+        }, arrayRes);
+
+        expect(malformedRes.statusCode).toBe(400);
+        expect(malformedRes.body).toEqual({ ok: false, error: 'invalid_json_body' });
+        expect(arrayRes.statusCode).toBe(400);
+        expect(arrayRes.body).toEqual({ ok: false, error: 'invalid_json_body' });
+        expect(clientFactory).not.toHaveBeenCalled();
+    });
+
     it('rejects arbitrary SQL and non-allowlisted migration names before touching Postgres', async () => {
         const clientFactory = vi.fn();
         const handler = createCloudAdminMigrationHandler({
@@ -263,6 +293,22 @@ describe('cloud admin migration connection config', () => {
             POSTGRES_PASSWORD: 'p@ss word',
             POSTGRES_DATABASE: 'postgres',
         })).toBe('postgres://postgres.user:p%40ss%20word@db.example.com:6543/postgres?sslmode=require');
+    });
+});
+
+describe('cloud admin migration operator docs', () => {
+    it('documents the required direct Postgres connection env for production migrations', () => {
+        const envExample = fs.readFileSync('.env.example', 'utf8');
+        const cloudDocs = fs.readFileSync('docs/cloud-control-plane.md', 'utf8');
+        const docs = `${envExample}\n${cloudDocs}`;
+
+        expect(docs).toContain('POSTGRES_URL_NON_POOLING');
+        expect(docs).toContain('POSTGRES_URL');
+        expect(docs).toContain('POSTGRES_PRISMA_URL');
+        expect(docs).toContain('POSTGRES_HOST');
+        expect(cloudDocs).toContain('/api/cloud/admin/migrations');
+        expect(cloudDocs).toContain('20260701050000_merchant_api_v2_adapter_backbone.sql');
+        expect(cloudDocs).toContain('20260701153253_merchant_shipping_claims.sql');
     });
 });
 

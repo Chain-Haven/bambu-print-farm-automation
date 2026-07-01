@@ -38,6 +38,8 @@ POST /api/cloud/merchant-api-keys
 DELETE /api/cloud/merchant-api-keys
 GET  /api/cloud/merchant-jobs?merchant_id=<merchant_id>&limit=50
 GET  /api/cloud/merchant-usage?merchant_id=<merchant_id>&limit=50
+GET  /api/cloud/admin/migrations
+POST /api/cloud/admin/migrations
 Authorization: Bearer <CLOUD_ADMIN_TOKEN>
 Content-Type: application/json
 ```
@@ -90,6 +92,19 @@ NODE_TOKEN_PEPPER=<long random server-side pepper>
 CLOUD_ADMIN_TOKEN=<long random bootstrap admin token>
 ```
 
+The admin migration runner also requires a direct Postgres connection in Vercel
+production, because Supabase REST cannot execute DDL migration files. Prefer the
+non-pooling URL for migrations:
+
+```bash
+POSTGRES_URL_NON_POOLING=postgres://<user>:<password>@<host>:5432/<database>?sslmode=require
+```
+
+Accepted fallbacks, in order, are `POSTGRES_URL`, `POSTGRES_PRISMA_URL`, or all
+of the split variables `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGRES_PASSWORD`,
+and `POSTGRES_DATABASE` with optional `POSTGRES_PORT`. Keep these values
+server-side only; never paste them into the browser or the Windows NUC `.env`.
+
 The migration creates:
 
 - organization and membership tables for human cloud users
@@ -100,6 +115,38 @@ The migration creates:
 - RLS policies for human reads by organization membership
 - service-role-only command claiming for Vercel agent APIs
 - private Supabase Realtime org topics named `org:<org_id>:...`
+
+## Admin Migration Runner
+
+`GET /api/cloud/admin/migrations` is an admin-only dry-run/status endpoint.
+`POST /api/cloud/admin/migrations` applies only committed, allowlisted files from
+`supabase/migrations`; it never accepts arbitrary SQL. The current allowlist is:
+
+- `20260701050000_merchant_api_v2_adapter_backbone.sql`
+- `20260701153253_merchant_shipping_claims.sql`
+
+Each pending migration is applied in a transaction and recorded in
+`supabase_migrations.schema_migrations`; already-recorded versions are skipped.
+Malformed JSON, non-object JSON, unknown migration filenames, and body fields such
+as `sql`, `query`, or `statement` are rejected before a Postgres client is
+created. Browser responses include only safe filenames/statuses and generic
+failure messages, not SQL, stack traces, tokens, or connection strings.
+
+To inspect without applying:
+
+```bash
+curl -sS https://<vercel-deployment>/api/cloud/admin/migrations \
+  -H "Authorization: Bearer <admin token>"
+```
+
+To apply all pending allowlisted migrations from the deployed runtime:
+
+```bash
+curl -sS -X POST https://<vercel-deployment>/api/cloud/admin/migrations \
+  -H "Authorization: Bearer <admin token>" \
+  -H "Content-Type: application/json" \
+  --data '{}'
+```
 
 ## Cloud Management
 
@@ -151,7 +198,8 @@ The local node retries transient Vercel/Supabase failures with bounded backoff, 
 ## End-to-end Smoke Test
 
 After the Supabase migration is applied and Vercel has `SUPABASE_URL`,
-`SUPABASE_SERVICE_ROLE_KEY`, `NODE_TOKEN_PEPPER`, and `CLOUD_ADMIN_TOKEN`, run:
+`SUPABASE_SERVICE_ROLE_KEY`, `NODE_TOKEN_PEPPER`, `CLOUD_ADMIN_TOKEN`, and the
+direct Postgres env needed for any admin migration run, run:
 
 ```bash
 CLOUD_API_URL=https://<vercel-deployment> \
