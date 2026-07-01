@@ -263,16 +263,55 @@ async function recordUsageBestEffort(options) {
     }
 }
 
-async function findExistingOrder({ store, merchantId, idempotencyKey, externalOrderId }) {
+async function findExistingOrderMatches({ store, merchantId, idempotencyKey, externalOrderId }) {
+    const matches = {
+        byIdempotencyKey: null,
+        byExternalOrderId: null,
+    };
     if (idempotencyKey && typeof store.findMerchantOrderByIdempotencyKey === 'function') {
-        const existing = await store.findMerchantOrderByIdempotencyKey({ merchantId, idempotencyKey });
-        if (existing) return existing;
+        matches.byIdempotencyKey = await store.findMerchantOrderByIdempotencyKey({ merchantId, idempotencyKey });
     }
     if (externalOrderId && typeof store.findMerchantOrderByExternalOrderId === 'function') {
-        const existing = await store.findMerchantOrderByExternalOrderId({ merchantId, externalOrderId });
-        if (existing) return existing;
+        matches.byExternalOrderId = await store.findMerchantOrderByExternalOrderId({ merchantId, externalOrderId });
     }
-    return null;
+    return matches;
+}
+
+function sameOrder(left, right) {
+    if (!left || !right) return true;
+    return String(left.order_id || '') === String(right.order_id || '');
+}
+
+function resolveExistingOrderReplay({
+    byIdempotencyKey,
+    byExternalOrderId,
+    idempotencyKey,
+    externalOrderId,
+    requestId,
+}) {
+    if (byIdempotencyKey && byExternalOrderId && !sameOrder(byIdempotencyKey, byExternalOrderId)) {
+        throw createHttpError(409, 'idempotency_conflict', 'Idempotency key and external order id refer to different orders');
+    }
+
+    if (
+        byIdempotencyKey
+        && externalOrderId
+        && optionalString(byIdempotencyKey.external_order_id) !== externalOrderId
+    ) {
+        throw createHttpError(409, 'idempotency_conflict', 'Idempotency key was already used for a different external order id');
+    }
+
+    if (
+        byExternalOrderId
+        && idempotencyKey
+        && optionalString(byExternalOrderId.idempotency_key)
+        && optionalString(byExternalOrderId.idempotency_key) !== idempotencyKey
+    ) {
+        throw createHttpError(409, 'idempotency_conflict', 'External order id was already used with a different idempotency key');
+    }
+
+    const existingOrder = byIdempotencyKey || byExternalOrderId;
+    return existingOrder ? existingOrderReplay(existingOrder, requestId) : null;
 }
 
 async function markOrderFailed({
@@ -332,13 +371,19 @@ export function createOrderHandlers({
         const orderId = crypto.randomUUID();
         const externalOrderId = optionalString(source.merchant_order_id) || optionalString(source.external_order_id);
         const idempotencyKey = idempotencyKeyFrom({ source, request });
-        const existingOrder = await findExistingOrder({
+        const existingMatches = await findExistingOrderMatches({
             store,
             merchantId: merchant.merchant_id,
             idempotencyKey,
             externalOrderId,
         });
-        if (existingOrder) return existingOrderReplay(existingOrder, requestId);
+        const existingReplay = resolveExistingOrderReplay({
+            ...existingMatches,
+            idempotencyKey,
+            externalOrderId,
+            requestId,
+        });
+        if (existingReplay) return existingReplay;
 
         const validatedItems = await prevalidateFiles({ store, merchant, items });
         const autoSubmitRequested = items.some((item) => shouldAutoSubmit(source, item.source));
@@ -370,13 +415,19 @@ export function createOrderHandlers({
                 created_at: timestamp,
             });
         } catch (error) {
-            const replay = await findExistingOrder({
+            const replayMatches = await findExistingOrderMatches({
                 store,
                 merchantId: merchant.merchant_id,
                 idempotencyKey,
                 externalOrderId,
             });
-            if (replay) return existingOrderReplay(replay, requestId);
+            const replay = resolveExistingOrderReplay({
+                ...replayMatches,
+                idempotencyKey,
+                externalOrderId,
+                requestId,
+            });
+            if (replay) return replay;
             throw error;
         }
 

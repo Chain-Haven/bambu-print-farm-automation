@@ -458,6 +458,71 @@ describe('merchant order handlers', () => {
         expect(store.createMerchantOrder).not.toHaveBeenCalled();
     });
 
+    it('rejects idempotency key reuse with a different external order id', async () => {
+        const { createOrder, store } = createHandlers({
+            store: {
+                findMerchantOrderByIdempotencyKey: vi.fn().mockResolvedValue({
+                    order_id: 'order-idem-a',
+                    external_order_id: '1008',
+                    idempotency_key: 'idem-conflict',
+                    status: 'submitted',
+                    metadata: { item_count: 1 },
+                }),
+            },
+        });
+
+        await expect(createOrder({
+            merchant_order_id: 'DIFFERENT-1008',
+            items: [{ file_id: 'ready-file', quantity: 1 }],
+        }, { headers: { 'Idempotency-Key': 'idem-conflict' } })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'idempotency_conflict',
+        });
+
+        expect(store.getMerchantFile).not.toHaveBeenCalled();
+        expect(store.createMerchantOrder).not.toHaveBeenCalled();
+    });
+
+    it('rejects requests whose idempotency key and external order id match different rows', async () => {
+        const { createOrder, store } = createHandlers({
+            store: {
+                findMerchantOrderByIdempotencyKey: vi.fn().mockResolvedValue({
+                    order_id: 'order-a',
+                    external_order_id: '1009-A',
+                    idempotency_key: 'idem-two-rows',
+                    status: 'submitted',
+                    metadata: { item_count: 1 },
+                }),
+                findMerchantOrderByExternalOrderId: vi.fn().mockResolvedValue({
+                    order_id: 'order-b',
+                    external_order_id: '1009-B',
+                    idempotency_key: 'other-key',
+                    status: 'submitted',
+                    metadata: { item_count: 1 },
+                }),
+            },
+        });
+
+        await expect(createOrder({
+            merchant_order_id: '1009-B',
+            items: [{ file_id: 'ready-file', quantity: 1 }],
+        }, { headers: { 'Idempotency-Key': 'idem-two-rows' } })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'idempotency_conflict',
+        });
+
+        expect(store.findMerchantOrderByIdempotencyKey).toHaveBeenCalledWith({
+            merchantId: 'merchant-1',
+            idempotencyKey: 'idem-two-rows',
+        });
+        expect(store.findMerchantOrderByExternalOrderId).toHaveBeenCalledWith({
+            merchantId: 'merchant-1',
+            externalOrderId: '1009-B',
+        });
+        expect(store.getMerchantFile).not.toHaveBeenCalled();
+        expect(store.createMerchantOrder).not.toHaveBeenCalled();
+    });
+
     it('rejects duplicate replays while an existing order is still creating', async () => {
         const { createOrder, store } = createHandlers({
             store: {
@@ -785,6 +850,47 @@ describe('merchant order public routes', () => {
         });
         expect(JSON.stringify(res.body)).not.toContain('_http_status');
         expect(JSON.stringify(res.body)).not.toContain('idempotent_replay');
+        expect(store.createMerchantOrder).not.toHaveBeenCalled();
+    });
+
+    it('returns route-level conflict envelopes for idempotency identity mismatches', async () => {
+        const store = createAuthenticatedRouteStore({
+            findMerchantOrderByIdempotencyKey: vi.fn().mockResolvedValue({
+                order_id: 'order-route-conflict',
+                external_order_id: '1014-A',
+                idempotency_key: 'idem-route-conflict',
+                status: 'submitted',
+                metadata: { item_count: 1 },
+            }),
+        });
+        const handler = await importOrdersIndexRoute(store);
+        const res = createMockResponse();
+        const originalPepper = process.env.NODE_TOKEN_PEPPER;
+        process.env.NODE_TOKEN_PEPPER = routePepper;
+
+        try {
+            await handler({
+                method: 'POST',
+                headers: {
+                    authorization: `Bearer ${routeRawKey}`,
+                    'Idempotency-Key': 'idem-route-conflict',
+                },
+                body: {
+                    merchant_order_id: '1014-B',
+                    items: [{ file_id: 'ready-file', quantity: 1 }],
+                },
+            }, res);
+        } finally {
+            if (originalPepper === undefined) delete process.env.NODE_TOKEN_PEPPER;
+            else process.env.NODE_TOKEN_PEPPER = originalPepper;
+        }
+
+        expect(res.statusCode).toBe(409);
+        expect(res.body).toMatchObject({
+            ok: false,
+            error: 'idempotency_conflict',
+            request_id: expect.stringMatching(/^req_/),
+        });
         expect(store.createMerchantOrder).not.toHaveBeenCalled();
     });
 

@@ -96,12 +96,12 @@ describe('merchant routing v2 handlers', () => {
 
         expect(options.strategies).toEqual([
             'fastest_fulfillment',
+            'cheapest',
+            'exact_material_match',
             'batch_by_material',
             'least_printer_wear',
             'ship_cutoff',
         ]);
-        expect(options.strategies).not.toContain('cheapest');
-        expect(options.strategies).not.toContain('exact_material_match');
         expect(options.default_strategy).toBe('fastest_fulfillment');
     });
 
@@ -131,6 +131,70 @@ describe('merchant routing v2 handlers', () => {
         expect(JSON.stringify(estimate)).not.toContain('node_id');
         expect(JSON.stringify(estimate)).not.toContain('printer_id');
         expect(JSON.stringify(estimate)).not.toContain('spool_id');
+    });
+
+    it('accepts the complete strategy set when estimating routes', async () => {
+        const { estimateRouting } = createHandlers({
+            store: {
+                getCloudOverview: vi.fn().mockResolvedValue({
+                    nodes: [
+                        { node_id: 'node-costly', status: 'online' },
+                        { node_id: 'node-cheap', status: 'online' },
+                    ],
+                    printers: [
+                        {
+                            printer_id: 'costly-printer',
+                            node_id: 'node-costly',
+                            status: 'online',
+                            status_snapshot: { print: { gcode_state: 'IDLE' } },
+                            capabilities: {
+                                max_x: 256,
+                                max_y: 256,
+                                max_z: 256,
+                                materials: ['PLA', 'PETG'],
+                                cost_per_job_cents: 4500,
+                            },
+                        },
+                        {
+                            printer_id: 'cheap-printer',
+                            node_id: 'node-cheap',
+                            status: 'online',
+                            status_snapshot: { print: { gcode_state: 'IDLE' } },
+                            capabilities: {
+                                max_x: 256,
+                                max_y: 256,
+                                max_z: 256,
+                                materials: ['PLA'],
+                                cost_per_job_cents: 900,
+                            },
+                        },
+                    ],
+                    jobs: [],
+                }),
+            },
+        });
+
+        for (const strategy of [
+            'fastest_fulfillment',
+            'cheapest',
+            'exact_material_match',
+            'batch_by_material',
+            'least_printer_wear',
+            'ship_cutoff',
+        ]) {
+            const estimate = await estimateRouting({
+                strategy,
+                requirements: { materials: ['PLA'], estimated_print_minutes: 45 },
+            });
+
+            expect(estimate).toMatchObject({
+                strategy,
+                compatible: true,
+                eta: expect.objectContaining({ queue_minutes: expect.any(Number) }),
+            });
+            expect(JSON.stringify(estimate)).not.toContain('node-costly');
+            expect(JSON.stringify(estimate)).not.toContain('cheap-printer');
+        }
     });
 
     it('redacts internal routing ids from no-capacity estimates', async () => {

@@ -210,7 +210,95 @@ function getPrinterWearHours(printer) {
     ) || 0;
 }
 
-function scoreSortWeight({ strategy, queueDepth, nodePenalty, materialBatchMatches, printerWearHours }) {
+function getEstimatedPrintMinutes(requirements = {}) {
+    return getNumber(
+        requirements.estimated_print_minutes,
+        requirements.print_minutes,
+        requirements.duration_minutes,
+        requirements.estimated_duration_minutes,
+    ) || 60;
+}
+
+function getEstimatedMaterialGrams(requirements = {}) {
+    return getNumber(
+        requirements.estimated_material_grams,
+        requirements.material_grams,
+        requirements.estimated_grams,
+        requirements.grams,
+        requirements.weight_grams,
+    ) || 50;
+}
+
+function getPrinterCostCents(printer, requirements = {}) {
+    const capabilities = printer.capabilities || {};
+    const pricing = capabilities.pricing || {};
+    const directCost = getNumber(
+        capabilities.estimated_cost_cents,
+        capabilities.cost_cents,
+        capabilities.price_cents,
+        capabilities.cost_per_job_cents,
+        capabilities.job_cost_cents,
+        pricing.estimated_cost_cents,
+        pricing.cost_cents,
+        pricing.price_cents,
+        pricing.cost_per_job_cents,
+        pricing.job_cost_cents,
+    );
+    if (directCost) return Math.ceil(directCost);
+
+    const hourlyCost = getNumber(
+        capabilities.cost_per_hour_cents,
+        capabilities.hourly_rate_cents,
+        capabilities.machine_rate_cents,
+        capabilities.print_hour_cents,
+        pricing.cost_per_hour_cents,
+        pricing.hourly_rate_cents,
+        pricing.machine_rate_cents,
+        pricing.print_hour_cents,
+    );
+    const materialCost = getNumber(
+        capabilities.cost_per_gram_cents,
+        capabilities.material_rate_cents,
+        capabilities.material_cents_per_gram,
+        pricing.cost_per_gram_cents,
+        pricing.material_rate_cents,
+        pricing.material_cents_per_gram,
+    );
+
+    let total = 0;
+    if (hourlyCost) {
+        total += Math.ceil((getEstimatedPrintMinutes(requirements) / 60) * hourlyCost);
+    }
+    if (materialCost) {
+        total += Math.ceil(getEstimatedMaterialGrams(requirements) * materialCost);
+    }
+    return total || 1000;
+}
+
+function countExtraMaterials(availableMaterials, requiredMaterials) {
+    let extra = 0;
+    for (const material of availableMaterials) {
+        if (!requiredMaterials.has(material)) extra += 1;
+    }
+    return extra;
+}
+
+function scoreSortWeight({
+    strategy,
+    queueDepth,
+    nodePenalty,
+    materialBatchMatches,
+    printerWearHours,
+    estimatedCostCents,
+    materialExtraCount,
+    exactMaterialMatch,
+}) {
+    if (strategy === 'cheapest') {
+        return estimatedCostCents + queueDepth * 10 + nodePenalty * 100;
+    }
+    if (strategy === 'exact_material_match') {
+        return (exactMaterialMatch ? 0 : 1000) + materialExtraCount * 50 + queueDepth * 100 + nodePenalty;
+    }
     if (strategy === 'batch_by_material') {
         return queueDepth * 100 + nodePenalty - materialBatchMatches * 150;
     }
@@ -267,6 +355,11 @@ function evaluatePrinter({ node, printer, jobs, requirements }) {
 
     const materialBatchMatches = countMaterialBatchMatches(printer, jobs, requirements);
     const printerWearHours = getPrinterWearHours(printer);
+    const materialExtraCount = requiredMaterials.size > 0
+        ? countExtraMaterials(availableMaterials, requiredMaterials)
+        : 0;
+    const exactMaterialMatch = requiredMaterials.size > 0 && materialExtraCount === 0;
+    const estimatedCostCents = getPrinterCostCents(printer, requirements);
 
     return {
         ok: true,
@@ -278,6 +371,9 @@ function evaluatePrinter({ node, printer, jobs, requirements }) {
             color_matches: requiredColors.size,
             material_batch_matches: materialBatchMatches,
             printer_wear_hours: printerWearHours,
+            estimated_cost_cents: estimatedCostCents,
+            exact_material_match: exactMaterialMatch,
+            material_extra_count: materialExtraCount,
             sort_weight: queueDepth * 100 + nodePenalty,
         },
     };
@@ -318,6 +414,9 @@ export function routeMerchantPrintJob({
                     nodePenalty: evaluation.score.node_status === 'degraded' ? 1 : 0,
                     materialBatchMatches: evaluation.score.material_batch_matches,
                     printerWearHours: evaluation.score.printer_wear_hours,
+                    estimatedCostCents: evaluation.score.estimated_cost_cents,
+                    materialExtraCount: evaluation.score.material_extra_count,
+                    exactMaterialMatch: evaluation.score.exact_material_match,
                 }),
             },
         });

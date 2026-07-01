@@ -257,6 +257,99 @@ describe('merchant fastest-fulfillment routing', () => {
         expect(result.score.material_batch_matches).toBe(1);
     });
 
+    it('can prefer the cheapest compatible printer over a shorter queue', () => {
+        const result = routeMerchantPrintJob({
+            strategy: 'cheapest',
+            overview: {
+                nodes: [
+                    { node_id: 'node-a', status: 'online' },
+                    { node_id: 'node-b', status: 'online' },
+                ],
+                printers: [
+                    {
+                        printer_id: 'fast-expensive-printer',
+                        node_id: 'node-a',
+                        status: 'online',
+                        status_snapshot: { print: { gcode_state: 'IDLE' } },
+                        capabilities: {
+                            max_x: 256,
+                            max_y: 256,
+                            max_z: 256,
+                            materials: ['PLA'],
+                            cost_per_job_cents: 3200,
+                        },
+                    },
+                    {
+                        printer_id: 'queued-cheap-printer',
+                        node_id: 'node-b',
+                        status: 'online',
+                        status_snapshot: { print: { gcode_state: 'IDLE' } },
+                        capabilities: {
+                            max_x: 256,
+                            max_y: 256,
+                            max_z: 256,
+                            materials: ['PLA'],
+                            cost_per_job_cents: 650,
+                        },
+                    },
+                ],
+                jobs: [
+                    { job_id: 'job-1', printer_id: 'queued-cheap-printer', status: 'queued' },
+                ],
+            },
+            requirements: { materials: ['PLA'] },
+        });
+
+        expect(result.selected_printer_id).toBe('queued-cheap-printer');
+        expect(result.score.estimated_cost_cents).toBe(650);
+    });
+
+    it('can prefer exact material inventory matches over broad material inventories', () => {
+        const result = routeMerchantPrintJob({
+            strategy: 'exact_material_match',
+            overview: {
+                nodes: [
+                    { node_id: 'node-a', status: 'online' },
+                    { node_id: 'node-b', status: 'online' },
+                ],
+                printers: [
+                    {
+                        printer_id: 'multi-material-printer',
+                        node_id: 'node-a',
+                        status: 'online',
+                        status_snapshot: { print: { gcode_state: 'IDLE' } },
+                        capabilities: {
+                            max_x: 256,
+                            max_y: 256,
+                            max_z: 256,
+                            materials: ['PLA', 'PETG', 'ABS'],
+                        },
+                    },
+                    {
+                        printer_id: 'exact-material-printer',
+                        node_id: 'node-b',
+                        status: 'online',
+                        status_snapshot: { print: { gcode_state: 'IDLE' } },
+                        capabilities: {
+                            max_x: 256,
+                            max_y: 256,
+                            max_z: 256,
+                            materials: ['PLA'],
+                        },
+                    },
+                ],
+                jobs: [],
+            },
+            requirements: { materials: ['PLA'] },
+        });
+
+        expect(result.selected_printer_id).toBe('exact-material-printer');
+        expect(result.score).toMatchObject({
+            exact_material_match: true,
+            material_extra_count: 0,
+        });
+    });
+
     it('can prefer the least-worn printer when capacity is otherwise equal', () => {
         const result = routeMerchantPrintJob({
             strategy: 'least_printer_wear',
