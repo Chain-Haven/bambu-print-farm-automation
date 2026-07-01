@@ -21,6 +21,22 @@ function collectPublicRoutePaths(dir = 'api/public') {
     return routePaths;
 }
 
+function responseSchema(spec, responseName) {
+    return spec.components.responses[responseName].content['application/json'].schema;
+}
+
+function schemaProperties(spec, schema) {
+    if (!schema) return {};
+    if (schema.$ref) {
+        const schemaName = schema.$ref.replace('#/components/schemas/', '');
+        return schemaProperties(spec, spec.components.schemas[schemaName]);
+    }
+    if (Array.isArray(schema.allOf)) {
+        return Object.assign({}, ...schema.allOf.map((part) => schemaProperties(spec, part)));
+    }
+    return schema.properties || {};
+}
+
 describe('merchant API docs', () => {
     it('publishes public v2 merchant docs and OpenAPI coverage for the adapter backbone', async () => {
         const html = fs.readFileSync('public/merchant-api.html', 'utf8');
@@ -107,6 +123,43 @@ describe('merchant API docs', () => {
         expect(spec.paths['/api/public/orders'].get).toBeUndefined();
     });
 
+    it('documents runtime-shaped v2 OpenAPI response envelopes', () => {
+        const spec = JSON.parse(fs.readFileSync('public/openapi/merchant-api-v2.json', 'utf8'));
+
+        for (const [responseName, idProperty, wrapperProperty] of [
+            ['File', 'file_id', 'file'],
+            ['Order', 'order_id', 'order'],
+            ['Shipment', 'shipment_id', 'shipment'],
+            ['Inspection', 'inspection_id', 'inspection'],
+            ['PostProcessingTask', 'task_id', 'task'],
+            ['MaterialReservation', 'reservation_id', 'reservation'],
+            ['Batch', 'batch_id', 'batch'],
+        ]) {
+            const properties = schemaProperties(spec, responseSchema(spec, responseName));
+            expect(properties[idProperty], responseName).toBeTruthy();
+            expect(properties[wrapperProperty], responseName).toBeUndefined();
+        }
+
+        const invoicePreview = schemaProperties(spec, responseSchema(spec, 'InvoicePreview'));
+        expect(invoicePreview.invoice_preview).toBeTruthy();
+        expect(invoicePreview.preview).toBeUndefined();
+
+        const realtimeToken = schemaProperties(spec, responseSchema(spec, 'RealtimeToken'));
+        expect(realtimeToken.token?.type).toBe('string');
+        expect(realtimeToken.token_record).toBeTruthy();
+        expect(realtimeToken.token?.$ref).toBeUndefined();
+
+        const webhookList = schemaProperties(spec, responseSchema(spec, 'WebhookEndpoints'));
+        expect(webhookList.endpoints).toBeTruthy();
+        expect(webhookList.webhooks).toBeUndefined();
+
+        const webhookCreate = schemaProperties(spec, responseSchema(spec, 'WebhookEndpoint'));
+        expect(webhookCreate.webhook_id).toBeTruthy();
+        expect(webhookCreate.secret?.type).toBe('string');
+        expect(webhookCreate.webhook).toBeUndefined();
+        expect(webhookCreate.signing_secret).toBeUndefined();
+    });
+
     it('serves the v2 OpenAPI document as static JSON from the public API route', async () => {
         const { default: handler } = await import('../../api/public/openapi-v2.js');
         const headers = {};
@@ -130,6 +183,35 @@ describe('merchant API docs', () => {
         expect(res.statusCode).toBe(200);
         expect(headers['content-type']).toBe('application/json');
         expect(res.body.openapi).toBe('3.1.0');
+    });
+
+    it('rejects non-GET requests to the v2 OpenAPI JSON route', async () => {
+        const { default: handler } = await import('../../api/public/openapi-v2.js');
+        const headers = {};
+        const res = {
+            statusCode: 200,
+            setHeader: (key, value) => {
+                headers[key.toLowerCase()] = value;
+            },
+            status(code) {
+                this.statusCode = code;
+                return this;
+            },
+            json(payload) {
+                this.body = payload;
+                return this;
+            },
+        };
+
+        await handler({ method: 'POST' }, res);
+
+        expect(res.statusCode).toBe(405);
+        expect(headers.allow).toBe('GET');
+        expect(headers['content-type']).toBe('application/json');
+        expect(res.body).toMatchObject({
+            ok: false,
+            error: 'method_not_allowed',
+        });
     });
 
     it('publishes public docs and a parseable OpenAPI spec for the merchant API', () => {
