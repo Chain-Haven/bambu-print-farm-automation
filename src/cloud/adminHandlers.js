@@ -1,6 +1,9 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { hashNodeToken, parseJsonBody } from './agentProtocol.js';
+import { buildMerchantSetupTokenRecord, generateMerchantSetupToken } from './merchantAuth.js';
 import { buildWindowsNodePackage, getNodePackageFileName } from './nodePackage.js';
+
+const MERCHANT_SETUP_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -63,6 +66,13 @@ function parseLimit(query = {}) {
     return Math.max(1, Math.min(raw, 100));
 }
 
+function normalizeBoolean(value, name) {
+    if (typeof value !== 'boolean') {
+        throw new Error(`${name} must be true or false`);
+    }
+    return value;
+}
+
 function normalizeCloudCommand(body) {
     const source = isPlainObject(body) ? body : {};
 
@@ -109,6 +119,53 @@ function normalizeNodePackageRequest(body, req) {
 
 function generateNodeToken() {
     return `pkx_node_${randomBytes(32).toString('base64url')}`;
+}
+
+async function issueMerchantSetupToken({
+    store,
+    merchant,
+    merchantPepper,
+    now,
+    setupTokenFactory,
+}) {
+    if (!merchantPepper) throw new Error('merchant api key pepper is required');
+    if (!merchant || merchant.status !== 'active') {
+        throw new Error('merchant must be active before issuing setup token');
+    }
+
+    const issuedAt = now();
+    const expiresAt = new Date(issuedAt.getTime() + MERCHANT_SETUP_TOKEN_TTL_MS).toISOString();
+    const rawToken = setupTokenFactory();
+    const setupToken = buildMerchantSetupTokenRecord({
+        merchant,
+        rawToken,
+        pepper: merchantPepper,
+        expiresAt,
+    });
+
+    await store.createMerchantSetupToken(setupToken.record);
+    return {
+        secret: setupToken.secret,
+        expires_at: expiresAt,
+    };
+}
+
+function normalizeMerchantAction(body) {
+    const source = isPlainObject(body) ? body : {};
+    const merchantId = normalizeRequiredString(source.merchant_id, 'merchant_id');
+    const action = normalizeRequiredString(source.action, 'action').toLowerCase();
+    const issueSetupToken = source.issue_setup_token === true;
+
+    if (!['approve', 'activate', 'reject', 'suspend'].includes(action)) {
+        throw new Error('action must be approve, activate, reject, or suspend');
+    }
+
+    return {
+        merchantId,
+        action,
+        issueSetupToken,
+        metadata: isPlainObject(source.metadata) ? source.metadata : null,
+    };
 }
 
 function hasEnvValue(env, key) {
@@ -353,6 +410,240 @@ export function createCloudNodePackageHandler({
             return sendJson(res, 400, {
                 ok: false,
                 error: 'node_package_failed',
+                message: error.message,
+            });
+        }
+    };
+}
+
+export function createCloudMerchantsHandler({
+    store,
+    adminToken = process.env.CLOUD_ADMIN_TOKEN,
+    merchantPepper = process.env.MERCHANT_API_KEY_PEPPER || process.env.NODE_TOKEN_PEPPER,
+    setupTokenFactory = generateMerchantSetupToken,
+    now = () => new Date(),
+}) {
+    if (!store) throw new Error('store is required');
+
+    return async function cloudMerchantsHandler(req, res) {
+        if (req.method === 'GET') {
+            try {
+                if (!(await authenticateAdmin(req, res, adminToken))) return null;
+                const merchants = await store.listMerchants({
+                    status: normalizeOptionalString((req.query || {}).status),
+                    limit: parseLimit(req.query || {}),
+                });
+                return sendJson(res, 200, { ok: true, merchants });
+            } catch (error) {
+                return sendJson(res, 500, {
+                    ok: false,
+                    error: 'list_merchants_failed',
+                    message: error.message,
+                });
+            }
+        }
+
+        if (req.method && req.method !== 'POST') {
+            return methodNotAllowed(res, 'GET, POST');
+        }
+
+        try {
+            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+
+            const action = normalizeMerchantAction(parseJsonBody(req.body));
+            const timestamp = now().toISOString();
+            let status;
+            let approvedAt = null;
+            let rejectedAt = null;
+
+            if (action.action === 'approve' || action.action === 'activate') {
+                status = 'active';
+                approvedAt = timestamp;
+            } else if (action.action === 'reject') {
+                status = 'rejected';
+                rejectedAt = timestamp;
+            } else {
+                status = 'suspended';
+            }
+
+            const merchant = await store.updateMerchantStatus(action.merchantId, {
+                status,
+                approvedAt,
+                rejectedAt,
+                metadata: action.metadata,
+            });
+
+            if (action.issueSetupToken) {
+                const setupToken = await issueMerchantSetupToken({
+                    store,
+                    merchant,
+                    merchantPepper,
+                    setupTokenFactory,
+                    now,
+                });
+                return sendJson(res, 200, {
+                    ok: true,
+                    merchant,
+                    merchant_setup_token: setupToken.secret,
+                    setup_token_expires_at: setupToken.expires_at,
+                });
+            }
+
+            return sendJson(res, 200, { ok: true, merchant });
+        } catch (error) {
+            return sendJson(res, 400, {
+                ok: false,
+                error: 'merchant_admin_action_failed',
+                message: error.message,
+            });
+        }
+    };
+}
+
+export function createCloudMerchantSetupTokenHandler({
+    store,
+    adminToken = process.env.CLOUD_ADMIN_TOKEN,
+    merchantPepper = process.env.MERCHANT_API_KEY_PEPPER || process.env.NODE_TOKEN_PEPPER,
+    setupTokenFactory = generateMerchantSetupToken,
+    now = () => new Date(),
+}) {
+    if (!store) throw new Error('store is required');
+
+    return async function cloudMerchantSetupTokenHandler(req, res) {
+        if (req.method && req.method !== 'POST') {
+            return methodNotAllowed(res, 'POST');
+        }
+
+        try {
+            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            const body = parseJsonBody(req.body);
+            const merchantId = normalizeRequiredString(body.merchant_id, 'merchant_id');
+            const merchant = await store.findMerchantById(merchantId);
+            const setupToken = await issueMerchantSetupToken({
+                store,
+                merchant,
+                merchantPepper,
+                setupTokenFactory,
+                now,
+            });
+
+            return sendJson(res, 201, {
+                ok: true,
+                merchant_id: merchant.merchant_id,
+                merchant_setup_token: setupToken.secret,
+                setup_token_expires_at: setupToken.expires_at,
+            });
+        } catch (error) {
+            return sendJson(res, 400, {
+                ok: false,
+                error: 'issue_merchant_setup_token_failed',
+                message: error.message,
+            });
+        }
+    };
+}
+
+export function createCloudMerchantSettingsHandler({
+    store,
+    adminToken = process.env.CLOUD_ADMIN_TOKEN,
+}) {
+    if (!store) throw new Error('store is required');
+
+    return async function cloudMerchantSettingsHandler(req, res) {
+        if (req.method === 'GET') {
+            try {
+                if (!(await authenticateAdmin(req, res, adminToken))) return null;
+                const fullAuto = await store.getPlatformSetting('full_auto_merchant_mode', { enabled: false });
+                return sendJson(res, 200, {
+                    ok: true,
+                    settings: { full_auto_merchant_mode: fullAuto },
+                });
+            } catch (error) {
+                return sendJson(res, 500, {
+                    ok: false,
+                    error: 'merchant_settings_failed',
+                    message: error.message,
+                });
+            }
+        }
+
+        if (req.method && req.method !== 'PATCH') {
+            return methodNotAllowed(res, 'GET, PATCH');
+        }
+
+        try {
+            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            const body = parseJsonBody(req.body);
+            const enabled = normalizeBoolean(
+                body.full_auto_merchant_mode ?? body.enabled,
+                'full_auto_merchant_mode',
+            );
+            const row = await store.upsertPlatformSetting('full_auto_merchant_mode', { enabled });
+
+            return sendJson(res, 200, {
+                ok: true,
+                settings: { full_auto_merchant_mode: row?.value || { enabled } },
+            });
+        } catch (error) {
+            return sendJson(res, 400, {
+                ok: false,
+                error: 'update_merchant_settings_failed',
+                message: error.message,
+            });
+        }
+    };
+}
+
+export function createCloudMerchantJobsHandler({
+    store,
+    adminToken = process.env.CLOUD_ADMIN_TOKEN,
+}) {
+    if (!store) throw new Error('store is required');
+
+    return async function cloudMerchantJobsHandler(req, res) {
+        if (req.method && req.method !== 'GET') {
+            return methodNotAllowed(res, 'GET');
+        }
+
+        try {
+            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            const jobs = await store.listMerchantPrintJobs({
+                merchantId: normalizeRequiredString((req.query || {}).merchant_id, 'merchant_id'),
+                limit: parseLimit(req.query || {}),
+            });
+            return sendJson(res, 200, { ok: true, jobs });
+        } catch (error) {
+            return sendJson(res, 400, {
+                ok: false,
+                error: 'list_merchant_jobs_failed',
+                message: error.message,
+            });
+        }
+    };
+}
+
+export function createCloudMerchantUsageHandler({
+    store,
+    adminToken = process.env.CLOUD_ADMIN_TOKEN,
+}) {
+    if (!store) throw new Error('store is required');
+
+    return async function cloudMerchantUsageHandler(req, res) {
+        if (req.method && req.method !== 'GET') {
+            return methodNotAllowed(res, 'GET');
+        }
+
+        try {
+            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            const usage = await store.listMerchantUsageEvents({
+                merchantId: normalizeRequiredString((req.query || {}).merchant_id, 'merchant_id'),
+                limit: parseLimit(req.query || {}),
+            });
+            return sendJson(res, 200, { ok: true, usage });
+        } catch (error) {
+            return sendJson(res, 400, {
+                ok: false,
+                error: 'list_merchant_usage_failed',
                 message: error.message,
             });
         }
