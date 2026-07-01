@@ -120,11 +120,15 @@ describe('merchant API v2 store surface', () => {
         });
     });
 
-    it('soft-deletes merchant files through a merchant-scoped status patch', async () => {
+    it('soft-deletes merchant files through a merchant-scoped status and audit timestamp patch', async () => {
         const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([{ file_id: 'f1', status: 'deleted' }]));
         const store = await createStore(fetchImpl);
 
-        await store.deleteMerchantFile({ merchantId: 'm1', fileId: 'f1' });
+        await store.deleteMerchantFile({
+            merchantId: 'm1',
+            fileId: 'f1',
+            deletedAt: '2026-07-01T12:00:00.000Z',
+        });
 
         const [url, init] = fetchImpl.mock.calls[0];
         const requestUrl = new URL(url);
@@ -132,7 +136,10 @@ describe('merchant API v2 store surface', () => {
         expect(requestUrl.searchParams.get('file_id')).toBe('eq.f1');
         expect(init).toMatchObject({
             method: 'PATCH',
-            body: JSON.stringify({ status: 'deleted' }),
+            body: JSON.stringify({
+                status: 'deleted',
+                deleted_at: '2026-07-01T12:00:00.000Z',
+            }),
         });
     });
 
@@ -149,11 +156,15 @@ describe('merchant API v2 store surface', () => {
         expect(requestUrl.searchParams.get('order')).toBe('occurred_at.desc');
     });
 
-    it('releases material reservations through a merchant-scoped status patch', async () => {
+    it('releases material reservations through a merchant-scoped status and audit timestamp patch', async () => {
         const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([{ reservation_id: 'r1', status: 'released' }]));
         const store = await createStore(fetchImpl);
 
-        await store.releaseMerchantMaterialReservation({ merchantId: 'm1', reservationId: 'r1' });
+        await store.releaseMerchantMaterialReservation({
+            merchantId: 'm1',
+            reservationId: 'r1',
+            releasedAt: '2026-07-01T12:05:00.000Z',
+        });
 
         const [url, init] = fetchImpl.mock.calls[0];
         const requestUrl = new URL(url);
@@ -162,7 +173,10 @@ describe('merchant API v2 store surface', () => {
         expect(requestUrl.searchParams.get('reservation_id')).toBe('eq.r1');
         expect(init).toMatchObject({
             method: 'PATCH',
-            body: JSON.stringify({ status: 'released' }),
+            body: JSON.stringify({
+                status: 'released',
+                released_at: '2026-07-01T12:05:00.000Z',
+            }),
         });
     });
 });

@@ -40,6 +40,24 @@ const SETUP_CHECKS = [
     { name: 'node_events_table', path: '/rest/v1/node_events?select=event_id&limit=1' },
     { name: 'routing_decisions_table', path: '/rest/v1/routing_decisions?select=decision_id&limit=1' },
     { name: 'merchant_usage_events_table', path: '/rest/v1/merchant_usage_events?select=usage_event_id&limit=1' },
+    { name: 'merchant_v2_files_table', path: '/rest/v1/merchant_files?select=file_id&limit=1' },
+    { name: 'merchant_v2_slice_jobs_table', path: '/rest/v1/merchant_slice_jobs?select=slice_job_id&limit=1' },
+    { name: 'merchant_v2_orders_table', path: '/rest/v1/merchant_orders?select=order_id&limit=1' },
+    {
+        name: 'merchant_v2_material_reservations_table',
+        path: '/rest/v1/merchant_material_reservations?select=reservation_id&limit=1',
+    },
+    { name: 'merchant_v2_batches_table', path: '/rest/v1/merchant_batches?select=batch_id&limit=1' },
+    { name: 'merchant_v2_shipments_table', path: '/rest/v1/merchant_shipments?select=shipment_id&limit=1' },
+    {
+        name: 'merchant_v2_webhook_endpoints_table',
+        path: '/rest/v1/merchant_webhook_endpoints?select=webhook_id&limit=1',
+    },
+    { name: 'merchant_v2_realtime_tokens_table', path: '/rest/v1/merchant_realtime_tokens?select=token_id&limit=1' },
+    {
+        name: 'merchant_v2_adapter_events_table',
+        path: '/rest/v1/merchant_adapter_events?select=adapter_event_id&limit=1',
+    },
     {
         name: 'claim_node_commands_rpc',
         path: '/rest/v1/rpc/claim_node_commands',
@@ -819,12 +837,12 @@ export function createSupabaseRestClient({
             });
         },
 
-        async deleteMerchantFile({ merchantId, fileId }) {
+        async deleteMerchantFile({ merchantId, fileId, deletedAt = new Date().toISOString() }) {
             return updateMerchantV2Row('merchant_files', {
                 merchantId,
                 idColumn: MERCHANT_V2_IDS.merchant_files,
                 id: fileId,
-                body: { status: 'deleted' },
+                body: { status: 'deleted', deleted_at: deletedAt },
             });
         },
 
@@ -886,12 +904,16 @@ export function createSupabaseRestClient({
             });
         },
 
-        async releaseMerchantMaterialReservation({ merchantId, reservationId }) {
+        async releaseMerchantMaterialReservation({
+            merchantId,
+            reservationId,
+            releasedAt = new Date().toISOString(),
+        }) {
             return updateMerchantV2Row('merchant_material_reservations', {
                 merchantId,
                 idColumn: MERCHANT_V2_IDS.merchant_material_reservations,
                 id: reservationId,
-                body: { status: 'released' },
+                body: { status: 'released', released_at: releasedAt },
             });
         },
 
