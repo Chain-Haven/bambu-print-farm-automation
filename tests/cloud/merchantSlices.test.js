@@ -195,8 +195,8 @@ describe('merchant slicing API handlers', () => {
             file_id: 'source-file',
             profile: { quality: 'standard' },
             requirements: {},
-            status: 'completed_mock',
-            result: expect.objectContaining({ provider: 'mock' }),
+            status: 'running',
+            result: { provider: 'mock' },
         }));
         expect(store.createMerchantJobArtifact).toHaveBeenCalledWith(expect.objectContaining({
             org_id: 'org-1',
@@ -211,6 +211,22 @@ describe('merchant slicing API handlers', () => {
                 content_type: 'model/3mf',
             }),
         }));
+        expect(store.updateMerchantSliceJob.mock.calls[0][0]).toMatchObject({
+            merchantId: 'merchant-1',
+            sliceJobId: 'slice1',
+            fields: {
+                status: 'completed_mock',
+                result: expect.objectContaining({
+                    provider: 'mock',
+                    artifact_id: 'artifact1',
+                    artifact: expect.objectContaining({
+                        artifact_id: 'artifact1',
+                        original_name: 'part.mock-sliced.gcode.3mf',
+                    }),
+                }),
+                completed_at: '2026-07-01T12:00:00.000Z',
+            },
+        });
         expect(store.updateMerchantSliceJob).toHaveBeenCalledWith({
             merchantId: 'merchant-1',
             sliceJobId: 'slice1',
@@ -219,8 +235,11 @@ describe('merchant slicing API handlers', () => {
                 canceled_at: '2026-07-01T12:00:00.000Z',
             },
         });
+        expect(store.createMerchantSliceJob.mock.invocationCallOrder[0]).toBeLessThan(
+            store.createMerchantJobArtifact.mock.invocationCallOrder[0],
+        );
         expect(store.createMerchantJobArtifact.mock.invocationCallOrder[0]).toBeLessThan(
-            store.createMerchantSliceJob.mock.invocationCallOrder[0],
+            store.updateMerchantSliceJob.mock.invocationCallOrder[0],
         );
     });
 
@@ -292,20 +311,54 @@ describe('merchant slicing API handlers', () => {
         expect(getResult).not.toHaveProperty('error');
     });
 
-    it('does not create slice rows when artifact persistence fails', async () => {
+    it('marks slice jobs failed with safe details when artifact persistence fails', async () => {
+        const rawError = 'internal://artifact-bucket node_id=printer-7 stack at storage.js:42';
         const { createSlice, store } = createHandlers({
             store: {
-                createMerchantJobArtifact: vi.fn().mockRejectedValue(new Error('artifact insert failed')),
+                createMerchantJobArtifact: vi.fn().mockRejectedValue(new Error(rawError)),
             },
         });
 
-        await expect(createSlice({
-            file_id: 'source-file',
-            profile: { quality: 'standard' },
-        })).rejects.toThrow('artifact insert failed');
+        let caughtError;
+        try {
+            await createSlice({
+                file_id: 'source-file',
+                profile: { quality: 'standard' },
+            });
+        } catch (error) {
+            caughtError = error;
+        }
 
+        expect(caughtError).toMatchObject({
+            statusCode: 500,
+            code: 'slice_artifact_failed',
+            message: 'Slice artifact could not be stored',
+        });
+        expect(JSON.stringify(caughtError)).not.toContain('internal://artifact-bucket');
+        expect(JSON.stringify(caughtError)).not.toContain('node_id=');
         expect(store.createMerchantJobArtifact).toHaveBeenCalled();
-        expect(store.createMerchantSliceJob).not.toHaveBeenCalled();
+        expect(store.createMerchantSliceJob).toHaveBeenCalledWith(expect.objectContaining({
+            slice_job_id: 'slice1',
+            status: 'running',
+            result: { provider: 'mock' },
+        }));
+        expect(store.updateMerchantSliceJob).toHaveBeenCalledWith({
+            merchantId: 'merchant-1',
+            sliceJobId: 'slice1',
+            fields: {
+                status: 'failed',
+                result: {
+                    provider: 'mock',
+                    error_code: 'artifact_persistence_failed',
+                    message: 'Slice artifact could not be stored',
+                },
+                metadata: {
+                    error_code: 'artifact_persistence_failed',
+                },
+            },
+        });
+        expect(JSON.stringify(store.updateMerchantSliceJob.mock.calls)).not.toContain('internal://artifact-bucket');
+        expect(JSON.stringify(store.updateMerchantSliceJob.mock.calls)).not.toContain('node_id=');
     });
 
     it('rejects ready-to-print files because slicing requires a source model', async () => {

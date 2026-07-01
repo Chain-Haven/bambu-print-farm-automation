@@ -87,6 +87,20 @@ function sliceResultPayload(adapterResult, artifact) {
     return result;
 }
 
+function initialSliceResult(adapterResult) {
+    return {
+        provider: adapterResult.provider,
+    };
+}
+
+function artifactFailureResult(adapterResult) {
+    return {
+        provider: adapterResult.provider,
+        error_code: 'artifact_persistence_failed',
+        message: 'Slice artifact could not be stored',
+    };
+}
+
 function artifactPayload(artifact) {
     const payload = publicArtifact(artifact) || {};
     if (artifact?.slice_job_id) payload.slice_id = artifact.slice_job_id;
@@ -120,6 +134,25 @@ function buildArtifactRow({
         },
         created_at: artifact.created_at,
     };
+}
+
+async function markSliceArtifactFailed({
+    store,
+    merchant,
+    sliceJobId,
+    adapterResult,
+}) {
+    await store.updateMerchantSliceJob({
+        merchantId: merchant.merchant_id,
+        sliceJobId,
+        fields: {
+            status: 'failed',
+            result: artifactFailureResult(adapterResult),
+            metadata: {
+                error_code: 'artifact_persistence_failed',
+            },
+        },
+    });
 }
 
 export function createSliceHandlers({
@@ -164,26 +197,55 @@ export function createSliceHandlers({
             sourceFile,
             sliceJobId,
         });
-        const storedArtifact = artifactRow
-            ? await store.createMerchantJobArtifact(artifactRow)
-            : null;
 
-        const sliceJob = await store.createMerchantSliceJob({
+        const initialSliceJob = await store.createMerchantSliceJob({
             ...scope,
             slice_job_id: sliceJobId,
             file_id: sourceFile.file_id,
             profile,
             requirements,
-            result: sliceResultPayload(adapterResult, artifact),
-            status: adapterResult.status || 'queued',
-            error: adapterResult.error || null,
+            result: initialSliceResult(adapterResult),
+            status: 'running',
+            error: null,
             started_at: adapterResult.started_at || null,
-            completed_at: adapterResult.completed_at || null,
             created_at: adapterResult.created_at,
             updated_at: adapterResult.updated_at,
         });
 
-        return publicOk(publicSlice(sliceJob, publicArtifact(storedArtifact?.payload || artifact)), requestId);
+        let storedArtifact = null;
+        try {
+            storedArtifact = artifactRow
+                ? await store.createMerchantJobArtifact(artifactRow)
+                : null;
+        } catch {
+            try {
+                await markSliceArtifactFailed({
+                    store,
+                    merchant,
+                    sliceJobId,
+                    adapterResult,
+                });
+            } catch {
+                // Return the sanitized create failure even if compensation cannot be persisted.
+            }
+            throw createHttpError(500, 'slice_artifact_failed', 'Slice artifact could not be stored');
+        }
+
+        const finalFields = {
+            status: adapterResult.status || 'queued',
+            result: sliceResultPayload(adapterResult, storedArtifact?.payload || artifact),
+            error: adapterResult.error || null,
+            started_at: adapterResult.started_at || initialSliceJob.started_at || null,
+            completed_at: adapterResult.completed_at || null,
+            updated_at: adapterResult.updated_at,
+        };
+        const sliceJob = await store.updateMerchantSliceJob({
+            merchantId: merchant.merchant_id,
+            sliceJobId,
+            fields: finalFields,
+        });
+
+        return publicOk(publicSlice(sliceJob || { ...initialSliceJob, ...finalFields }, publicArtifact(storedArtifact?.payload || artifact)), requestId);
     }
 
     async function getSlice(body = {}, request = null, requestId = undefined) {
