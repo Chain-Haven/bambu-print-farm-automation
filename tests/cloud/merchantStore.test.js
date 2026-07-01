@@ -243,4 +243,40 @@ describe('merchant Supabase store methods', () => {
             status: 'queued',
         });
     });
+
+    it('uploads private print artifacts and creates signed download URLs', async () => {
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse({ Key: 'print-artifacts/org-1/merchant-1/file.gcode.3mf' }, 200))
+            .mockResolvedValueOnce(jsonResponse({ signedURL: '/storage/v1/object/sign/print-artifacts/org-1/merchant-1/file.gcode.3mf?token=abc' }, 200));
+        const client = createSupabaseRestClient({
+            url: 'https://example.supabase.co',
+            serviceKey: 'service-key',
+            fetchImpl,
+        });
+        const buffer = Buffer.from('print bytes');
+
+        const uploaded = await client.uploadPrintArtifact(
+            'org-1/merchant-1/file.gcode.3mf',
+            buffer,
+            'application/octet-stream',
+        );
+        const signedUrl = await client.createSignedPrintArtifactUrl(
+            'org-1/merchant-1/file.gcode.3mf',
+            3600,
+        );
+
+        expect(uploaded).toEqual({ Key: 'print-artifacts/org-1/merchant-1/file.gcode.3mf' });
+        expect(signedUrl).toBe('https://example.supabase.co/storage/v1/object/sign/print-artifacts/org-1/merchant-1/file.gcode.3mf?token=abc');
+        expect(fetchImpl.mock.calls[0][0]).toBe('https://example.supabase.co/storage/v1/object/print-artifacts/org-1/merchant-1/file.gcode.3mf');
+        expect(fetchImpl.mock.calls[0][1]).toMatchObject({
+            method: 'POST',
+            headers: expect.objectContaining({
+                'Content-Type': 'application/octet-stream',
+                'x-upsert': 'false',
+            }),
+            body: buffer,
+        });
+        expect(fetchImpl.mock.calls[1][0]).toBe('https://example.supabase.co/storage/v1/object/sign/print-artifacts/org-1/merchant-1/file.gcode.3mf');
+        expect(JSON.parse(fetchImpl.mock.calls[1][1].body)).toEqual({ expiresIn: 3600 });
+    });
 });

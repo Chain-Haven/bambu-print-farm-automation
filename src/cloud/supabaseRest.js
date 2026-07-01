@@ -17,6 +17,13 @@ function shouldSendBearerAuthorization(key) {
     return !key.startsWith('sb_secret_') && !key.startsWith('sb_publishable_');
 }
 
+function encodeStoragePath(path) {
+    return requireValue(path, 'storage path')
+        .split('/')
+        .map((part) => encodeURIComponent(part))
+        .join('/');
+}
+
 const SETUP_CHECKS = [
     { name: 'organizations_table', path: '/rest/v1/organizations?select=org_id&limit=1' },
     { name: 'platform_settings_table', path: '/rest/v1/platform_settings?select=key&limit=1' },
@@ -150,6 +157,29 @@ export function createSupabaseRestClient({
                 ...headers,
             },
             body: body === null ? undefined : JSON.stringify(body),
+        });
+
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`Supabase ${method} ${path} failed (${response.status}): ${text}`);
+        }
+
+        if (response.status === 204) return null;
+        const text = await response.text();
+        return text ? JSON.parse(text) : null;
+    }
+
+    async function storageRequest(path, { method = 'POST', body = null, headers = {} } = {}) {
+        const { baseUrl, key } = getConfig();
+        const authHeaders = shouldSendBearerAuthorization(key) ? { Authorization: `Bearer ${key}` } : {};
+        const response = await fetchImpl(`${baseUrl}${path}`, {
+            method,
+            headers: {
+                apikey: key,
+                ...authHeaders,
+                ...headers,
+            },
+            body,
         });
 
         if (!response.ok) {
@@ -504,6 +534,28 @@ export function createSupabaseRestClient({
                 `/rest/v1/merchant_usage_events?merchant_id=eq.${encodeURIComponent(merchantId)}&select=usage_event_id,org_id,merchant_id,job_id,file_id,event_type,quantity,metrics,created_at&order=created_at.desc&limit=${Math.max(1, Math.min(Number.parseInt(limit, 10) || 50, 100))}`,
             );
             return Array.isArray(rows) ? rows : [];
+        },
+
+        async uploadPrintArtifact(storagePath, buffer, contentType = 'application/octet-stream') {
+            return storageRequest(`/storage/v1/object/print-artifacts/${encodeStoragePath(storagePath)}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': contentType || 'application/octet-stream',
+                    'x-upsert': 'false',
+                },
+                body: buffer,
+            });
+        },
+
+        async createSignedPrintArtifactUrl(storagePath, expiresIn = 3600) {
+            const { baseUrl } = getConfig();
+            const payload = await request(`/storage/v1/object/sign/print-artifacts/${encodeStoragePath(storagePath)}`, {
+                method: 'POST',
+                body: { expiresIn },
+            });
+            const signedUrl = payload?.signedURL || payload?.signedUrl || payload?.url;
+            if (!signedUrl) return null;
+            return signedUrl.startsWith('http') ? signedUrl : `${baseUrl}${signedUrl}`;
         },
 
         async createFarmNode(node) {

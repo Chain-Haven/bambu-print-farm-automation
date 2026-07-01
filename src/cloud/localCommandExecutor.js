@@ -1,3 +1,46 @@
+import { createHash } from 'node:crypto';
+import AdmZip from 'adm-zip';
+
+function buildGcode3mf(gcode) {
+    const zip = new AdmZip();
+    const gcodeBuffer = Buffer.from(gcode, 'utf8');
+    const md5 = createHash('md5').update(gcodeBuffer).digest('hex');
+    const contentTypes = `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+ <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+ <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
+ <Default Extension="gcode" ContentType="text/x.gcode"/>
+</Types>`;
+    const rels = `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+ <Relationship Target="/3D/3dmodel.model" Id="rel-1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
+</Relationships>`;
+    const model = `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+ <resources/>
+ <build/>
+</model>`;
+    const sliceInfo = `<?xml version="1.0" encoding="UTF-8"?>
+<config>
+  <header>
+    <header_item key="X-BBL-Client-Type" value="slicer"/>
+    <header_item key="X-BBL-Client-Version" value="PrintKinetix Cloud"/>
+  </header>
+  <plate>
+    <metadata key="index" value="1"/>
+    <metadata key="nozzle_diameters" value="0.4"/>
+  </plate>
+</config>`;
+
+    zip.addFile('[Content_Types].xml', Buffer.from(contentTypes, 'utf8'));
+    zip.addFile('_rels/.rels', Buffer.from(rels, 'utf8'));
+    zip.addFile('3D/3dmodel.model', Buffer.from(model, 'utf8'));
+    zip.addFile('Metadata/plate_1.gcode', gcodeBuffer);
+    zip.addFile('Metadata/plate_1.gcode.md5', Buffer.from(md5, 'utf8'));
+    zip.addFile('Metadata/slice_info.config', Buffer.from(sliceInfo, 'utf8'));
+    return zip.toBuffer();
+}
+
 function requiredString(value, name) {
     if (typeof value !== 'string' || value.trim() === '') {
         throw new Error(`${name} is required`);
@@ -45,6 +88,119 @@ async function executeJobAction(command, deps) {
     return deps.startJob(localJobId);
 }
 
+function safeRemoteFileName(value) {
+    return requiredString(value, 'payload.original_name')
+        .split(/[\\/]/)
+        .pop()
+        .replace(/[^A-Za-z0-9._-]/g, '_');
+}
+
+function prepareReadyPrintArtifact({ buffer, originalName }) {
+    if (originalName.toLowerCase().endsWith('.gcode')) {
+        return {
+            buffer: buildGcode3mf(buffer.toString('utf8')),
+            remoteFileName: originalName.replace(/\.gcode$/i, '.gcode.3mf'),
+        };
+    }
+
+    if (!originalName.toLowerCase().endsWith('.3mf')) {
+        throw new Error('Ready print artifacts must be .gcode, .3mf, or .gcode.3mf');
+    }
+
+    return {
+        buffer,
+        remoteFileName: originalName,
+    };
+}
+
+function assertPreflightOk(worker) {
+    if (typeof worker.getPreflightStatus !== 'function') return;
+    const preflight = worker.getPreflightStatus();
+    if (preflight?.ok === false) {
+        const message = Array.isArray(preflight.errors) && preflight.errors.length > 0
+            ? preflight.errors.join('; ')
+            : 'printer preflight failed';
+        throw new Error(`Preflight failed: ${message}`);
+    }
+}
+
+async function defaultDownloadArtifact(downloadUrl) {
+    const response = await fetch(downloadUrl);
+    if (!response.ok) {
+        throw new Error(`Artifact download failed (${response.status})`);
+    }
+    return Buffer.from(await response.arrayBuffer());
+}
+
+async function defaultUploadToPrinter({ localPrinterId, buffer, remoteFileName }) {
+    const [{ PrinterModel }, { BambuFtpsClient }] = await Promise.all([
+        import('../models/Printer.js'),
+        import('../services/BambuFtpsClient.js'),
+    ]);
+    const printer = PrinterModel.findById(localPrinterId);
+    if (!printer) throw new Error(`Local printer not found: ${localPrinterId}`);
+    const auth = PrinterModel.getAuth(localPrinterId);
+    if (!auth?.access_code) throw new Error('Upload failed: No access code');
+
+    const ftpsClient = new BambuFtpsClient({
+        ip: printer.ip_hostname,
+        accessCode: auth.access_code,
+        printerId: localPrinterId,
+    });
+    const ftpsReachable = await ftpsClient.isReachable();
+    if (!ftpsReachable) throw new Error('Upload failed: FTPS not reachable');
+
+    const uploadResult = await ftpsClient.upload(buffer, remoteFileName);
+    if (uploadResult?.success === false) {
+        throw new Error(`Upload failed: ${uploadResult.error || 'unknown error'}`);
+    }
+    return uploadResult;
+}
+
+async function executeCloudPrintReady(command, deps) {
+    const payload = command.payload || {};
+    const localPrinterId = requiredString(payload.local_printer_id, 'payload.local_printer_id');
+    const downloadUrl = requiredString(payload.download_url, 'payload.download_url');
+    const originalName = safeRemoteFileName(payload.original_name);
+    const worker = await getRequiredWorker(localPrinterId, deps);
+
+    assertPreflightOk(worker);
+
+    const downloaded = await deps.downloadArtifact(downloadUrl);
+    const { buffer, remoteFileName } = prepareReadyPrintArtifact({
+        buffer: Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded),
+        originalName,
+    });
+
+    const uploaded = await deps.uploadToPrinter({
+        localPrinterId,
+        buffer,
+        remoteFileName,
+        contentType: payload.content_type || 'application/octet-stream',
+    });
+    const amsMapping = Array.isArray(payload.ams_mapping) ? payload.ams_mapping : [];
+    const startResult = await worker._startPrint({
+        filename: remoteFileName,
+        plateNumber: Number.parseInt(payload.plate_number || payload.plateNumber, 10) || 1,
+        useAms: typeof payload.use_ams === 'boolean' ? payload.use_ams : amsMapping.length > 0,
+        amsMapping,
+    });
+
+    return {
+        started: startResult?.started === true,
+        remote_file_name: remoteFileName,
+        uploaded,
+        start_result: startResult,
+    };
+}
+
+async function executeCloudAction(command, deps) {
+    if (command.command_type === 'cloud.print.ready') {
+        return executeCloudPrintReady(command, deps);
+    }
+    throw new Error(`Unsupported cloud command: ${command.command_type}`);
+}
+
 function getDefaultDeps() {
     return {
         async getWorker(printerId) {
@@ -55,6 +211,8 @@ function getDefaultDeps() {
             const { JobOrchestrator } = await import('../services/JobOrchestrator.js');
             return JobOrchestrator.startJob(jobId);
         },
+        downloadArtifact: defaultDownloadArtifact,
+        uploadToPrinter: defaultUploadToPrinter,
     };
 }
 
@@ -68,6 +226,10 @@ export async function executeCloudCommand(command, deps = {}) {
 
     if (commandType.startsWith('job.')) {
         return executeJobAction({ ...command, command_type: commandType }, effectiveDeps);
+    }
+
+    if (commandType.startsWith('cloud.')) {
+        return executeCloudAction({ ...command, command_type: commandType }, effectiveDeps);
     }
 
     throw new Error(`Unsupported cloud command: ${commandType}`);
