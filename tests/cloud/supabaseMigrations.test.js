@@ -54,7 +54,7 @@ describe('Supabase migrations', () => {
             'merchant_realtime_tokens',
             'merchant_adapter_events',
         ]) {
-            expect(sql).toContain(`public.${table}`);
+            expect(sql).toContain(`create table public.${table}`);
             expect(sql).toContain(`grant all on public.${table} to service_role`);
             expect(sql).toContain(`alter table public.${table} enable row level security`);
         }
@@ -68,27 +68,64 @@ describe('Supabase migrations', () => {
             'merchant_slice_jobs_merchant_slice_job_id_unique unique (merchant_id, slice_job_id)',
             'merchant_orders_merchant_order_id_unique unique (merchant_id, order_id)',
             'merchant_order_items_merchant_order_item_id_unique unique (merchant_id, order_item_id)',
+            'merchant_material_reservations_merchant_reservation_id_unique unique (merchant_id, reservation_id)',
             'merchant_batches_merchant_batch_id_unique unique (merchant_id, batch_id)',
+            'merchant_batch_items_merchant_batch_item_id_unique unique (merchant_id, batch_item_id)',
+            'merchant_job_events_merchant_event_id_unique unique (merchant_id, event_id)',
+            'merchant_job_artifacts_merchant_artifact_id_unique unique (merchant_id, artifact_id)',
+            'merchant_inspections_merchant_inspection_id_unique unique (merchant_id, inspection_id)',
+            'merchant_post_processing_tasks_merchant_task_id_unique unique (merchant_id, task_id)',
             'merchant_shipments_merchant_shipment_id_unique unique (merchant_id, shipment_id)',
+            'merchant_shipping_labels_merchant_label_id_unique unique (merchant_id, label_id)',
+            'merchant_rate_cards_merchant_rate_card_id_unique unique (merchant_id, rate_card_id)',
             'merchant_invoices_merchant_invoice_id_unique unique (merchant_id, invoice_id)',
+            'merchant_invoice_lines_merchant_invoice_line_id_unique unique (merchant_id, invoice_line_id)',
             'merchant_webhook_endpoints_merchant_webhook_id_unique unique (merchant_id, webhook_id)',
+            'merchant_webhook_deliveries_merchant_delivery_id_unique unique (merchant_id, delivery_id)',
+            'merchant_realtime_tokens_merchant_token_id_unique unique (merchant_id, token_id)',
+            'merchant_adapter_events_merchant_adapter_event_id_unique unique (merchant_id, adapter_event_id)',
             'print_jobs_merchant_job_id_unique unique (merchant_id, job_id)',
         ]) {
             expect(sql).toContain(`constraint ${constraint}`);
         }
 
-        for (const foreignKey of [
-            'foreign key (merchant_id, file_id) references public.merchant_files(merchant_id, file_id)',
-            'foreign key (merchant_id, slice_job_id) references public.merchant_slice_jobs(merchant_id, slice_job_id)',
-            'foreign key (merchant_id, order_id) references public.merchant_orders(merchant_id, order_id)',
-            'foreign key (merchant_id, order_item_id) references public.merchant_order_items(merchant_id, order_item_id)',
-            'foreign key (merchant_id, batch_id) references public.merchant_batches(merchant_id, batch_id)',
-            'foreign key (merchant_id, job_id) references public.print_jobs(merchant_id, job_id)',
-            'foreign key (merchant_id, shipment_id) references public.merchant_shipments(merchant_id, shipment_id)',
-            'foreign key (merchant_id, invoice_id) references public.merchant_invoices(merchant_id, invoice_id)',
-            'foreign key (merchant_id, webhook_id) references public.merchant_webhook_endpoints(merchant_id, webhook_id)',
+        for (const constraintName of [
+            'merchant_slice_jobs_file_tenant_fk',
+            'merchant_order_items_order_tenant_fk',
+            'merchant_order_items_file_tenant_fk',
+            'merchant_order_items_slice_job_tenant_fk',
+            'merchant_order_items_print_job_tenant_fk',
+            'merchant_material_reservations_order_tenant_fk',
+            'merchant_material_reservations_batch_tenant_fk',
+            'merchant_material_reservations_file_tenant_fk',
+            'merchant_material_reservations_print_job_tenant_fk',
+            'merchant_batch_items_batch_tenant_fk',
+            'merchant_batch_items_order_tenant_fk',
+            'merchant_batch_items_order_item_tenant_fk',
+            'merchant_batch_items_file_tenant_fk',
+            'merchant_batch_items_print_job_tenant_fk',
+            'merchant_job_events_print_job_tenant_fk',
+            'merchant_job_events_order_tenant_fk',
+            'merchant_job_events_batch_tenant_fk',
+            'merchant_job_events_slice_job_tenant_fk',
+            'merchant_job_events_file_tenant_fk',
+            'merchant_job_artifacts_print_job_tenant_fk',
+            'merchant_job_artifacts_file_tenant_fk',
+            'merchant_inspections_print_job_tenant_fk',
+            'merchant_inspections_order_tenant_fk',
+            'merchant_post_processing_tasks_print_job_tenant_fk',
+            'merchant_post_processing_tasks_order_tenant_fk',
+            'merchant_shipments_order_tenant_fk',
+            'merchant_shipping_labels_shipment_tenant_fk',
+            'merchant_invoice_lines_invoice_tenant_fk',
+            'merchant_invoice_lines_order_tenant_fk',
+            'merchant_invoice_lines_print_job_tenant_fk',
+            'merchant_invoice_lines_file_tenant_fk',
+            'merchant_invoice_lines_shipment_tenant_fk',
+            'merchant_invoice_lines_slice_job_tenant_fk',
+            'merchant_webhook_deliveries_endpoint_tenant_fk',
         ]) {
-            expect(sql).toContain(foreignKey);
+            expect(sql).toContain(`constraint ${constraintName}`);
         }
 
         expect(sql).toContain('Existing print_jobs.merchant_id is nullable for non-merchant jobs');
