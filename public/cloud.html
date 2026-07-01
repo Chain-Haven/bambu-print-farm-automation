@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PrintKinetix Admin</title>
+  <title>PrintKinetix — Operator Console</title>
   <link rel="stylesheet" href="/css/cloud.css">
   <link rel="icon"
     href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23146c5a'/%3E%3Cpath d='M8 10h16v4H8zM8 18h10v4H8z' fill='white'/%3E%3C/svg%3E">
@@ -14,74 +14,95 @@
   <main class="shell">
     <header class="topbar">
       <div>
-        <p class="eyebrow">Vercel cloud control</p>
-        <h1>PrintKinetix Admin</h1>
+        <p class="eyebrow">PrintKinetix</p>
+        <h1>Operator Console</h1>
       </div>
-      <div id="api-state" class="state-pill">Not connected</div>
+      <div class="topbar-actions">
+        <span id="admin-email-display" class="admin-email" hidden></span>
+        <div id="api-state" class="state-pill">Not signed in</div>
+        <button id="logout-btn" type="button" class="ghost-button" hidden>Log out</button>
+      </div>
     </header>
 
-    <form id="access-form" class="control-band" aria-label="Cloud access">
-      <label>
-        <span>Admin session or bootstrap token</span>
-        <input id="admin-token" type="password" autocomplete="off">
-      </label>
-      <label>
-        <span>Org ID</span>
-        <input id="org-id" type="text" autocomplete="off">
-      </label>
-      <label class="small-field">
-        <span>Limit</span>
-        <input id="row-limit" type="number" min="1" max="100" value="50">
-      </label>
-      <div class="button-row">
-        <button id="save-token" type="button">Save</button>
-        <button id="refresh" type="button">Refresh</button>
+    <!-- Hidden plumbing: the session token + filters the dashboard JS reads. Kept in
+         the DOM (never shown) so login can populate the session and every request is
+         authenticated without the operator ever pasting a token. -->
+    <div class="plumbing" hidden aria-hidden="true">
+      <input id="admin-token" type="hidden" autocomplete="off">
+      <input id="org-id" type="hidden" autocomplete="off">
+      <input id="row-limit" type="hidden" value="50">
+      <button id="save-token" type="button" tabindex="-1"></button>
+      <button id="admin-me" type="button" tabindex="-1"></button>
+      <span id="admin-auth-state"></span>
+    </div>
+
+    <!-- ================= LOGIN VIEW (shown until authenticated) ================= -->
+    <section id="login-view" class="login-view" aria-label="Sign in">
+      <div class="login-card">
+        <h2>Sign in</h2>
+        <p class="login-sub">Manage merchants, API keys, farm nodes, printers, and jobs.</p>
+        <form id="admin-login-form">
+          <label><span>Email</span>
+            <input id="admin-login-email" type="email" autocomplete="username" placeholder="you@company.com" required>
+          </label>
+          <label><span>Password</span>
+            <input id="admin-login-password" type="password" autocomplete="current-password" required>
+          </label>
+          <button type="submit" class="primary-btn">Sign In</button>
+          <p id="login-error" class="login-error" hidden></p>
+        </form>
+        <div class="login-links">
+          <button id="toggle-first-setup" type="button" class="linklike">First-time setup</button>
+          <button id="toggle-reset" type="button" class="linklike">Forgot password?</button>
+        </div>
       </div>
-    </form>
 
-    <section class="auth-grid" aria-label="Admin auth">
-      <form id="admin-login-form" class="panel compact-panel">
-        <div class="panel-heading">
-          <h2>Admin Login</h2>
-          <span id="admin-auth-state">Session auth</span>
-        </div>
-        <label>
-          <span>Email</span>
-          <input id="admin-login-email" type="email" autocomplete="username" placeholder="admin@example.com">
-        </label>
-        <label>
-          <span>Password</span>
-          <input id="admin-login-password" type="password" autocomplete="current-password">
-        </label>
-        <div class="button-row">
-          <button type="submit">Sign In</button>
-          <button id="admin-me" type="button" class="ghost-button">Check</button>
-        </div>
-      </form>
+      <div id="first-setup-card" class="login-card" hidden>
+        <h2>First-time setup</h2>
+        <p class="login-sub">Create your operator account once using the server's
+          <code>CLOUD_ADMIN_TOKEN</code>. After this, sign in with just email + password.</p>
+        <form id="first-setup-form">
+          <label><span>CLOUD_ADMIN_TOKEN</span>
+            <input id="setup-bootstrap-token" type="password" autocomplete="off" required>
+          </label>
+          <label><span>Your admin email</span>
+            <input id="setup-email" type="email" autocomplete="email" placeholder="you@company.com" required>
+          </label>
+          <label><span>Choose a password (min 12 chars)</span>
+            <input id="setup-new-password" type="password" autocomplete="new-password" minlength="12" required>
+          </label>
+          <button type="submit" class="primary-btn">Create my account</button>
+        </form>
+        <pre id="first-setup-output" class="secret-output" hidden></pre>
+      </div>
 
-      <form id="admin-reset-request-form" class="panel compact-panel">
-        <div class="panel-heading">
-          <h2>Admin Reset</h2>
-          <span>Password setup</span>
-        </div>
-        <label>
-          <span>Email</span>
-          <input id="admin-reset-email" type="email" autocomplete="email" placeholder="admin@example.com">
-        </label>
-        <button type="submit">Issue Reset Link</button>
+      <div id="reset-card" class="login-card" hidden>
+        <h2>Reset password</h2>
+        <form id="admin-reset-request-form">
+          <label><span>Email</span>
+            <input id="admin-reset-email" type="email" autocomplete="email" placeholder="you@company.com">
+          </label>
+          <button type="submit" class="primary-btn">Issue Reset Link</button>
+        </form>
         <pre id="admin-reset-output" class="secret-output" hidden></pre>
-      </form>
-    </section>
-
-    <section id="setup-status" class="setup-status" aria-label="Backend Setup" hidden>
-      <div class="panel-heading">
-        <h2>Backend Setup</h2>
-        <span>Not checked</span>
       </div>
-      <div id="setup-status-body"></div>
     </section>
 
-    <section id="metrics" class="metrics" aria-label="Cloud metrics"></section>
+    <!-- ================= CONSOLE VIEW (after login) ================= -->
+    <div id="console-view" hidden>
+      <div class="console-toolbar">
+        <button id="refresh" type="button" class="ghost-button">↻ Refresh</button>
+      </div>
+
+      <section id="setup-status" class="setup-status" aria-label="Backend Setup" hidden>
+        <div class="panel-heading">
+          <h2>Backend Setup</h2>
+          <span>Not checked</span>
+        </div>
+        <div id="setup-status-body"></div>
+      </section>
+
+      <section id="metrics" class="metrics" aria-label="Cloud metrics"></section>
 
     <section class="admin-layout" aria-label="Admin workflows">
       <div class="control-stack">
@@ -609,6 +630,7 @@
         <div id="events-table"></div>
       </div>
     </section>
+    </div><!-- /#console-view -->
   </main>
 
   <aside id="selected-detail" class="detail-drawer" hidden>
