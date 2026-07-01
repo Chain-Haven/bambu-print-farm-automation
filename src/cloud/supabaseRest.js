@@ -309,6 +309,23 @@ export function createSupabaseRestClient({
         ].join('&');
     }
 
+    function merchantV2ConditionalResourcePath(table, {
+        merchantId,
+        idColumn,
+        id,
+        filters = [],
+        select = '*',
+        limit = 1,
+    }) {
+        return [
+            `/rest/v1/${table}?merchant_id=${eqFilter(merchantId, 'merchant_id')}`,
+            `${idColumn}=${eqFilter(id, idColumn)}`,
+            ...filters,
+            `select=${select}`,
+            `limit=${boundedLimit(limit, 1, 100)}`,
+        ].join('&');
+    }
+
     function merchantV2ListPath(table, {
         merchantId,
         select = '*',
@@ -921,6 +938,33 @@ export function createSupabaseRestClient({
                 id: orderId,
                 body: fields,
             });
+        },
+
+        async cancelMerchantOrderIfCancelable({
+            merchantId,
+            orderId,
+            canceledAt = new Date().toISOString(),
+            cancelableStatuses = ['draft', 'submitted'],
+        }) {
+            const statuses = (Array.isArray(cancelableStatuses) ? cancelableStatuses : [])
+                .map((status) => String(status || '').trim())
+                .filter(Boolean)
+                .map(encodeURIComponent)
+                .join(',');
+            const rows = await request(merchantV2ConditionalResourcePath('merchant_orders', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_orders,
+                id: orderId,
+                filters: [`status=in.(${statuses})`],
+            }), {
+                method: 'PATCH',
+                headers: { Prefer: 'return=representation' },
+                body: {
+                    status: 'canceled',
+                    canceled_at: canceledAt,
+                },
+            });
+            return firstRow(rows);
         },
 
         async createMerchantOrderItem(orderItem) {

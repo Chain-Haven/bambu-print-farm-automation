@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+import { hashMerchantApiKey } from '../../src/cloud/merchantAuth.js';
 import { createOrderHandlers } from '../../src/cloud/merchantOrders.js';
 
 const now = () => new Date('2026-07-01T12:00:00.000Z');
+const routeRawKey = 'pkx_live_test';
+const routePepper = 'pepper';
 
 function createMockStore(overrides = {}) {
     return {
@@ -29,6 +32,13 @@ function createMockStore(overrides = {}) {
             metadata: { item_count: 2 },
             ...fields,
         })),
+        cancelMerchantOrderIfCancelable: vi.fn().mockImplementation(async ({ orderId, canceledAt }) => ({
+            order_id: orderId,
+            external_order_id: '1001',
+            status: 'canceled',
+            canceled_at: canceledAt,
+            metadata: { item_count: 2 },
+        })),
         createMerchantOrderItem: vi.fn().mockImplementation(async (item) => item),
         createMerchantUsageEvent: vi.fn().mockImplementation(async (event) => event),
         recordMerchantJobEvent: vi.fn().mockImplementation(async (event) => event),
@@ -40,6 +50,25 @@ function createMockStore(overrides = {}) {
         createMerchantJobArtifact: vi.fn().mockImplementation(async (artifact) => artifact),
         ...overrides,
     };
+}
+
+function createAuthenticatedRouteStore(overrides = {}) {
+    const keyHash = hashMerchantApiKey(routeRawKey, routePepper);
+    return createMockStore({
+        findMerchantApiKeyByHash: vi.fn().mockResolvedValue({
+            key_id: 'key-1',
+            key_hash: keyHash,
+            merchant_id: 'merchant-1',
+            org_id: 'org-1',
+        }),
+        findMerchantById: vi.fn().mockResolvedValue({
+            merchant_id: 'merchant-1',
+            org_id: 'org-1',
+            status: 'active',
+        }),
+        touchMerchantApiKey: vi.fn().mockResolvedValue(null),
+        ...overrides,
+    });
 }
 
 function createMockAdapters(overrides = {}) {
@@ -209,10 +238,11 @@ describe('merchant order handlers', () => {
             org_id: 'org-1',
             merchant_id: 'merchant-1',
             external_order_id: '1001',
-            status: 'submitted',
-            submitted_at: '2026-07-01T12:00:00.000Z',
+            status: 'draft',
+            submitted_at: null,
             metadata: expect.objectContaining({
                 item_count: 2,
+                creation_status: 'creating',
                 auto_submit_requested: true,
                 auto_slice_requested: true,
             }),
@@ -258,9 +288,19 @@ describe('merchant order handlers', () => {
             merchantId: 'merchant-1',
             orderId: order.order_id,
             fields: {
-                status: 'canceled',
-                canceled_at: '2026-07-01T12:00:00.000Z',
+                status: 'submitted',
+                submitted_at: '2026-07-01T12:00:00.000Z',
+                metadata: expect.objectContaining({
+                    creation_status: 'submitted',
+                    item_count: 2,
+                }),
             },
+        });
+        expect(store.cancelMerchantOrderIfCancelable).toHaveBeenCalledWith({
+            merchantId: 'merchant-1',
+            orderId: order.order_id,
+            canceledAt: '2026-07-01T12:00:00.000Z',
+            cancelableStatuses: expect.arrayContaining(['draft', 'submitted']),
         });
     });
 
@@ -375,9 +415,10 @@ describe('merchant order handlers', () => {
             order_id: 'order-existing',
             merchant_order_id: '1006',
             item_count: 1,
-            idempotent_replay: true,
         });
-        expect(bodyReplay).toMatchObject({ order_id: 'order-existing', idempotent_replay: true });
+        expect(bodyReplay).toMatchObject({ order_id: 'order-existing' });
+        expect(JSON.stringify(replay)).not.toContain('idempotent_replay');
+        expect(replay._http_status).toBe(200);
         expect(store.findMerchantOrderByIdempotencyKey).toHaveBeenCalledWith({
             merchantId: 'merchant-1',
             idempotencyKey: 'idem-1',
@@ -407,12 +448,62 @@ describe('merchant order handlers', () => {
         expect(replay).toMatchObject({
             order_id: 'order-external',
             merchant_order_id: '1007',
-            idempotent_replay: true,
         });
+        expect(JSON.stringify(replay)).not.toContain('idempotent_replay');
+        expect(replay._http_status).toBe(200);
         expect(store.findMerchantOrderByExternalOrderId).toHaveBeenCalledWith({
             merchantId: 'merchant-1',
             externalOrderId: '1007',
         });
+        expect(store.createMerchantOrder).not.toHaveBeenCalled();
+    });
+
+    it('rejects duplicate replays while an existing order is still creating', async () => {
+        const { createOrder, store } = createHandlers({
+            store: {
+                findMerchantOrderByIdempotencyKey: vi.fn().mockResolvedValue({
+                    order_id: 'order-creating',
+                    external_order_id: '1010',
+                    idempotency_key: 'idem-creating',
+                    status: 'draft',
+                    metadata: { item_count: 1, creation_status: 'creating' },
+                }),
+            },
+        });
+
+        await expect(createOrder({
+            merchant_order_id: '1010',
+            items: [{ file_id: 'ready-file', quantity: 1 }],
+        }, { headers: { 'Idempotency-Key': 'idem-creating' } })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'order_creation_in_progress',
+        });
+
+        expect(store.getMerchantFile).not.toHaveBeenCalled();
+        expect(store.createMerchantOrder).not.toHaveBeenCalled();
+    });
+
+    it('rejects duplicate replays for previously failed order creation', async () => {
+        const { createOrder, store } = createHandlers({
+            store: {
+                findMerchantOrderByExternalOrderId: vi.fn().mockResolvedValue({
+                    order_id: 'order-failed',
+                    external_order_id: '1011',
+                    status: 'failed',
+                    metadata: { item_count: 1, failure_code: 'order_creation_failed' },
+                }),
+            },
+        });
+
+        await expect(createOrder({
+            merchant_order_id: '1011',
+            items: [{ file_id: 'ready-file', quantity: 1 }],
+        })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'order_creation_failed',
+        });
+
+        expect(store.getMerchantFile).not.toHaveBeenCalled();
         expect(store.createMerchantOrder).not.toHaveBeenCalled();
     });
 
@@ -492,9 +583,51 @@ describe('merchant order handlers', () => {
         });
     });
 
+    it('submits the order even when usage and audit events fail after item creation', async () => {
+        let createdOrder;
+        const { createOrder, store } = createHandlers({
+            store: {
+                createMerchantOrder: vi.fn().mockImplementation(async (order) => {
+                    createdOrder = order;
+                    return order;
+                }),
+                updateMerchantOrder: vi.fn().mockImplementation(async ({ fields }) => ({
+                    ...createdOrder,
+                    ...fields,
+                })),
+                createMerchantUsageEvent: vi.fn().mockRejectedValue(new Error('usage failed')),
+                recordMerchantJobEvent: vi.fn().mockRejectedValue(new Error('event failed')),
+            },
+        });
+
+        const order = await createOrder({
+            merchant_order_id: '1012',
+            items: [{ file_id: 'ready-file', quantity: 1 }],
+        });
+
+        expect(order).toMatchObject({
+            status: 'submitted',
+            merchant_order_id: '1012',
+            item_count: 1,
+        });
+        expect(store.createMerchantOrderItem).toHaveBeenCalledTimes(1);
+        expect(store.updateMerchantOrder).toHaveBeenCalledWith({
+            merchantId: 'merchant-1',
+            orderId: order.order_id,
+            fields: {
+                status: 'submitted',
+                submitted_at: '2026-07-01T12:00:00.000Z',
+                metadata: expect.objectContaining({ creation_status: 'submitted' }),
+            },
+        });
+        expect(store.createMerchantUsageEvent).toHaveBeenCalled();
+        expect(store.recordMerchantJobEvent).toHaveBeenCalled();
+    });
+
     it('rejects non-cancelable order states before updating', async () => {
         const { cancelOrder, store } = createHandlers({
             store: {
+                cancelMerchantOrderIfCancelable: vi.fn().mockResolvedValue(null),
                 getMerchantOrder: vi.fn().mockResolvedValue({
                     order_id: 'order-complete',
                     status: 'completed',
@@ -528,7 +661,8 @@ describe('merchant order handlers', () => {
             status: 'canceled',
         });
 
-        expect(store.updateMerchantOrder).toHaveBeenCalled();
+        expect(store.cancelMerchantOrderIfCancelable).toHaveBeenCalled();
+        expect(store.updateMerchantOrder).not.toHaveBeenCalled();
         expect(store.recordMerchantJobEvent).toHaveBeenCalled();
     });
 });
@@ -567,5 +701,130 @@ describe('merchant order public routes', () => {
             error: 'method_not_allowed',
             request_id: expect.stringMatching(/^req_/),
         });
+    });
+
+    it('creates orders with 201 responses and clean public JSON', async () => {
+        let createdOrder;
+        const store = createAuthenticatedRouteStore({
+            createMerchantOrder: vi.fn().mockImplementation(async (order) => {
+                createdOrder = order;
+                return order;
+            }),
+            updateMerchantOrder: vi.fn().mockImplementation(async ({ fields }) => ({
+                ...createdOrder,
+                ...fields,
+            })),
+        });
+        const handler = await importOrdersIndexRoute(store);
+        const res = createMockResponse();
+        const originalPepper = process.env.NODE_TOKEN_PEPPER;
+        process.env.NODE_TOKEN_PEPPER = routePepper;
+
+        try {
+            await handler({
+                method: 'POST',
+                headers: { authorization: `Bearer ${routeRawKey}` },
+                body: {
+                    merchant_order_id: '1013',
+                    items: [{ file_id: 'ready-file', quantity: 1 }],
+                },
+            }, res);
+        } finally {
+            if (originalPepper === undefined) delete process.env.NODE_TOKEN_PEPPER;
+            else process.env.NODE_TOKEN_PEPPER = originalPepper;
+        }
+
+        expect(res.statusCode).toBe(201);
+        expect(res.body).toMatchObject({
+            ok: true,
+            status: 'submitted',
+            merchant_order_id: '1013',
+            item_count: 1,
+        });
+        expect(JSON.stringify(res.body)).not.toContain('_http_status');
+        expect(JSON.stringify(res.body)).not.toContain('idempotent_replay');
+    });
+
+    it('returns HTTP 200 for idempotent route replays with clean public JSON', async () => {
+        const store = createAuthenticatedRouteStore({
+            findMerchantOrderByIdempotencyKey: vi.fn().mockResolvedValue({
+                order_id: 'order-replay',
+                external_order_id: '1014',
+                status: 'submitted',
+                metadata: { item_count: 1 },
+            }),
+        });
+        const handler = await importOrdersIndexRoute(store);
+        const res = createMockResponse();
+        const originalPepper = process.env.NODE_TOKEN_PEPPER;
+        process.env.NODE_TOKEN_PEPPER = routePepper;
+
+        try {
+            await handler({
+                method: 'POST',
+                headers: {
+                    authorization: `Bearer ${routeRawKey}`,
+                    'Idempotency-Key': 'idem-route',
+                },
+                body: {
+                    merchant_order_id: '1014',
+                    items: [{ file_id: 'ready-file', quantity: 1 }],
+                },
+            }, res);
+        } finally {
+            if (originalPepper === undefined) delete process.env.NODE_TOKEN_PEPPER;
+            else process.env.NODE_TOKEN_PEPPER = originalPepper;
+        }
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body).toMatchObject({
+            ok: true,
+            order_id: 'order-replay',
+            merchant_order_id: '1014',
+            item_count: 1,
+        });
+        expect(JSON.stringify(res.body)).not.toContain('_http_status');
+        expect(JSON.stringify(res.body)).not.toContain('idempotent_replay');
+        expect(store.createMerchantOrder).not.toHaveBeenCalled();
+    });
+
+    it('returns route-level conflict envelopes for in-progress duplicate creation', async () => {
+        const store = createAuthenticatedRouteStore({
+            findMerchantOrderByIdempotencyKey: vi.fn().mockResolvedValue({
+                order_id: 'order-route-creating',
+                external_order_id: '1015',
+                status: 'draft',
+                metadata: { item_count: 1, creation_status: 'creating' },
+            }),
+        });
+        const handler = await importOrdersIndexRoute(store);
+        const res = createMockResponse();
+        const originalPepper = process.env.NODE_TOKEN_PEPPER;
+        process.env.NODE_TOKEN_PEPPER = routePepper;
+
+        try {
+            await handler({
+                method: 'POST',
+                headers: {
+                    authorization: `Bearer ${routeRawKey}`,
+                    'Idempotency-Key': 'idem-route-creating',
+                },
+                body: {
+                    merchant_order_id: '1015',
+                    items: [{ file_id: 'ready-file', quantity: 1 }],
+                },
+            }, res);
+        } finally {
+            if (originalPepper === undefined) delete process.env.NODE_TOKEN_PEPPER;
+            else process.env.NODE_TOKEN_PEPPER = originalPepper;
+        }
+
+        expect(res.statusCode).toBe(409);
+        expect(res.body).toMatchObject({
+            ok: false,
+            error: 'order_creation_in_progress',
+            request_id: expect.stringMatching(/^req_/),
+        });
+        expect(store.createMerchantOrder).not.toHaveBeenCalled();
     });
 });

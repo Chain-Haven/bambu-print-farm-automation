@@ -38,6 +38,10 @@ function publicAuthError(error, requestId) {
     };
 }
 
+function statusForResult(result, fallbackStatus) {
+    return Number.isInteger(result?._http_status) ? result._http_status : fallbackStatus;
+}
+
 export default async function handler(req, res) {
     const requestId = createRequestId();
     if (req.method && req.method !== 'POST') return methodNotAllowed(res, 'POST', requestId);
@@ -57,7 +61,7 @@ export default async function handler(req, res) {
 
     try {
         const result = await createOrder(parseJsonBody(req.body), req, requestId);
-        return sendJson(res, 201, result);
+        return sendJson(res, statusForResult(result, 201), result);
     } catch (error) {
         if (error instanceof MerchantAuthError) {
             return sendJson(res, error.statusCode, publicAuthError(error, requestId));

@@ -13,6 +13,7 @@ const requiredMethods = [
     'findMerchantOrderByIdempotencyKey',
     'findMerchantOrderByExternalOrderId',
     'updateMerchantOrder',
+    'cancelMerchantOrderIfCancelable',
     'createMerchantOrderItem',
     'createMerchantMaterialReservation',
     'getMerchantMaterialReservation',
@@ -183,6 +184,32 @@ describe('merchant API v2 store surface', () => {
         expect(externalUrl.searchParams.get('merchant_id')).toBe('eq.m1');
         expect(externalUrl.searchParams.get('external_order_id')).toBe('eq.1001');
         expect(externalUrl.searchParams.get('limit')).toBe('1');
+    });
+
+    it('conditionally cancels merchant orders only from cancelable statuses', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([{ order_id: 'o1', status: 'canceled' }]));
+        const store = await createStore(fetchImpl);
+
+        await store.cancelMerchantOrderIfCancelable({
+            merchantId: 'm1',
+            orderId: 'o1',
+            canceledAt: '2026-07-01T12:00:00.000Z',
+            cancelableStatuses: ['draft', 'submitted'],
+        });
+
+        const [url, init] = fetchImpl.mock.calls[0];
+        const requestUrl = new URL(url);
+        expect(requestUrl.pathname).toBe('/rest/v1/merchant_orders');
+        expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(requestUrl.searchParams.get('order_id')).toBe('eq.o1');
+        expect(requestUrl.searchParams.get('status')).toBe('in.(draft,submitted)');
+        expect(init).toMatchObject({
+            method: 'PATCH',
+            body: JSON.stringify({
+                status: 'canceled',
+                canceled_at: '2026-07-01T12:00:00.000Z',
+            }),
+        });
     });
 
     it('releases material reservations through a merchant-scoped status and audit timestamp patch', async () => {

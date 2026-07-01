@@ -11,6 +11,14 @@ const NON_CANCELABLE_ORDER_STATUSES = new Set([
     'in_production',
     'printing',
 ]);
+const CANCELABLE_ORDER_STATUSES = [
+    'draft',
+    'submitted',
+    'partially_routed',
+    'awaiting_quality',
+    'post_processing',
+    'ready_to_ship',
+];
 
 function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -118,11 +126,28 @@ function publicOrder(order, itemCount = undefined) {
     return response;
 }
 
+function withHttpStatus(payload, statusCode) {
+    Object.defineProperty(payload, '_http_status', {
+        value: statusCode,
+        enumerable: false,
+    });
+    return payload;
+}
+
 function publicReplay(order, requestId) {
-    return publicOk({
-        ...publicOrder(order),
-        idempotent_replay: true,
-    }, requestId);
+    return withHttpStatus(publicOk(publicOrder(order), requestId), 200);
+}
+
+function existingOrderReplay(order, requestId) {
+    const status = String(order?.status || '').toLowerCase();
+    const creationStatus = String(order?.metadata?.creation_status || '').toLowerCase();
+    if (status === 'draft' || status === 'creating' || creationStatus === 'creating') {
+        throw createHttpError(409, 'order_creation_in_progress', 'Order creation is still in progress');
+    }
+    if (status === 'failed') {
+        throw createHttpError(409, 'order_creation_failed', 'Previous order creation failed');
+    }
+    return publicReplay(order, requestId);
 }
 
 function shouldAutoSlice(orderSource, itemSource) {
@@ -230,6 +255,14 @@ async function recordJobEventBestEffort(options) {
     }
 }
 
+async function recordUsageBestEffort(options) {
+    try {
+        await recordUsage(options);
+    } catch {
+        // Usage metering must not fail an otherwise durable order submission.
+    }
+}
+
 async function findExistingOrder({ store, merchantId, idempotencyKey, externalOrderId }) {
     if (idempotencyKey && typeof store.findMerchantOrderByIdempotencyKey === 'function') {
         const existing = await store.findMerchantOrderByIdempotencyKey({ merchantId, idempotencyKey });
@@ -305,7 +338,7 @@ export function createOrderHandlers({
             idempotencyKey,
             externalOrderId,
         });
-        if (existingOrder) return publicReplay(existingOrder, requestId);
+        if (existingOrder) return existingOrderReplay(existingOrder, requestId);
 
         const validatedItems = await prevalidateFiles({ store, merchant, items });
         const autoSubmitRequested = items.some((item) => shouldAutoSubmit(source, item.source));
@@ -323,14 +356,17 @@ export function createOrderHandlers({
                 order_id: orderId,
                 external_order_id: externalOrderId,
                 idempotency_key: idempotencyKey,
-                status: 'submitted',
+                status: 'draft',
                 customer: safeObject(source.customer),
                 shipping_address: safeObject(source.shipping_address),
                 billing_address: safeObject(source.billing_address),
                 totals: safeObject(source.totals),
                 due_at: optionalString(source.due_at),
-                submitted_at: timestamp,
-                metadata: orderMetadata,
+                submitted_at: null,
+                metadata: {
+                    ...orderMetadata,
+                    creation_status: 'creating',
+                },
                 created_at: timestamp,
             });
         } catch (error) {
@@ -340,12 +376,12 @@ export function createOrderHandlers({
                 idempotencyKey,
                 externalOrderId,
             });
-            if (replay) return publicReplay(replay, requestId);
+            if (replay) return existingOrderReplay(replay, requestId);
             throw error;
         }
 
+        let orderItems = [];
         try {
-            const orderItems = [];
             for (const item of validatedItems) {
                 const autoSlice = shouldAutoSlice(source, item.source);
                 const autoSubmit = shouldAutoSubmit(source, item.source);
@@ -386,54 +422,19 @@ export function createOrderHandlers({
                 });
                 orderItems.push(orderItem);
             }
-
-            await recordUsage({
-                store,
-                scope,
+            order = await store.updateMerchantOrder({
+                merchantId: merchant.merchant_id,
                 orderId: order.order_id,
-                eventType: 'order.submitted',
-                quantity: 1,
-                createdAt: timestamp,
-            });
-            await recordJobEvent({
-                store,
-                scope,
-                orderId: order.order_id,
-                eventType: 'order.submitted',
-                message: 'Merchant order submitted',
-                payload: {
-                    external_order_id: externalOrderId,
-                    item_count: items.length,
-                },
-                occurredAt: timestamp,
-            });
-
-            for (const orderItem of orderItems) {
-                await recordUsage({
-                    store,
-                    scope,
-                    orderId: order.order_id,
-                    item: orderItem,
-                    eventType: 'order.item.submitted',
-                    quantity: orderItem.quantity,
-                    createdAt: timestamp,
-                });
-                await recordJobEvent({
-                    store,
-                    scope,
-                    orderId: order.order_id,
-                    item: orderItem,
-                    eventType: 'order.item.submitted',
-                    message: 'Merchant order item submitted',
-                    payload: {
-                        sku: orderItem.sku,
-                        quantity: orderItem.quantity,
-                        auto_submit_status: orderItem.metadata?.auto_submit_status,
-                        auto_slice_status: orderItem.metadata?.auto_slice_status,
+                fields: {
+                    status: 'submitted',
+                    submitted_at: timestamp,
+                    metadata: {
+                        ...orderMetadata,
+                        creation_status: 'submitted',
                     },
-                    occurredAt: timestamp,
-                });
-            }
+                },
+            });
+            if (!order) throw new Error('order finalization returned no row');
         } catch {
             await markOrderFailed({
                 store,
@@ -445,6 +446,54 @@ export function createOrderHandlers({
                 occurredAt: timestamp,
             });
             throw createHttpError(500, 'order_creation_failed', 'Order could not be created');
+        }
+
+        await recordUsageBestEffort({
+            store,
+            scope,
+            orderId: order.order_id,
+            eventType: 'order.submitted',
+            quantity: 1,
+            createdAt: timestamp,
+        });
+        await recordJobEventBestEffort({
+            store,
+            scope,
+            orderId: order.order_id,
+            eventType: 'order.submitted',
+            message: 'Merchant order submitted',
+            payload: {
+                external_order_id: externalOrderId,
+                item_count: items.length,
+            },
+            occurredAt: timestamp,
+        });
+
+        for (const orderItem of orderItems) {
+            await recordUsageBestEffort({
+                store,
+                scope,
+                orderId: order.order_id,
+                item: orderItem,
+                eventType: 'order.item.submitted',
+                quantity: orderItem.quantity,
+                createdAt: timestamp,
+            });
+            await recordJobEventBestEffort({
+                store,
+                scope,
+                orderId: order.order_id,
+                item: orderItem,
+                eventType: 'order.item.submitted',
+                message: 'Merchant order item submitted',
+                payload: {
+                    sku: orderItem.sku,
+                    quantity: orderItem.quantity,
+                    auto_submit_status: orderItem.metadata?.auto_submit_status,
+                    auto_slice_status: orderItem.metadata?.auto_slice_status,
+                },
+                occurredAt: timestamp,
+            });
         }
 
         return publicOk(publicOrder(order, items.length), requestId);
@@ -466,6 +515,34 @@ export function createOrderHandlers({
         const scope = merchantScope(merchant);
         const orderId = requiredOrderId(safeObject(body).order_id);
         const timestamp = now().toISOString();
+        if (typeof store.cancelMerchantOrderIfCancelable === 'function') {
+            const order = await store.cancelMerchantOrderIfCancelable({
+                merchantId: merchant.merchant_id,
+                orderId,
+                canceledAt: timestamp,
+                cancelableStatuses: CANCELABLE_ORDER_STATUSES,
+            });
+            if (order) {
+                await recordJobEventBestEffort({
+                    store,
+                    scope,
+                    orderId,
+                    eventType: 'order.canceled',
+                    message: 'Merchant order canceled',
+                    occurredAt: timestamp,
+                });
+                return publicOk(publicOrder(order), requestId);
+            }
+            const current = await store.getMerchantOrder({
+                merchantId: merchant.merchant_id,
+                orderId,
+            });
+            if (!current) throw createHttpError(404, 'order_not_found', 'Order not found');
+            if (NON_CANCELABLE_ORDER_STATUSES.has(String(current.status || '').toLowerCase())) {
+                throw createHttpError(409, 'order_not_cancelable', 'Order cannot be canceled in its current status');
+            }
+            throw createHttpError(409, 'order_cancel_conflict', 'Order could not be canceled because its status changed');
+        }
         const existingOrder = await store.getMerchantOrder({
             merchantId: merchant.merchant_id,
             orderId,
