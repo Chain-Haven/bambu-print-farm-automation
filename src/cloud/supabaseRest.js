@@ -19,11 +19,16 @@ function shouldSendBearerAuthorization(key) {
 
 const SETUP_CHECKS = [
     { name: 'organizations_table', path: '/rest/v1/organizations?select=org_id&limit=1' },
+    { name: 'platform_settings_table', path: '/rest/v1/platform_settings?select=key&limit=1' },
+    { name: 'merchants_table', path: '/rest/v1/merchants?select=merchant_id&limit=1' },
+    { name: 'merchant_api_keys_table', path: '/rest/v1/merchant_api_keys?select=key_id&limit=1' },
     { name: 'farm_nodes_table', path: '/rest/v1/farm_nodes?select=node_id&limit=1' },
     { name: 'cloud_printers_table', path: '/rest/v1/cloud_printers?select=printer_id&limit=1' },
     { name: 'print_jobs_table', path: '/rest/v1/print_jobs?select=job_id&limit=1' },
     { name: 'node_commands_table', path: '/rest/v1/node_commands?select=command_id&limit=1' },
     { name: 'node_events_table', path: '/rest/v1/node_events?select=event_id&limit=1' },
+    { name: 'routing_decisions_table', path: '/rest/v1/routing_decisions?select=decision_id&limit=1' },
+    { name: 'merchant_usage_events_table', path: '/rest/v1/merchant_usage_events?select=usage_event_id&limit=1' },
     {
         name: 'claim_node_commands_rpc',
         path: '/rest/v1/rpc/claim_node_commands',
@@ -35,6 +40,77 @@ const SETUP_CHECKS = [
     },
     { name: 'print_artifacts_bucket', path: '/storage/v1/bucket/print-artifacts' },
 ];
+
+const MERCHANT_SELECT = [
+    'merchant_id',
+    'org_id',
+    'company_name',
+    'contact_email',
+    'contact_name',
+    'website',
+    'status',
+    'approval_mode',
+    'metadata',
+    'approved_at',
+    'rejected_at',
+    'created_at',
+    'updated_at',
+].join(',');
+
+const MERCHANT_API_KEY_SELECT = [
+    'key_id',
+    'merchant_id',
+    'org_id',
+    'name',
+    'key_prefix',
+    'key_hash',
+    'last_used_at',
+    'revoked_at',
+    'created_at',
+].join(',');
+
+const JOB_FILE_SELECT = [
+    'file_id',
+    'org_id',
+    'merchant_id',
+    'storage_path',
+    'original_name',
+    'content_type',
+    'byte_size',
+    'checksum_sha256',
+    'file_mode',
+    'requirements',
+    'created_at',
+].join(',');
+
+const PRINT_JOB_SELECT = [
+    'job_id',
+    'org_id',
+    'merchant_id',
+    'node_id',
+    'printer_id',
+    'file_id',
+    'name',
+    'status',
+    'options',
+    'routing_summary',
+    'created_at',
+    'updated_at',
+].join(',');
+
+const ROUTING_DECISION_SELECT = [
+    'decision_id',
+    'org_id',
+    'merchant_id',
+    'job_id',
+    'selected_node_id',
+    'selected_printer_id',
+    'status',
+    'strategy',
+    'score',
+    'rejected_candidates',
+    'created_at',
+].join(',');
 
 export function createSupabaseRestClient({
     url = process.env.SUPABASE_URL,
@@ -84,6 +160,29 @@ export function createSupabaseRestClient({
     }
 
     return {
+        async getPlatformSetting(key, fallbackValue = null) {
+            const rows = await request(
+                `/rest/v1/platform_settings?key=eq.${encodeURIComponent(requireValue(key, 'setting key'))}&select=key,value&limit=1`,
+            );
+            const row = firstRow(rows);
+            return row ? row.value : fallbackValue;
+        },
+
+        async upsertPlatformSetting(key, value) {
+            const rows = await request(
+                '/rest/v1/platform_settings?on_conflict=key&select=key,value,updated_at',
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+                    body: {
+                        key: requireValue(key, 'setting key'),
+                        value: value && typeof value === 'object' ? value : {},
+                    },
+                },
+            );
+            return firstRow(rows);
+        },
+
         async getCloudSetupStatus() {
             const checks = [];
 
@@ -122,6 +221,106 @@ export function createSupabaseRestClient({
                     method: 'POST',
                     headers: { Prefer: 'return=representation' },
                     body: organization,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async createMerchant(merchant) {
+            const rows = await request(
+                `/rest/v1/merchants?select=${MERCHANT_SELECT}`,
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'return=representation' },
+                    body: merchant,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async findMerchantById(merchantId) {
+            const rows = await request(
+                `/rest/v1/merchants?merchant_id=eq.${encodeURIComponent(merchantId)}&select=${MERCHANT_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async findMerchantByEmail(email) {
+            const rows = await request(
+                `/rest/v1/merchants?contact_email=eq.${encodeURIComponent(email)}&select=${MERCHANT_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async listMerchants({ status = null, limit = 50 } = {}) {
+            const params = new URLSearchParams();
+            params.set('select', MERCHANT_SELECT);
+            params.set('order', 'created_at.desc');
+            params.set('limit', String(Math.max(1, Math.min(Number.parseInt(limit, 10) || 50, 100))));
+            if (status) params.set('status', `eq.${status}`);
+            const rows = await request(`/rest/v1/merchants?${params.toString()}`);
+            return Array.isArray(rows) ? rows : [];
+        },
+
+        async updateMerchantStatus(merchantId, { status, approvedAt = null, rejectedAt = null, metadata = null }) {
+            const body = {
+                status,
+                approved_at: approvedAt,
+                rejected_at: rejectedAt,
+            };
+            if (metadata && typeof metadata === 'object') body.metadata = metadata;
+            const rows = await request(
+                `/rest/v1/merchants?merchant_id=eq.${encodeURIComponent(merchantId)}&select=${MERCHANT_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async createMerchantApiKey(apiKey) {
+            const rows = await request(
+                `/rest/v1/merchant_api_keys?select=${MERCHANT_API_KEY_SELECT}`,
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'return=representation' },
+                    body: apiKey,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async findMerchantApiKeyByHash(keyHash) {
+            const rows = await request(
+                `/rest/v1/merchant_api_keys?key_hash=eq.${encodeURIComponent(keyHash)}&revoked_at=is.null&select=${MERCHANT_API_KEY_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async listMerchantApiKeys(merchantId) {
+            const rows = await request(
+                `/rest/v1/merchant_api_keys?merchant_id=eq.${encodeURIComponent(merchantId)}&select=key_id,merchant_id,org_id,name,key_prefix,last_used_at,revoked_at,created_at&order=created_at.desc`,
+            );
+            return Array.isArray(rows) ? rows : [];
+        },
+
+        async touchMerchantApiKey(keyId, usedAt = new Date().toISOString()) {
+            await request(`/rest/v1/merchant_api_keys?key_id=eq.${encodeURIComponent(keyId)}`, {
+                method: 'PATCH',
+                headers: { Prefer: 'return=minimal' },
+                body: { last_used_at: usedAt },
+            });
+        },
+
+        async revokeMerchantApiKey({ merchantId, keyId, revokedAt = new Date().toISOString() }) {
+            const rows = await request(
+                `/rest/v1/merchant_api_keys?merchant_id=eq.${encodeURIComponent(merchantId)}&key_id=eq.${encodeURIComponent(keyId)}&select=key_id,merchant_id,org_id,name,key_prefix,last_used_at,revoked_at,created_at`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: { revoked_at: revokedAt },
                 },
             );
             return firstRow(rows);
@@ -181,6 +380,87 @@ export function createSupabaseRestClient({
                 },
             );
             return firstRow(rows);
+        },
+
+        async createJobFile(file) {
+            const rows = await request(
+                `/rest/v1/job_files?select=${JOB_FILE_SELECT}`,
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'return=representation' },
+                    body: file,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async createPrintJob(job) {
+            const rows = await request(
+                `/rest/v1/print_jobs?select=${PRINT_JOB_SELECT}`,
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'return=representation' },
+                    body: job,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async updatePrintJob(jobId, fields) {
+            const rows = await request(
+                `/rest/v1/print_jobs?job_id=eq.${encodeURIComponent(jobId)}&select=${PRINT_JOB_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: fields,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async listMerchantPrintJobs({ merchantId, limit = 50 }) {
+            const rows = await request(
+                `/rest/v1/print_jobs?merchant_id=eq.${encodeURIComponent(merchantId)}&select=${PRINT_JOB_SELECT}&order=created_at.desc&limit=${Math.max(1, Math.min(Number.parseInt(limit, 10) || 50, 100))}`,
+            );
+            return Array.isArray(rows) ? rows : [];
+        },
+
+        async getMerchantPrintJob({ merchantId, jobId }) {
+            const rows = await request(
+                `/rest/v1/print_jobs?merchant_id=eq.${encodeURIComponent(merchantId)}&job_id=eq.${encodeURIComponent(jobId)}&select=${PRINT_JOB_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async createRoutingDecision(decision) {
+            const rows = await request(
+                `/rest/v1/routing_decisions?select=${ROUTING_DECISION_SELECT}`,
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'return=representation' },
+                    body: decision,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async createMerchantUsageEvent(event) {
+            const rows = await request(
+                '/rest/v1/merchant_usage_events?select=usage_event_id,org_id,merchant_id,job_id,file_id,event_type,quantity,metrics,created_at',
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'return=representation' },
+                    body: event,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async listMerchantUsageEvents({ merchantId, limit = 50 }) {
+            const rows = await request(
+                `/rest/v1/merchant_usage_events?merchant_id=eq.${encodeURIComponent(merchantId)}&select=usage_event_id,org_id,merchant_id,job_id,file_id,event_type,quantity,metrics,created_at&order=created_at.desc&limit=${Math.max(1, Math.min(Number.parseInt(limit, 10) || 50, 100))}`,
+            );
+            return Array.isArray(rows) ? rows : [];
         },
 
         async createFarmNode(node) {

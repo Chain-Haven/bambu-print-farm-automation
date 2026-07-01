@@ -24,21 +24,31 @@ describe('supabase REST cloud admin methods', () => {
         expect(status.checked).toBe(true);
         expect(status.checks).toEqual([
             { name: 'organizations_table', ok: true },
+            { name: 'platform_settings_table', ok: true },
+            { name: 'merchants_table', ok: true },
+            { name: 'merchant_api_keys_table', ok: true },
             { name: 'farm_nodes_table', ok: true },
             { name: 'cloud_printers_table', ok: true },
             { name: 'print_jobs_table', ok: true },
             { name: 'node_commands_table', ok: true },
             { name: 'node_events_table', ok: true },
+            { name: 'routing_decisions_table', ok: true },
+            { name: 'merchant_usage_events_table', ok: true },
             { name: 'claim_node_commands_rpc', ok: true },
             { name: 'print_artifacts_bucket', ok: true },
         ]);
         expect(fetchImpl.mock.calls.map(([url]) => new URL(url).pathname)).toEqual([
             '/rest/v1/organizations',
+            '/rest/v1/platform_settings',
+            '/rest/v1/merchants',
+            '/rest/v1/merchant_api_keys',
             '/rest/v1/farm_nodes',
             '/rest/v1/cloud_printers',
             '/rest/v1/print_jobs',
             '/rest/v1/node_commands',
             '/rest/v1/node_events',
+            '/rest/v1/routing_decisions',
+            '/rest/v1/merchant_usage_events',
             '/rest/v1/rpc/claim_node_commands',
             '/storage/v1/bucket/print-artifacts',
         ]);
@@ -80,9 +90,9 @@ describe('supabase REST cloud admin methods', () => {
         expect(status.checked).toBe(true);
         expect(status.checks[0]).toEqual({ name: 'organizations_table', ok: true });
         expect(status.checks[1]).toEqual({
-            name: 'farm_nodes_table',
+            name: 'platform_settings_table',
             ok: false,
-            error: 'Supabase GET /rest/v1/farm_nodes?select=node_id&limit=1 failed (404): {"message":"relation does not exist"}',
+            error: 'Supabase GET /rest/v1/platform_settings?select=key&limit=1 failed (404): {"message":"relation does not exist"}',
         });
     });
 
