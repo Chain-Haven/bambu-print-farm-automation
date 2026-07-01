@@ -244,6 +244,14 @@ Verify signatures by computing `HMAC_SHA256(secret, timestamp + "." + raw_body)`
 
 `GET /api/public/farm/filaments`
 
+Availability combines two sources:
+
+- the operator-entered **spool inventory** (grams-tracked stock), and
+- the **AMS trays actually loaded in printers** right now, mirrored from each
+  local node's heartbeat (operator slot assignments merged with live printer
+  telemetry). These appear as `loaded_slot_count` and can introduce
+  materials/colors that have no spool inventory record yet.
+
 ```json
 {
   "ok": true,
@@ -255,6 +263,7 @@ Verify signatures by computing `HMAC_SHA256(secret, timestamp + "." + raw_body)`
         "available_spool_count": 1,
         "total_grams_remaining": 1800,
         "available_grams_remaining": 1200,
+        "loaded_slot_count": 3,
         "colors": [
           {
             "color_hex": "#FFFFFF",
@@ -262,7 +271,8 @@ Verify signatures by computing `HMAC_SHA256(secret, timestamp + "." + raw_body)`
             "spool_count": 1,
             "available_spool_count": 1,
             "total_grams_remaining": 1200,
-            "available_grams_remaining": 1200
+            "available_grams_remaining": 1200,
+            "loaded_slot_count": 2
           }
         ]
       }
@@ -275,13 +285,29 @@ Verify signatures by computing `HMAC_SHA256(secret, timestamp + "." + raw_body)`
         "spool_count": 1,
         "available_spool_count": 1,
         "total_grams_remaining": 1200,
-        "available_grams_remaining": 1200
+        "available_grams_remaining": 1200,
+        "loaded_slot_count": 2
       }
     ],
     "updated_at": null
   }
 }
 ```
+
+## Job Fulfillment Pipeline
+
+Routed ready-to-print jobs are dispatched to the selected local node as a
+`cloud.print.ready` command. The node runs them through the full farm pipeline:
+the file is transformed to add cool-release + sweep **auto-ejection**, uploaded
+over LAN FTPS, started over MQTT with an ACK wait, and the required
+material/color is mapped onto the printer's matching **AMS tray** via
+`ams_mapping`. If the selected printer is mid-print the job queues on the node
+and auto-starts when the current print finishes and ejects.
+
+Job status flows back automatically: the node reports `print_job.started`,
+`print_job.completed`, and `print_job.failed`, which update `GET
+/api/public/print-jobs/status`, release the filament reservation on terminal
+states, and fire the `job.completed` / `job.failed` webhooks.
 
 ## Public Documentation
 

@@ -4,9 +4,10 @@ import {
     MerchantAuthError,
     authenticateMerchantRequest,
 } from './merchantAuth.js';
-import { routeMerchantPrintJob } from './merchantRouting.js';
+import { buildAmsMappingForPrinter, routeMerchantPrintJob } from './merchantRouting.js';
 import { reserveFilamentForJob } from './filamentReservations.js';
 import { normalizeRoutingStrategy } from './printIntake.js';
+import { augmentOverviewWithInventory, normalizeFarmAutomationSettings } from './farmAutomation.js';
 import { deliverMerchantWebhook } from './webhooks.js';
 
 const MAX_JSON_FILE_BYTES = 25 * 1024 * 1024;
@@ -216,8 +217,24 @@ async function reserveFilamentIfPossible({ store, job, upload }) {
     };
 }
 
-async function createReadyPrintJob({ store, merchant, upload, file, now }) {
+async function loadRoutableOverview({ store, merchant }) {
     const overview = await store.getCloudOverview({ orgId: merchant.org_id, limit: 100 });
+    if (typeof store.getPlatformSetting !== 'function') return overview;
+
+    // Merge operator-entered spool inventory into printer capabilities so a
+    // material/color that lives only in the filament inventory (not in the
+    // printer's synced AMS data) still routes instead of "missing_material".
+    try {
+        const inventory = await store.getPlatformSetting(FARM_FILAMENT_INVENTORY_KEY, { spools: [] });
+        const settings = normalizeFarmAutomationSettings({ inventory });
+        return augmentOverviewWithInventory(overview, settings.inventory);
+    } catch {
+        return overview;
+    }
+}
+
+async function createReadyPrintJob({ store, merchant, upload, file, now }) {
+    const overview = await loadRoutableOverview({ store, merchant });
     const strategy = normalizeRoutingStrategy(upload.options.routing_strategy || upload.requirements.routing_strategy);
     const route = routeMerchantPrintJob({
         overview,
@@ -256,6 +273,9 @@ async function createReadyPrintJob({ store, merchant, upload, file, now }) {
     if (route.status === 'routed') {
         const selectedPrinter = findSelectedPrinter(overview, route);
         const downloadUrl = await store.createSignedPrintArtifactUrl(file.storage_path, SIGNED_URL_TTL_SECONDS);
+        // Map the job's required material/color onto the selected printer's AMS
+        // trays so the print pulls from the right slot(s), not the default.
+        const amsMapping = buildAmsMappingForPrinter(selectedPrinter, upload.requirements);
         await store.createNodeCommand({
             org_id: merchant.org_id,
             node_id: route.selected_node_id,
@@ -263,6 +283,8 @@ async function createReadyPrintJob({ store, merchant, upload, file, now }) {
             job_id: job.job_id,
             command_type: 'cloud.print.ready',
             payload: {
+                print_job_id: job.job_id,
+                name: upload.name,
                 local_printer_id: selectedPrinter?.local_printer_id || selectedPrinter?.printer_id || route.selected_printer_id,
                 download_url: downloadUrl,
                 storage_path: file.storage_path,
@@ -271,6 +293,8 @@ async function createReadyPrintJob({ store, merchant, upload, file, now }) {
                 file_mode: file.file_mode,
                 requirements: upload.requirements,
                 options: upload.options,
+                ams_mapping: amsMapping,
+                use_ams: amsMapping.length > 0,
                 issued_at: now().toISOString(),
             },
         });

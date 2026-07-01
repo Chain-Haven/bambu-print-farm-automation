@@ -121,7 +121,12 @@ export function createMerchantPrintJobLifecycleHandler({
                             job_id: job.job_id,
                             command_type: 'printer.stop',
                             payload: {
-                                local_printer_id: job.routing_summary?.local_printer_id || job.printer_id || null,
+                                // routing_summary carries the node-side printer id; the
+                                // cloud printer_id UUID means nothing to the local node.
+                                local_printer_id: job.routing_summary?.selected_local_printer_id
+                                    || job.routing_summary?.local_printer_id
+                                    || job.printer_id
+                                    || null,
                                 job_id: job.job_id,
                                 reason: optionalString(body.reason),
                             },

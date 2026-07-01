@@ -299,7 +299,9 @@ function scoreSortWeight({
     if (strategy === 'exact_material_match') {
         return (exactMaterialMatch ? 0 : 1000) + materialExtraCount * 50 + queueDepth * 100 + nodePenalty;
     }
-    if (strategy === 'batch_by_material') {
+    if (strategy === 'batch_by_material' || strategy === 'smart_material_queue') {
+        // smart_material_queue: the farm autopilot's material-aware planner —
+        // prefer printers already running the same material to minimize swaps.
         return queueDepth * 100 + nodePenalty - materialBatchMatches * 150;
     }
     if (strategy === 'least_printer_wear') {
@@ -434,7 +436,60 @@ export function routeMerchantPrintJob({
         strategy,
         selected_node_id: selected?.node?.node_id || null,
         selected_printer_id: selected?.printer?.printer_id || null,
+        // The LOCAL printer id is what node commands (start/stop) need — the
+        // cloud printer_id is a cloud-side UUID the node knows nothing about.
+        selected_local_printer_id: selected?.printer?.local_printer_id || null,
+        selected_printer_name: selected?.printer?.name || null,
         score: selected ? selected.score : null,
         rejected_candidates: rejected,
     };
+}
+
+function trayGlobalIndex(tray, fallbackIndex) {
+    const amsId = Number.parseInt(tray?.ams_id, 10);
+    const trayId = Number.parseInt(tray?.tray_id, 10);
+    if (Number.isFinite(amsId) && Number.isFinite(trayId)) return amsId * 4 + trayId;
+    if (Number.isFinite(trayId)) return trayId;
+    return fallbackIndex;
+}
+
+/**
+ * Build the Bambu ams_mapping array (slicer filament slot → global AMS tray
+ * index) for the selected printer from its synced AMS tray data. Filament i
+ * takes requirements.materials[i] / colors[i] (falling back to the primary
+ * value when one list is shorter). Returns [] when no complete mapping exists —
+ * the printer then falls back to its default tray selection.
+ */
+export function buildAmsMappingForPrinter(printer, requirements = {}) {
+    const trays = Array.isArray(printer?.capabilities?.ams_trays) ? printer.capabilities.ams_trays : [];
+    if (trays.length === 0) return [];
+
+    const materials = asArray(requirements.materials || requirements.material).map(normalizeMaterial);
+    const colors = asArray(requirements.colors || requirements.colours || requirements.color).map(normalizeColor);
+    const filamentCount = Math.max(materials.length, colors.length);
+    if (filamentCount === 0) return [];
+
+    const used = new Set();
+    const mapping = [];
+
+    for (let i = 0; i < filamentCount; i += 1) {
+        const material = materials[i] ?? materials[0] ?? null;
+        const color = colors[i] ?? colors[0] ?? null;
+
+        const matchIndex = trays.findIndex((tray, index) => {
+            if (used.has(index)) return false;
+            const trayMaterial = normalizeMaterial(tray.material);
+            const trayBase = normalizeMaterial(tray.material_base);
+            const trayColor = normalizeColor(tray.color_hex || tray.color);
+            if (material && trayMaterial !== material && trayBase !== material) return false;
+            if (color && trayColor !== color) return false;
+            return true;
+        });
+
+        if (matchIndex === -1) return [];
+        used.add(matchIndex);
+        mapping.push(trayGlobalIndex(trays[matchIndex], matchIndex));
+    }
+
+    return mapping;
 }

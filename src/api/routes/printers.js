@@ -324,17 +324,38 @@ router.post('/:id/recheck', requireAuth, asyncHandler(async (req, res) => {
 
 // ===== AMS FILAMENT CONFIGURATION =====
 
+// A trayId of 0-3 addresses a slot inside the (optionally provided) AMS unit;
+// 4-15 is a flat slot index across units and is decomposed to (unit, slot).
+// Without this, a flat index was stored verbatim and became invisible to
+// getFullStatus (which keys on ams_id 0-N + tray_id 0-3).
+function resolveAmsSlot(rawTrayId, rawAmsId) {
+    let trayId = parseInt(rawTrayId);
+    let amsId = parseInt(rawAmsId) || 0;
+    if (!Number.isFinite(trayId) || trayId < 0 || trayId > 15) return null;
+    if (trayId > 3) {
+        amsId = Math.floor(trayId / 4);
+        trayId = trayId % 4;
+    }
+    return { amsId, trayId };
+}
+
 // Set filament for a specific AMS tray
 router.put('/:id/ams/:trayId', requireAdmin, asyncHandler(async (req, res) => {
     const { AmsService } = await import('../../services/AmsService.js');
+    const { getFilamentType, FILAMENT_TYPES } = await import('../../services/FilamentCatalog.js');
     const { material, color_hex, color_name } = req.body;
     if (!material) return res.status(400).json({ error: 'material is required' });
+    if (!getFilamentType(material)) {
+        return res.status(400).json({
+            error: `Unknown material "${material}"`,
+            valid_materials: FILAMENT_TYPES.map(f => f.material),
+        });
+    }
 
-    const amsId = parseInt(req.body.ams_id) || 0;
-    const trayId = parseInt(req.params.trayId);
-    if (trayId < 0 || trayId > 15) return res.status(400).json({ error: 'tray_id must be 0-15' });
+    const slot = resolveAmsSlot(req.params.trayId, req.body.ams_id);
+    if (!slot) return res.status(400).json({ error: 'tray_id must be 0-15' });
 
-    const result = AmsService.setTray(req.params.id, amsId, trayId, {
+    const result = AmsService.setTray(req.params.id, slot.amsId, slot.trayId, {
         material,
         colorHex: color_hex || 'FFFFFFFF',
         colorName: color_name || 'White',
@@ -345,8 +366,9 @@ router.put('/:id/ams/:trayId', requireAdmin, asyncHandler(async (req, res) => {
 // Clear a specific AMS tray
 router.delete('/:id/ams/:trayId', requireAdmin, asyncHandler(async (req, res) => {
     const { AmsService } = await import('../../services/AmsService.js');
-    const amsId = parseInt(req.query.ams_id) || 0;
-    AmsService.clearTray(req.params.id, amsId, parseInt(req.params.trayId));
+    const slot = resolveAmsSlot(req.params.trayId, req.query.ams_id);
+    if (!slot) return res.status(400).json({ error: 'tray_id must be 0-15' });
+    AmsService.clearTray(req.params.id, slot.amsId, slot.trayId);
     res.json({ ok: true });
 }));
 

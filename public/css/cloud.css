@@ -742,3 +742,51 @@ th {
 }
 .linklike:hover, .linklike:focus { background: none; color: var(--accent-strong); }
 .console-toolbar { display: flex; justify-content: flex-end; margin: 12px 0 4px; }
+
+/* AMS Filament Mapping panel */
+.field-hint {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+#ams-slots {
+  display: grid;
+  gap: 10px;
+}
+
+.ams-slot-row {
+  display: grid;
+  grid-template-columns: auto 18px 1fr 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.ams-slot-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ams-slot-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+}
+
+.ams-slot-row select {
+  min-width: 0;
+}
+
+.ams-slot-source {
+  font-size: 11px;
+  color: var(--muted);
+}

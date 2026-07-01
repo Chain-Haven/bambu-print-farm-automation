@@ -250,7 +250,7 @@ function getJobRequirements(job) {
         || {};
 }
 
-function augmentOverviewWithInventory(overview, inventory) {
+export function augmentOverviewWithInventory(overview, inventory) {
     const printers = Array.isArray(overview.printers) ? overview.printers : [];
     const spoolsByPrinter = new Map();
 

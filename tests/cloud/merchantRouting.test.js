@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { routeMerchantPrintJob } from '../../src/cloud/merchantRouting.js';
+import { buildAmsMappingForPrinter, routeMerchantPrintJob } from '../../src/cloud/merchantRouting.js';
 
 describe('merchant fastest-fulfillment routing', () => {
     it('selects an available matching printer with the shortest active queue', () => {
@@ -381,5 +381,104 @@ describe('merchant fastest-fulfillment routing', () => {
 
         expect(result.selected_printer_id).toBe('printer-low-hours');
         expect(result.score.printer_wear_hours).toBe(200);
+    });
+});
+
+describe('routing result printer identity', () => {
+    it('exposes the node-local printer id needed by node commands', () => {
+        const result = routeMerchantPrintJob({
+            overview: {
+                nodes: [{ node_id: 'node-a', status: 'online' }],
+                printers: [{
+                    printer_id: 'cloud-uuid-1',
+                    node_id: 'node-a',
+                    local_printer_id: 'local-a1-01',
+                    name: 'A1 #1',
+                    status: 'online',
+                    status_snapshot: { print: { gcode_state: 'IDLE' } },
+                    capabilities: { max_x: 256, max_y: 256, max_z: 256 },
+                }],
+                jobs: [],
+            },
+            requirements: {},
+        });
+
+        expect(result.selected_printer_id).toBe('cloud-uuid-1');
+        expect(result.selected_local_printer_id).toBe('local-a1-01');
+        expect(result.selected_printer_name).toBe('A1 #1');
+    });
+});
+
+describe('smart_material_queue strategy', () => {
+    it('prefers the printer already running the same material', () => {
+        const printers = [
+            {
+                printer_id: 'printer-empty',
+                node_id: 'node-a',
+                status: 'online',
+                status_snapshot: { print: { gcode_state: 'IDLE' } },
+                capabilities: { max_x: 256, max_y: 256, max_z: 256, materials: ['PLA'] },
+            },
+            {
+                printer_id: 'printer-batching',
+                node_id: 'node-a',
+                status: 'online',
+                status_snapshot: { print: { gcode_state: 'IDLE' } },
+                capabilities: { max_x: 256, max_y: 256, max_z: 256, materials: ['PLA'] },
+            },
+        ];
+        const jobs = [
+            // two queued PLA jobs already on printer-batching → strong batch signal
+            { printer_id: 'printer-batching', status: 'queued', requirements: { materials: ['PLA'] } },
+            { printer_id: 'printer-batching', status: 'queued', requirements: { materials: ['PLA'] } },
+        ];
+
+        const result = routeMerchantPrintJob({
+            overview: { nodes: [{ node_id: 'node-a', status: 'online' }], printers, jobs },
+            requirements: { materials: ['PLA'] },
+            strategy: 'smart_material_queue',
+        });
+
+        expect(result.status).toBe('routed');
+        expect(result.selected_printer_id).toBe('printer-batching');
+    });
+});
+
+describe('buildAmsMappingForPrinter', () => {
+    const printer = {
+        capabilities: {
+            ams_trays: [
+                { ams_id: 0, tray_id: 0, material: 'PLA', color_hex: 'FFFFFFFF' },
+                { ams_id: 0, tray_id: 1, material: 'PLA Silk', material_base: 'PLA', color_hex: 'FF0000FF' },
+                { ams_id: 1, tray_id: 2, material: 'PETG', color_hex: '000000FF' },
+            ],
+        },
+    };
+
+    it('maps a single color/material requirement to the matching global tray index', () => {
+        expect(buildAmsMappingForPrinter(printer, { materials: ['PLA'], colors: ['#FF0000'] })).toEqual([1]);
+        // second AMS unit: global index = ams_id*4 + tray_id
+        expect(buildAmsMappingForPrinter(printer, { materials: ['PETG'], colors: ['#000000'] })).toEqual([6]);
+    });
+
+    it('matches material subtypes through material_base', () => {
+        expect(buildAmsMappingForPrinter(printer, { materials: ['PLA'], colors: ['#ff0000'] })).toEqual([1]);
+    });
+
+    it('maps multi-filament requirements without reusing a tray', () => {
+        expect(buildAmsMappingForPrinter(printer, {
+            materials: ['PLA', 'PETG'],
+            colors: ['#FFFFFF', '#000000'],
+        })).toEqual([0, 6]);
+    });
+
+    it('returns an empty mapping when any required filament is missing', () => {
+        expect(buildAmsMappingForPrinter(printer, { materials: ['ASA'] })).toEqual([]);
+        expect(buildAmsMappingForPrinter(printer, { materials: ['PLA'], colors: ['#00FF00'] })).toEqual([]);
+    });
+
+    it('returns an empty mapping when there are no requirements or trays', () => {
+        expect(buildAmsMappingForPrinter(printer, {})).toEqual([]);
+        expect(buildAmsMappingForPrinter({ capabilities: {} }, { materials: ['PLA'] })).toEqual([]);
     });
 });

@@ -3116,6 +3116,142 @@ var require_adm_zip = __commonJS({
   }
 });
 
+// src/services/FilamentCatalog.js
+var FilamentCatalog_exports = {};
+__export(FilamentCatalog_exports, {
+  COLOR_PALETTE: () => COLOR_PALETTE,
+  FILAMENT_TYPES: () => FILAMENT_TYPES,
+  autoMapFilaments: () => autoMapFilaments,
+  buildTrayPayload: () => buildTrayPayload,
+  default: () => FilamentCatalog_default,
+  getFilamentType: () => getFilamentType,
+  getSettingId: () => getSettingId
+});
+function getSettingId(material, printerModel) {
+  const entry = FILAMENT_TYPES.find((f) => f.material === material);
+  if (!entry) return null;
+  const suffix = PRINTER_SUFFIXES[printerModel] || "_01";
+  return `${entry.settingBase}${suffix}`;
+}
+function getFilamentType(material) {
+  return FILAMENT_TYPES.find((f) => f.material === material) || null;
+}
+function buildTrayPayload({ amsId = 0, trayId, material, colorHex = "FFFFFFFF", printerModel = "Bambu A1" }) {
+  const entry = getFilamentType(material);
+  if (!entry) throw new Error(`Unknown filament material: ${material}`);
+  const settingId = getSettingId(material, printerModel);
+  return {
+    print: {
+      command: "ams_filament_setting",
+      sequence_id: String(Date.now()),
+      ams_id: amsId,
+      tray_id: trayId,
+      // Bambu filament ids drop the "S" (setting) from the setting base:
+      // GFSL99 (Generic PLA setting) → GFL99 (Generic PLA filament id).
+      tray_info_idx: entry.settingBase.replace("GFS", "GF"),
+      tray_type: entry.trayType,
+      tray_sub_brands: "",
+      tray_color: colorHex.toUpperCase(),
+      nozzle_temp_min: entry.nozzleMin,
+      nozzle_temp_max: entry.nozzleMax,
+      tray_weight: "1000",
+      setting_id: settingId,
+      k: 0.02,
+      n: 1
+    }
+  };
+}
+function autoMapFilaments(slicerFilaments, amsTrays) {
+  const used = /* @__PURE__ */ new Set();
+  return slicerFilaments.map((needed) => {
+    const match = amsTrays.find((t) => t.material === needed && !used.has(t.tray_id));
+    if (match) {
+      used.add(match.tray_id);
+      return match.tray_id;
+    }
+    const neededEntry = getFilamentType(needed);
+    if (neededEntry) {
+      const partialMatch = amsTrays.find((t) => {
+        const tEntry = getFilamentType(t.material);
+        return tEntry && tEntry.trayType === neededEntry.trayType && !used.has(t.tray_id);
+      });
+      if (partialMatch) {
+        used.add(partialMatch.tray_id);
+        return partialMatch.tray_id;
+      }
+    }
+    return -1;
+  });
+}
+var PRINTER_SUFFIXES, FILAMENT_TYPES, COLOR_PALETTE, FilamentCatalog_default;
+var init_FilamentCatalog = __esm({
+  "src/services/FilamentCatalog.js"() {
+    PRINTER_SUFFIXES = {
+      "Bambu A1": "_04",
+      "Bambu A1 Mini": "_04",
+      // A1M uses same suffix in most cases
+      "Bambu P1S": "_01",
+      "Bambu P1P": "_01",
+      "Bambu X1C": "_01",
+      "Bambu X1E": "_01"
+    };
+    FILAMENT_TYPES = [
+      { material: "PLA", settingBase: "GFSL99", trayType: "PLA", nozzleMin: 190, nozzleMax: 230, bedTemp: 55 },
+      { material: "PLA High Speed", settingBase: "GFSL95", trayType: "PLA", nozzleMin: 190, nozzleMax: 240, bedTemp: 55 },
+      { material: "PLA Silk", settingBase: "GFSL96", trayType: "PLA", nozzleMin: 200, nozzleMax: 230, bedTemp: 55 },
+      { material: "PLA-CF", settingBase: "GFSL98", trayType: "PLA-CF", nozzleMin: 210, nozzleMax: 240, bedTemp: 55 },
+      { material: "PETG", settingBase: "GFSG99", trayType: "PETG", nozzleMin: 220, nozzleMax: 260, bedTemp: 70 },
+      { material: "PETG HF", settingBase: "GFSG96", trayType: "PETG", nozzleMin: 220, nozzleMax: 260, bedTemp: 70 },
+      { material: "PETG-CF", settingBase: "GFSG98", trayType: "PETG-CF", nozzleMin: 230, nozzleMax: 270, bedTemp: 70 },
+      { material: "PCTG", settingBase: "GFSG97", trayType: "PCTG", nozzleMin: 240, nozzleMax: 270, bedTemp: 70 },
+      { material: "ABS", settingBase: "GFSB99", trayType: "ABS", nozzleMin: 240, nozzleMax: 270, bedTemp: 100 },
+      { material: "ASA", settingBase: "GFSB98", trayType: "ASA", nozzleMin: 240, nozzleMax: 270, bedTemp: 100 },
+      { material: "TPU", settingBase: "GFSU99", trayType: "TPU", nozzleMin: 200, nozzleMax: 230, bedTemp: 55 },
+      { material: "TPU for AMS", settingBase: "GFSU98", trayType: "TPU", nozzleMin: 200, nozzleMax: 230, bedTemp: 55 },
+      { material: "PA (Nylon)", settingBase: "GFSN99", trayType: "PA", nozzleMin: 270, nozzleMax: 300, bedTemp: 100 },
+      { material: "PA-CF", settingBase: "GFSN98", trayType: "PA-CF", nozzleMin: 270, nozzleMax: 300, bedTemp: 100 },
+      { material: "PC", settingBase: "GFSC99", trayType: "PC", nozzleMin: 260, nozzleMax: 290, bedTemp: 110 },
+      { material: "PVA", settingBase: "GFSS99", trayType: "PVA", nozzleMin: 190, nozzleMax: 210, bedTemp: 55 },
+      { material: "HIPS", settingBase: "GFSS98", trayType: "HIPS", nozzleMin: 230, nozzleMax: 260, bedTemp: 90 },
+      { material: "BVOH", settingBase: "GFSS97", trayType: "BVOH", nozzleMin: 190, nozzleMax: 210, bedTemp: 55 },
+      { material: "EVA", settingBase: "GFSR99", trayType: "EVA", nozzleMin: 200, nozzleMax: 230, bedTemp: 55 },
+      { material: "PHA", settingBase: "GFSR98", trayType: "PHA", nozzleMin: 190, nozzleMax: 220, bedTemp: 55 },
+      { material: "PE", settingBase: "GFSP99", trayType: "PE", nozzleMin: 190, nozzleMax: 220, bedTemp: 55 },
+      { material: "PE-CF", settingBase: "GFSP98", trayType: "PE-CF", nozzleMin: 200, nozzleMax: 230, bedTemp: 55 },
+      { material: "PP", settingBase: "GFSP97", trayType: "PP", nozzleMin: 200, nozzleMax: 240, bedTemp: 55 },
+      { material: "PP-CF", settingBase: "GFSP96", trayType: "PP-CF", nozzleMin: 210, nozzleMax: 250, bedTemp: 55 },
+      { material: "PP-GF", settingBase: "GFSP95", trayType: "PP-GF", nozzleMin: 210, nozzleMax: 250, bedTemp: 55 },
+      { material: "PPA-CF", settingBase: "GFSN97", trayType: "PPA-CF", nozzleMin: 280, nozzleMax: 310, bedTemp: 100 },
+      { material: "PPA-GF", settingBase: "GFSN96", trayType: "PPA-GF", nozzleMin: 280, nozzleMax: 310, bedTemp: 100 },
+      { material: "PPS", settingBase: "GFSR97", trayType: "PPS", nozzleMin: 300, nozzleMax: 330, bedTemp: 110 },
+      { material: "PPS-CF", settingBase: "GFSR96", trayType: "PPS-CF", nozzleMin: 300, nozzleMax: 330, bedTemp: 110 }
+    ];
+    COLOR_PALETTE = [
+      { name: "White", hex: "FFFFFFFF" },
+      { name: "Black", hex: "000000FF" },
+      { name: "Red", hex: "FF0000FF" },
+      { name: "Blue", hex: "0000FFFF" },
+      { name: "Green", hex: "00FF00FF" },
+      { name: "Yellow", hex: "FFFF00FF" },
+      { name: "Orange", hex: "FF8C00FF" },
+      { name: "Purple", hex: "800080FF" },
+      { name: "Pink", hex: "FF69B4FF" },
+      { name: "Gray", hex: "808080FF" },
+      { name: "Light Gray", hex: "C0C0C0FF" },
+      { name: "Dark Gray", hex: "404040FF" },
+      { name: "Brown", hex: "8B4513FF" },
+      { name: "Cyan", hex: "00FFFFFF" },
+      { name: "Lime", hex: "32CD32FF" },
+      { name: "Navy", hex: "000080FF" },
+      { name: "Teal", hex: "008080FF" },
+      { name: "Gold", hex: "FFD700FF" },
+      { name: "Transparent", hex: "FFFFFF01" },
+      { name: "Natural", hex: "F5F5DCFF" }
+    ];
+    FilamentCatalog_default = { FILAMENT_TYPES, COLOR_PALETTE, getSettingId, getFilamentType, buildTrayPayload, autoMapFilaments };
+  }
+});
+
 // node_modules/sql.js/dist/sql-wasm.js
 var require_sql_wasm = __commonJS({
   "node_modules/sql.js/dist/sql-wasm.js"(exports2, module2) {
@@ -5646,2204 +5782,6 @@ var init_Printer = __esm({
       }
     };
     Printer_default = PrinterModel;
-  }
-});
-
-// node_modules/basic-ftp/dist/parseControlResponse.js
-var require_parseControlResponse = __commonJS({
-  "node_modules/basic-ftp/dist/parseControlResponse.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.parseControlResponse = parseControlResponse;
-    exports2.isSingleLine = isSingleLine;
-    exports2.isMultiline = isMultiline;
-    exports2.positiveCompletion = positiveCompletion;
-    exports2.positiveIntermediate = positiveIntermediate;
-    var LF = "\n";
-    function parseControlResponse(text) {
-      const lines = text.split(/\r?\n/).filter(isNotBlank);
-      const messages = [];
-      let startAt = 0;
-      let tokenRegex;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (!tokenRegex) {
-          if (isMultiline(line)) {
-            const token = line.substr(0, 3);
-            tokenRegex = new RegExp(`^${token}(?:$| )`);
-            startAt = i;
-          } else if (isSingleLine(line)) {
-            messages.push(line);
-          }
-        } else if (tokenRegex.test(line)) {
-          tokenRegex = void 0;
-          messages.push(lines.slice(startAt, i + 1).join(LF));
-        }
-      }
-      const rest = tokenRegex ? lines.slice(startAt).join(LF) + LF : "";
-      return { messages, rest };
-    }
-    function isSingleLine(line) {
-      return /^\d\d\d(?:$| )/.test(line);
-    }
-    function isMultiline(line) {
-      return /^\d\d\d-/.test(line);
-    }
-    function positiveCompletion(code) {
-      return code >= 200 && code < 300;
-    }
-    function positiveIntermediate(code) {
-      return code >= 300 && code < 400;
-    }
-    function isNotBlank(str) {
-      return str.trim() !== "";
-    }
-  }
-});
-
-// node_modules/basic-ftp/dist/FtpContext.js
-var require_FtpContext = __commonJS({
-  "node_modules/basic-ftp/dist/FtpContext.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.FTPContext = exports2.FTPError = void 0;
-    var net_1 = require("net");
-    var parseControlResponse_1 = require_parseControlResponse();
-    var FTPError = class extends Error {
-      constructor(res) {
-        super(res.message);
-        this.name = this.constructor.name;
-        this.code = res.code;
-      }
-    };
-    exports2.FTPError = FTPError;
-    function doNothing() {
-    }
-    var FTPContext = class {
-      /**
-       * Instantiate an FTP context.
-       *
-       * @param timeout - Timeout in milliseconds to apply to control and data connections. Use 0 for no timeout.
-       * @param encoding - Encoding to use for control connection. UTF-8 by default. Use "latin1" for older servers.
-       */
-      constructor(timeout = 0, encoding = "utf8") {
-        this.timeout = timeout;
-        this.verbose = false;
-        this.ipFamily = void 0;
-        this.tlsOptions = {};
-        this._partialResponse = "";
-        this._encoding = encoding;
-        this._socket = this.socket = this._newSocket();
-        this._dataSocket = void 0;
-      }
-      /**
-       * Close the context.
-       */
-      close() {
-        const message = this._task ? "User closed client during task" : "User closed client";
-        const err = new Error(message);
-        this.closeWithError(err);
-      }
-      /**
-       * Close the context with an error.
-       */
-      closeWithError(err) {
-        if (this._closingError) {
-          return;
-        }
-        this._closingError = err;
-        this._closeControlSocket();
-        this._closeSocket(this._dataSocket);
-        this._passToHandler(err);
-        this._stopTrackingTask();
-      }
-      /**
-       * Returns true if this context has been closed or hasn't been connected yet. You can reopen it with `access`.
-       */
-      get closed() {
-        return this.socket.remoteAddress === void 0 || this._closingError !== void 0;
-      }
-      /**
-       * Reset this contex and all of its state.
-       */
-      reset() {
-        this.socket = this._newSocket();
-      }
-      /**
-       * Get the FTP control socket.
-       */
-      get socket() {
-        return this._socket;
-      }
-      /**
-       * Set the socket for the control connection. This will only close the current control socket
-       * if the new one is not an upgrade to the current one.
-       */
-      set socket(socket) {
-        this.dataSocket = void 0;
-        this.tlsOptions = {};
-        this._partialResponse = "";
-        if (this._socket) {
-          const newSocketUpgradesExisting = socket.localPort === this._socket.localPort;
-          if (newSocketUpgradesExisting) {
-            this._removeSocketListeners(this.socket);
-          } else {
-            this._closeControlSocket();
-          }
-        }
-        if (socket) {
-          this._closingError = void 0;
-          socket.setTimeout(0);
-          socket.setEncoding(this._encoding);
-          socket.setKeepAlive(true);
-          socket.on("data", (data) => this._onControlSocketData(data));
-          socket.on("end", () => this.closeWithError(new Error("Server sent FIN packet unexpectedly, closing connection.")));
-          socket.on("close", (hadError) => {
-            if (!hadError)
-              this.closeWithError(new Error("Server closed connection unexpectedly."));
-          });
-          this._setupDefaultErrorHandlers(socket, "control socket");
-        }
-        this._socket = socket;
-      }
-      /**
-       * Get the current FTP data connection if present.
-       */
-      get dataSocket() {
-        return this._dataSocket;
-      }
-      /**
-       * Set the socket for the data connection. This will automatically close the former data socket.
-       */
-      set dataSocket(socket) {
-        this._closeSocket(this._dataSocket);
-        if (socket) {
-          socket.setTimeout(0);
-          this._setupDefaultErrorHandlers(socket, "data socket");
-        }
-        this._dataSocket = socket;
-      }
-      /**
-       * Get the currently used encoding.
-       */
-      get encoding() {
-        return this._encoding;
-      }
-      /**
-       * Set the encoding used for the control socket.
-       *
-       * See https://nodejs.org/api/buffer.html#buffer_buffers_and_character_encodings for what encodings
-       * are supported by Node.
-       */
-      set encoding(encoding) {
-        this._encoding = encoding;
-        if (this.socket) {
-          this.socket.setEncoding(encoding);
-        }
-      }
-      /**
-       * Send an FTP command without waiting for or handling the result.
-       */
-      send(command) {
-        const containsPassword = command.startsWith("PASS");
-        const message = containsPassword ? "> PASS ###" : `> ${command}`;
-        this.log(message);
-        this._socket.write(command + "\r\n", this.encoding);
-      }
-      /**
-       * Send an FTP command and handle the first response. Use this if you have a simple
-       * request-response situation.
-       */
-      request(command) {
-        return this.handle(command, (res, task) => {
-          if (res instanceof Error) {
-            task.reject(res);
-          } else {
-            task.resolve(res);
-          }
-        });
-      }
-      /**
-       * Send an FTP command and handle any response until you resolve/reject. Use this if you expect multiple responses
-       * to a request. This returns a Promise that will hold whatever the response handler passed on when resolving/rejecting its task.
-       */
-      handle(command, responseHandler) {
-        if (this._task) {
-          const err = new Error("User launched a task while another one is still running. Forgot to use 'await' or '.then()'?");
-          err.stack += `
-Running task launched at: ${this._task.stack}`;
-          this.closeWithError(err);
-        }
-        return new Promise((resolveTask, rejectTask) => {
-          this._task = {
-            stack: new Error().stack || "Unknown call stack",
-            responseHandler,
-            resolver: {
-              resolve: (arg) => {
-                this._stopTrackingTask();
-                resolveTask(arg);
-              },
-              reject: (err) => {
-                this._stopTrackingTask();
-                rejectTask(err);
-              }
-            }
-          };
-          if (this._closingError) {
-            const err = new Error(`Client is closed because ${this._closingError.message}`);
-            err.stack += `
-Closing reason: ${this._closingError.stack}`;
-            err.code = this._closingError.code !== void 0 ? this._closingError.code : "0";
-            this._passToHandler(err);
-            return;
-          }
-          this.socket.setTimeout(this.timeout);
-          if (command) {
-            this.send(command);
-          }
-        });
-      }
-      /**
-       * Log message if set to be verbose.
-       */
-      log(message) {
-        if (this.verbose) {
-          console.log(message);
-        }
-      }
-      /**
-       * Return true if the control socket is using TLS. This does not mean that a session
-       * has already been negotiated.
-       */
-      get hasTLS() {
-        return "encrypted" in this._socket;
-      }
-      /**
-       * Removes reference to current task and handler. This won't resolve or reject the task.
-       * @protected
-       */
-      _stopTrackingTask() {
-        this.socket.setTimeout(0);
-        this._task = void 0;
-      }
-      /**
-       * Handle incoming data on the control socket. The chunk is going to be of type `string`
-       * because we let `socket` handle encoding with `setEncoding`.
-       * @protected
-       */
-      _onControlSocketData(chunk) {
-        this.log(`< ${chunk}`);
-        const completeResponse = this._partialResponse + chunk;
-        const parsed = (0, parseControlResponse_1.parseControlResponse)(completeResponse);
-        this._partialResponse = parsed.rest;
-        for (const message of parsed.messages) {
-          const code = parseInt(message.substr(0, 3), 10);
-          const response = { code, message };
-          const err = code >= 400 ? new FTPError(response) : void 0;
-          this._passToHandler(err ? err : response);
-        }
-      }
-      /**
-       * Send the current handler a response. This is usually a control socket response
-       * or a socket event, like an error or timeout.
-       * @protected
-       */
-      _passToHandler(response) {
-        if (this._task) {
-          this._task.responseHandler(response, this._task.resolver);
-        }
-      }
-      /**
-       * Setup all error handlers for a socket.
-       * @protected
-       */
-      _setupDefaultErrorHandlers(socket, identifier) {
-        socket.once("error", (error) => {
-          error.message += ` (${identifier})`;
-          this.closeWithError(error);
-        });
-        socket.once("close", (hadError) => {
-          if (hadError) {
-            this.closeWithError(new Error(`Socket closed due to transmission error (${identifier})`));
-          }
-        });
-        socket.once("timeout", () => {
-          socket.destroy();
-          this.closeWithError(new Error(`Timeout (${identifier})`));
-        });
-      }
-      /**
-       * Close the control socket. Sends QUIT, then FIN, and ignores any response or error.
-       */
-      _closeControlSocket() {
-        this._removeSocketListeners(this._socket);
-        this._socket.on("error", doNothing);
-        this.send("QUIT");
-        this._closeSocket(this._socket);
-      }
-      /**
-       * Close a socket, ignores any error.
-       * @protected
-       */
-      _closeSocket(socket) {
-        if (socket) {
-          this._removeSocketListeners(socket);
-          socket.on("error", doNothing);
-          socket.destroy();
-        }
-      }
-      /**
-       * Remove all default listeners for socket.
-       * @protected
-       */
-      _removeSocketListeners(socket) {
-        socket.removeAllListeners();
-        socket.removeAllListeners("timeout");
-        socket.removeAllListeners("data");
-        socket.removeAllListeners("end");
-        socket.removeAllListeners("error");
-        socket.removeAllListeners("close");
-        socket.removeAllListeners("connect");
-      }
-      /**
-       * Provide a new socket instance.
-       *
-       * Internal use only, replaced for unit tests.
-       */
-      _newSocket() {
-        return new net_1.Socket();
-      }
-    };
-    exports2.FTPContext = FTPContext;
-  }
-});
-
-// node_modules/basic-ftp/dist/FileInfo.js
-var require_FileInfo = __commonJS({
-  "node_modules/basic-ftp/dist/FileInfo.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.FileInfo = exports2.FileType = void 0;
-    var FileType;
-    (function(FileType2) {
-      FileType2[FileType2["Unknown"] = 0] = "Unknown";
-      FileType2[FileType2["File"] = 1] = "File";
-      FileType2[FileType2["Directory"] = 2] = "Directory";
-      FileType2[FileType2["SymbolicLink"] = 3] = "SymbolicLink";
-    })(FileType || (exports2.FileType = FileType = {}));
-    var FileInfo = class {
-      constructor(name) {
-        this.name = name;
-        this.type = FileType.Unknown;
-        this.size = 0;
-        this.rawModifiedAt = "";
-        this.modifiedAt = void 0;
-        this.permissions = void 0;
-        this.hardLinkCount = void 0;
-        this.link = void 0;
-        this.group = void 0;
-        this.user = void 0;
-        this.uniqueID = void 0;
-        this.name = name;
-      }
-      get isDirectory() {
-        return this.type === FileType.Directory;
-      }
-      get isSymbolicLink() {
-        return this.type === FileType.SymbolicLink;
-      }
-      get isFile() {
-        return this.type === FileType.File;
-      }
-      /**
-       * Deprecated, legacy API. Use `rawModifiedAt` instead.
-       * @deprecated
-       */
-      get date() {
-        return this.rawModifiedAt;
-      }
-      set date(rawModifiedAt) {
-        this.rawModifiedAt = rawModifiedAt;
-      }
-    };
-    exports2.FileInfo = FileInfo;
-    FileInfo.UnixPermission = {
-      Read: 4,
-      Write: 2,
-      Execute: 1
-    };
-  }
-});
-
-// node_modules/basic-ftp/dist/parseListDOS.js
-var require_parseListDOS = __commonJS({
-  "node_modules/basic-ftp/dist/parseListDOS.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.testLine = testLine;
-    exports2.parseLine = parseLine2;
-    exports2.transformList = transformList;
-    var FileInfo_1 = require_FileInfo();
-    var RE_LINE = new RegExp(
-      "(\\S+)\\s+(\\S+)\\s+(?:(<DIR>)|([0-9]+))\\s+(\\S.*)"
-      // First non-space followed by rest of line (name)
-    );
-    function testLine(line) {
-      return /^\d{2}/.test(line) && RE_LINE.test(line);
-    }
-    function parseLine2(line) {
-      const groups = line.match(RE_LINE);
-      if (groups === null) {
-        return void 0;
-      }
-      const name = groups[5];
-      if (name === "." || name === "..") {
-        return void 0;
-      }
-      const file = new FileInfo_1.FileInfo(name);
-      const fileType = groups[3];
-      if (fileType === "<DIR>") {
-        file.type = FileInfo_1.FileType.Directory;
-        file.size = 0;
-      } else {
-        file.type = FileInfo_1.FileType.File;
-        file.size = parseInt(groups[4], 10);
-      }
-      file.rawModifiedAt = groups[1] + " " + groups[2];
-      return file;
-    }
-    function transformList(files) {
-      return files;
-    }
-  }
-});
-
-// node_modules/basic-ftp/dist/parseListUnix.js
-var require_parseListUnix = __commonJS({
-  "node_modules/basic-ftp/dist/parseListUnix.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.testLine = testLine;
-    exports2.parseLine = parseLine2;
-    exports2.transformList = transformList;
-    var FileInfo_1 = require_FileInfo();
-    var JA_MONTH = "\u6708";
-    var JA_DAY = "\u65E5";
-    var JA_YEAR = "\u5E74";
-    var RE_LINE = new RegExp("([bcdelfmpSs-])(((r|-)(w|-)([xsStTL-]))((r|-)(w|-)([xsStTL-]))((r|-)(w|-)([xsStTL-]?)))\\+?\\s*(\\d+)\\s+(?:(\\S+(?:\\s\\S+)*?)\\s+)?(?:(\\S+(?:\\s\\S+)*)\\s+)?(\\d+(?:,\\s*\\d+)?)\\s+((?:\\d+[-/]\\d+[-/]\\d+)|(?:\\S{3}\\s+\\d{1,2})|(?:\\d{1,2}\\s+\\S{3})|(?:\\d{1,2}" + JA_MONTH + "\\s+\\d{1,2}" + JA_DAY + "))\\s+((?:\\d+(?::\\d+)?)|(?:\\d{4}" + JA_YEAR + "))\\s(.*)");
-    function testLine(line) {
-      return RE_LINE.test(line);
-    }
-    function parseLine2(line) {
-      const groups = line.match(RE_LINE);
-      if (groups === null) {
-        return void 0;
-      }
-      const name = groups[21];
-      if (name === "." || name === "..") {
-        return void 0;
-      }
-      const file = new FileInfo_1.FileInfo(name);
-      file.size = parseInt(groups[18], 10);
-      file.user = groups[16];
-      file.group = groups[17];
-      file.hardLinkCount = parseInt(groups[15], 10);
-      file.rawModifiedAt = groups[19] + " " + groups[20];
-      file.permissions = {
-        user: parseMode(groups[4], groups[5], groups[6]),
-        group: parseMode(groups[8], groups[9], groups[10]),
-        world: parseMode(groups[12], groups[13], groups[14])
-      };
-      switch (groups[1].charAt(0)) {
-        case "d":
-          file.type = FileInfo_1.FileType.Directory;
-          break;
-        case "e":
-          file.type = FileInfo_1.FileType.SymbolicLink;
-          break;
-        case "l":
-          file.type = FileInfo_1.FileType.SymbolicLink;
-          break;
-        case "b":
-        case "c":
-          file.type = FileInfo_1.FileType.File;
-          break;
-        case "f":
-        case "-":
-          file.type = FileInfo_1.FileType.File;
-          break;
-        default:
-          file.type = FileInfo_1.FileType.Unknown;
-      }
-      if (file.isSymbolicLink) {
-        const end = name.indexOf(" -> ");
-        if (end !== -1) {
-          file.name = name.substring(0, end);
-          file.link = name.substring(end + 4);
-        }
-      }
-      return file;
-    }
-    function transformList(files) {
-      return files;
-    }
-    function parseMode(r, w, x) {
-      let value = 0;
-      if (r !== "-") {
-        value += FileInfo_1.FileInfo.UnixPermission.Read;
-      }
-      if (w !== "-") {
-        value += FileInfo_1.FileInfo.UnixPermission.Write;
-      }
-      const execToken = x.charAt(0);
-      if (execToken !== "-" && execToken.toUpperCase() !== execToken) {
-        value += FileInfo_1.FileInfo.UnixPermission.Execute;
-      }
-      return value;
-    }
-  }
-});
-
-// node_modules/basic-ftp/dist/parseListMLSD.js
-var require_parseListMLSD = __commonJS({
-  "node_modules/basic-ftp/dist/parseListMLSD.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.testLine = testLine;
-    exports2.parseLine = parseLine2;
-    exports2.transformList = transformList;
-    exports2.parseMLSxDate = parseMLSxDate;
-    var FileInfo_1 = require_FileInfo();
-    function parseSize(value, info) {
-      info.size = parseInt(value, 10);
-    }
-    var factHandlersByName = {
-      "size": parseSize,
-      // File size
-      "sizd": parseSize,
-      // Directory size
-      "unique": (value, info) => {
-        info.uniqueID = value;
-      },
-      "modify": (value, info) => {
-        info.modifiedAt = parseMLSxDate(value);
-        info.rawModifiedAt = info.modifiedAt.toISOString();
-      },
-      "type": (value, info) => {
-        if (value.startsWith("OS.unix=slink")) {
-          info.type = FileInfo_1.FileType.SymbolicLink;
-          info.link = value.substr(value.indexOf(":") + 1);
-          return 1;
-        }
-        switch (value) {
-          case "file":
-            info.type = FileInfo_1.FileType.File;
-            break;
-          case "dir":
-            info.type = FileInfo_1.FileType.Directory;
-            break;
-          case "OS.unix=symlink":
-            info.type = FileInfo_1.FileType.SymbolicLink;
-            break;
-          case "cdir":
-          // Current directory being listed
-          case "pdir":
-            return 2;
-          // Don't include these entries in the listing
-          default:
-            info.type = FileInfo_1.FileType.Unknown;
-        }
-        return 1;
-      },
-      "unix.mode": (value, info) => {
-        const digits = value.substr(-3);
-        info.permissions = {
-          user: parseInt(digits[0], 10),
-          group: parseInt(digits[1], 10),
-          world: parseInt(digits[2], 10)
-        };
-      },
-      "unix.ownername": (value, info) => {
-        info.user = value;
-      },
-      "unix.owner": (value, info) => {
-        if (info.user === void 0)
-          info.user = value;
-      },
-      get "unix.uid"() {
-        return this["unix.owner"];
-      },
-      "unix.groupname": (value, info) => {
-        info.group = value;
-      },
-      "unix.group": (value, info) => {
-        if (info.group === void 0)
-          info.group = value;
-      },
-      get "unix.gid"() {
-        return this["unix.group"];
-      }
-      // Regarding the fact "perm":
-      // We don't handle permission information stored in "perm" because its information is conceptually
-      // different from what users of FTP clients usually associate with "permissions". Those that have
-      // some expectations (and probably want to edit them with a SITE command) often unknowingly expect
-      // the Unix permission system. The information passed by "perm" describes what FTP commands can be
-      // executed with a file/directory. But even this can be either incomplete or just meant as a "guide"
-      // as the spec mentions. From https://tools.ietf.org/html/rfc3659#section-7.5.5: "The permissions are
-      // described here as they apply to FTP commands. They may not map easily into particular permissions
-      // available on the server's operating system." The parser by Apache Commons tries to translate these
-      // to Unix permissions – this is misleading users and might not even be correct.
-    };
-    function splitStringOnce(str, delimiter) {
-      const pos = str.indexOf(delimiter);
-      const a = str.substr(0, pos);
-      const b = str.substr(pos + delimiter.length);
-      return [a, b];
-    }
-    function testLine(line) {
-      return /^\S+=\S+;/.test(line) || line.startsWith(" ");
-    }
-    function parseLine2(line) {
-      const [packedFacts, name] = splitStringOnce(line, " ");
-      if (name === "" || name === "." || name === "..") {
-        return void 0;
-      }
-      const info = new FileInfo_1.FileInfo(name);
-      const facts = packedFacts.split(";");
-      for (const fact of facts) {
-        const [factName, factValue] = splitStringOnce(fact, "=");
-        if (!factValue) {
-          continue;
-        }
-        const factHandler = factHandlersByName[factName.toLowerCase()];
-        if (!factHandler) {
-          continue;
-        }
-        const result = factHandler(factValue, info);
-        if (result === 2) {
-          return void 0;
-        }
-      }
-      return info;
-    }
-    function transformList(files) {
-      const nonLinksByID = /* @__PURE__ */ new Map();
-      for (const file of files) {
-        if (!file.isSymbolicLink && file.uniqueID !== void 0) {
-          nonLinksByID.set(file.uniqueID, file);
-        }
-      }
-      const resolvedFiles = [];
-      for (const file of files) {
-        if (file.isSymbolicLink && file.uniqueID !== void 0 && file.link === void 0) {
-          const target = nonLinksByID.get(file.uniqueID);
-          if (target !== void 0) {
-            file.link = target.name;
-          }
-        }
-        const isPartOfDirectory = !file.name.includes("/");
-        if (isPartOfDirectory) {
-          resolvedFiles.push(file);
-        }
-      }
-      return resolvedFiles;
-    }
-    function parseMLSxDate(fact) {
-      return new Date(Date.UTC(
-        +fact.slice(0, 4),
-        // Year
-        +fact.slice(4, 6) - 1,
-        // Month
-        +fact.slice(6, 8),
-        // Date
-        +fact.slice(8, 10),
-        // Hours
-        +fact.slice(10, 12),
-        // Minutes
-        +fact.slice(12, 14),
-        // Seconds
-        +fact.slice(15, 18)
-        // Milliseconds
-      ));
-    }
-  }
-});
-
-// node_modules/basic-ftp/dist/parseList.js
-var require_parseList = __commonJS({
-  "node_modules/basic-ftp/dist/parseList.js"(exports2) {
-    "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      var desc = Object.getOwnPropertyDescriptor(m, k);
-      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function() {
-          return m[k];
-        } };
-      }
-      Object.defineProperty(o, k2, desc);
-    }) : (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      o[k2] = m[k];
-    }));
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
-      Object.defineProperty(o, "default", { enumerable: true, value: v });
-    }) : function(o, v) {
-      o["default"] = v;
-    });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
-      var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function(o2) {
-          var ar = [];
-          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
-          return ar;
-        };
-        return ownKeys(o);
-      };
-      return function(mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        }
-        __setModuleDefault(result, mod);
-        return result;
-      };
-    })();
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.parseList = parseList;
-    var dosParser = __importStar(require_parseListDOS());
-    var unixParser = __importStar(require_parseListUnix());
-    var mlsdParser = __importStar(require_parseListMLSD());
-    var availableParsers = [
-      dosParser,
-      unixParser,
-      mlsdParser
-      // Keep MLSD last, may accept filename only
-    ];
-    function firstCompatibleParser(line, parsers) {
-      return parsers.find((parser) => parser.testLine(line) === true);
-    }
-    function isNotBlank(str) {
-      return str.trim() !== "";
-    }
-    function isNotMeta(str) {
-      return !str.startsWith("total");
-    }
-    var REGEX_NEWLINE = /\r?\n/;
-    function parseList(rawList) {
-      const lines = rawList.split(REGEX_NEWLINE).filter(isNotBlank).filter(isNotMeta);
-      if (lines.length === 0) {
-        return [];
-      }
-      const testLine = lines[lines.length - 1];
-      const parser = firstCompatibleParser(testLine, availableParsers);
-      if (!parser) {
-        throw new Error("This library only supports MLSD, Unix- or DOS-style directory listing. Your FTP server seems to be using another format. You can see the transmitted listing when setting `client.ftp.verbose = true`. You can then provide a custom parser to `client.parseList`, see the documentation for details.");
-      }
-      const files = lines.map(parser.parseLine).filter((info) => info !== void 0);
-      return parser.transformList(files);
-    }
-  }
-});
-
-// node_modules/basic-ftp/dist/ProgressTracker.js
-var require_ProgressTracker = __commonJS({
-  "node_modules/basic-ftp/dist/ProgressTracker.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.ProgressTracker = void 0;
-    var ProgressTracker = class {
-      constructor() {
-        this.bytesOverall = 0;
-        this.intervalMs = 500;
-        this.onStop = noop;
-        this.onHandle = noop;
-      }
-      /**
-       * Register a new handler for progress info. Use `undefined` to disable reporting.
-       */
-      reportTo(onHandle = noop) {
-        this.onHandle = onHandle;
-      }
-      /**
-       * Start tracking transfer progress of a socket.
-       *
-       * @param socket  The socket to observe.
-       * @param name  A name associated with this progress tracking, e.g. a filename.
-       * @param type  The type of the transfer, typically "upload" or "download".
-       */
-      start(socket, name, type) {
-        let lastBytes = 0;
-        this.onStop = poll(this.intervalMs, () => {
-          const bytes = socket.bytesRead + socket.bytesWritten;
-          this.bytesOverall += bytes - lastBytes;
-          lastBytes = bytes;
-          this.onHandle({
-            name,
-            type,
-            bytes,
-            bytesOverall: this.bytesOverall
-          });
-        });
-      }
-      /**
-       * Stop tracking transfer progress.
-       */
-      stop() {
-        this.onStop(false);
-      }
-      /**
-       * Call the progress handler one more time, then stop tracking.
-       */
-      updateAndStop() {
-        this.onStop(true);
-      }
-    };
-    exports2.ProgressTracker = ProgressTracker;
-    function poll(intervalMs, updateFunc) {
-      const id = setInterval(updateFunc, intervalMs);
-      const stopFunc = (stopWithUpdate) => {
-        clearInterval(id);
-        if (stopWithUpdate) {
-          updateFunc();
-        }
-        updateFunc = noop;
-      };
-      updateFunc();
-      return stopFunc;
-    }
-    function noop() {
-    }
-  }
-});
-
-// node_modules/basic-ftp/dist/StringWriter.js
-var require_StringWriter = __commonJS({
-  "node_modules/basic-ftp/dist/StringWriter.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.StringWriter = void 0;
-    var stream_1 = require("stream");
-    var StringWriter = class extends stream_1.Writable {
-      constructor() {
-        super(...arguments);
-        this.buf = Buffer.alloc(0);
-      }
-      _write(chunk, _, callback) {
-        if (chunk instanceof Buffer) {
-          this.buf = Buffer.concat([this.buf, chunk]);
-          callback(null);
-        } else {
-          callback(new Error("StringWriter expects chunks of type 'Buffer'."));
-        }
-      }
-      getText(encoding) {
-        return this.buf.toString(encoding);
-      }
-    };
-    exports2.StringWriter = StringWriter;
-  }
-});
-
-// node_modules/basic-ftp/dist/netUtils.js
-var require_netUtils = __commonJS({
-  "node_modules/basic-ftp/dist/netUtils.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.describeTLS = describeTLS;
-    exports2.describeAddress = describeAddress;
-    exports2.upgradeSocket = upgradeSocket;
-    exports2.ipIsPrivateV4Address = ipIsPrivateV4Address;
-    var tls_1 = require("tls");
-    function describeTLS(socket) {
-      if (socket instanceof tls_1.TLSSocket) {
-        const protocol = socket.getProtocol();
-        return protocol ? protocol : "Server socket or disconnected client socket";
-      }
-      return "No encryption";
-    }
-    function describeAddress(socket) {
-      if (socket.remoteFamily === "IPv6") {
-        return `[${socket.remoteAddress}]:${socket.remotePort}`;
-      }
-      return `${socket.remoteAddress}:${socket.remotePort}`;
-    }
-    function upgradeSocket(socket, options) {
-      return new Promise((resolve, reject) => {
-        const tlsOptions = Object.assign({}, options, {
-          socket
-        });
-        const tlsSocket = (0, tls_1.connect)(tlsOptions, () => {
-          const expectCertificate = tlsOptions.rejectUnauthorized !== false;
-          if (expectCertificate && !tlsSocket.authorized) {
-            reject(tlsSocket.authorizationError);
-          } else {
-            tlsSocket.removeAllListeners("error");
-            resolve(tlsSocket);
-          }
-        }).once("error", (error) => {
-          reject(error);
-        });
-      });
-    }
-    function ipIsPrivateV4Address(ip = "") {
-      if (ip.startsWith("::ffff:")) {
-        ip = ip.substr(7);
-      }
-      const octets = ip.split(".").map((o) => parseInt(o, 10));
-      return octets[0] === 10 || octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31 || octets[0] === 192 && octets[1] === 168 || ip === "127.0.0.1";
-    }
-  }
-});
-
-// node_modules/basic-ftp/dist/transfer.js
-var require_transfer = __commonJS({
-  "node_modules/basic-ftp/dist/transfer.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.enterPassiveModeIPv6 = enterPassiveModeIPv6;
-    exports2.parseEpsvResponse = parseEpsvResponse;
-    exports2.enterPassiveModeIPv4 = enterPassiveModeIPv4;
-    exports2.enterPassiveModeIPv4_forceControlHostIP = enterPassiveModeIPv4_forceControlHostIP;
-    exports2.parsePasvResponse = parsePasvResponse;
-    exports2.connectForPassiveTransfer = connectForPassiveTransfer;
-    exports2.uploadFrom = uploadFrom;
-    exports2.downloadTo = downloadTo;
-    var netUtils_1 = require_netUtils();
-    var stream_1 = require("stream");
-    var tls_1 = require("tls");
-    var parseControlResponse_1 = require_parseControlResponse();
-    async function enterPassiveModeIPv6(ftp2) {
-      const res = await ftp2.request("EPSV");
-      const port = parseEpsvResponse(res.message);
-      if (!port) {
-        throw new Error("Can't parse EPSV response: " + res.message);
-      }
-      const controlHost = ftp2.socket.remoteAddress;
-      if (controlHost === void 0) {
-        throw new Error("Control socket is disconnected, can't get remote address.");
-      }
-      await connectForPassiveTransfer(controlHost, port, ftp2);
-      return res;
-    }
-    function parseEpsvResponse(message) {
-      const groups = message.match(/[|!]{3}(.+)[|!]/);
-      if (groups === null || groups[1] === void 0) {
-        throw new Error(`Can't parse response to 'EPSV': ${message}`);
-      }
-      const port = parseInt(groups[1], 10);
-      if (Number.isNaN(port)) {
-        throw new Error(`Can't parse response to 'EPSV', port is not a number: ${message}`);
-      }
-      return port;
-    }
-    async function enterPassiveModeIPv4(ftp2) {
-      const res = await ftp2.request("PASV");
-      const target = parsePasvResponse(res.message);
-      if (!target) {
-        throw new Error("Can't parse PASV response: " + res.message);
-      }
-      const controlHost = ftp2.socket.remoteAddress;
-      if ((0, netUtils_1.ipIsPrivateV4Address)(target.host) && controlHost && !(0, netUtils_1.ipIsPrivateV4Address)(controlHost)) {
-        target.host = controlHost;
-      }
-      await connectForPassiveTransfer(target.host, target.port, ftp2);
-      return res;
-    }
-    async function enterPassiveModeIPv4_forceControlHostIP(ftp2) {
-      const res = await ftp2.request("PASV");
-      const target = parsePasvResponse(res.message);
-      if (!target) {
-        throw new Error("Can't parse PASV response: " + res.message);
-      }
-      const controlHost = ftp2.socket.remoteAddress;
-      if (controlHost === void 0) {
-        throw new Error("Control socket is disconnected, can't get remote address.");
-      }
-      await connectForPassiveTransfer(controlHost, target.port, ftp2);
-      return res;
-    }
-    function parsePasvResponse(message) {
-      const groups = message.match(/([-\d]+,[-\d]+,[-\d]+,[-\d]+),([-\d]+),([-\d]+)/);
-      if (groups === null || groups.length !== 4) {
-        throw new Error(`Can't parse response to 'PASV': ${message}`);
-      }
-      return {
-        host: groups[1].replace(/,/g, "."),
-        port: (parseInt(groups[2], 10) & 255) * 256 + (parseInt(groups[3], 10) & 255)
-      };
-    }
-    function connectForPassiveTransfer(host, port, ftp2) {
-      return new Promise((resolve, reject) => {
-        let socket = ftp2._newSocket();
-        const handleConnErr = function(err) {
-          err.message = "Can't open data connection in passive mode: " + err.message;
-          reject(err);
-        };
-        const handleTimeout = function() {
-          socket.destroy();
-          reject(new Error(`Timeout when trying to open data connection to ${host}:${port}`));
-        };
-        socket.setTimeout(ftp2.timeout);
-        socket.on("error", handleConnErr);
-        socket.on("timeout", handleTimeout);
-        socket.connect({ port, host, family: ftp2.ipFamily }, () => {
-          if (ftp2.socket instanceof tls_1.TLSSocket) {
-            socket = (0, tls_1.connect)(Object.assign({}, ftp2.tlsOptions, {
-              socket,
-              // Reuse the TLS session negotiated earlier when the control connection
-              // was upgraded. Servers expect this because it provides additional
-              // security: If a completely new session would be negotiated, a hacker
-              // could guess the port and connect to the new data connection before we do
-              // by just starting his/her own TLS session.
-              session: ftp2.socket.getSession()
-            }));
-          }
-          socket.removeListener("error", handleConnErr);
-          socket.removeListener("timeout", handleTimeout);
-          ftp2.dataSocket = socket;
-          resolve();
-        });
-      });
-    }
-    var TransferResolver = class {
-      /**
-       * Instantiate a TransferResolver
-       */
-      constructor(ftp2, progress) {
-        this.ftp = ftp2;
-        this.progress = progress;
-        this.response = void 0;
-        this.dataTransferDone = false;
-      }
-      /**
-       * Mark the beginning of a transfer.
-       *
-       * @param name - Name of the transfer, usually the filename.
-       * @param type - Type of transfer, usually "upload" or "download".
-       */
-      onDataStart(name, type) {
-        if (this.ftp.dataSocket === void 0) {
-          throw new Error("Data transfer should start but there is no data connection.");
-        }
-        this.ftp.socket.setTimeout(0);
-        this.ftp.dataSocket.setTimeout(this.ftp.timeout);
-        this.progress.start(this.ftp.dataSocket, name, type);
-      }
-      /**
-       * The data connection has finished the transfer.
-       */
-      onDataDone(task) {
-        this.progress.updateAndStop();
-        this.ftp.socket.setTimeout(this.ftp.timeout);
-        if (this.ftp.dataSocket) {
-          this.ftp.dataSocket.setTimeout(0);
-        }
-        this.dataTransferDone = true;
-        this.tryResolve(task);
-      }
-      /**
-       * The control connection reports the transfer as finished.
-       */
-      onControlDone(task, response) {
-        this.response = response;
-        this.tryResolve(task);
-      }
-      /**
-       * An error has been reported and the task should be rejected.
-       */
-      onError(task, err) {
-        this.progress.updateAndStop();
-        this.ftp.socket.setTimeout(this.ftp.timeout);
-        this.ftp.dataSocket = void 0;
-        task.reject(err);
-      }
-      /**
-       * Control connection sent an unexpected request requiring a response from our part. We
-       * can't provide that (because unknown) and have to close the contrext with an error because
-       * the FTP server is now caught up in a state we can't resolve.
-       */
-      onUnexpectedRequest(response) {
-        const err = new Error(`Unexpected FTP response is requesting an answer: ${response.message}`);
-        this.ftp.closeWithError(err);
-      }
-      tryResolve(task) {
-        const canResolve = this.dataTransferDone && this.response !== void 0;
-        if (canResolve) {
-          this.ftp.dataSocket = void 0;
-          task.resolve(this.response);
-        }
-      }
-    };
-    function uploadFrom(source, config) {
-      const resolver = new TransferResolver(config.ftp, config.tracker);
-      const fullCommand = `${config.command} ${config.remotePath}`;
-      return config.ftp.handle(fullCommand, (res, task) => {
-        if (res instanceof Error) {
-          resolver.onError(task, res);
-        } else if (res.code === 150 || res.code === 125) {
-          const dataSocket = config.ftp.dataSocket;
-          if (!dataSocket) {
-            resolver.onError(task, new Error("Upload should begin but no data connection is available."));
-            return;
-          }
-          const canUpload = "getCipher" in dataSocket ? dataSocket.getCipher() !== void 0 : true;
-          onConditionOrEvent(canUpload, dataSocket, "secureConnect", () => {
-            config.ftp.log(`Uploading to ${(0, netUtils_1.describeAddress)(dataSocket)} (${(0, netUtils_1.describeTLS)(dataSocket)})`);
-            resolver.onDataStart(config.remotePath, config.type);
-            (0, stream_1.pipeline)(source, dataSocket, (err) => {
-              if (err) {
-                resolver.onError(task, err);
-              } else {
-                resolver.onDataDone(task);
-              }
-            });
-          });
-        } else if ((0, parseControlResponse_1.positiveCompletion)(res.code)) {
-          resolver.onControlDone(task, res);
-        } else if ((0, parseControlResponse_1.positiveIntermediate)(res.code)) {
-          resolver.onUnexpectedRequest(res);
-        }
-      });
-    }
-    function downloadTo(destination, config) {
-      if (!config.ftp.dataSocket) {
-        throw new Error("Download will be initiated but no data connection is available.");
-      }
-      const resolver = new TransferResolver(config.ftp, config.tracker);
-      return config.ftp.handle(config.command, (res, task) => {
-        if (res instanceof Error) {
-          resolver.onError(task, res);
-        } else if (res.code === 150 || res.code === 125) {
-          const dataSocket = config.ftp.dataSocket;
-          if (!dataSocket) {
-            resolver.onError(task, new Error("Download should begin but no data connection is available."));
-            return;
-          }
-          config.ftp.log(`Downloading from ${(0, netUtils_1.describeAddress)(dataSocket)} (${(0, netUtils_1.describeTLS)(dataSocket)})`);
-          resolver.onDataStart(config.remotePath, config.type);
-          (0, stream_1.pipeline)(dataSocket, destination, (err) => {
-            if (err) {
-              resolver.onError(task, err);
-            } else {
-              resolver.onDataDone(task);
-            }
-          });
-        } else if (res.code === 350) {
-          config.ftp.send("RETR " + config.remotePath);
-        } else if ((0, parseControlResponse_1.positiveCompletion)(res.code)) {
-          resolver.onControlDone(task, res);
-        } else if ((0, parseControlResponse_1.positiveIntermediate)(res.code)) {
-          resolver.onUnexpectedRequest(res);
-        }
-      });
-    }
-    function onConditionOrEvent(condition, emitter, eventName, action) {
-      if (condition === true) {
-        action();
-      } else {
-        emitter.once(eventName, () => action());
-      }
-    }
-  }
-});
-
-// node_modules/basic-ftp/dist/Client.js
-var require_Client = __commonJS({
-  "node_modules/basic-ftp/dist/Client.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.Client = void 0;
-    var fs_1 = require("fs");
-    var path_1 = require("path");
-    var tls_1 = require("tls");
-    var util_1 = require("util");
-    var FtpContext_1 = require_FtpContext();
-    var parseList_1 = require_parseList();
-    var ProgressTracker_1 = require_ProgressTracker();
-    var StringWriter_1 = require_StringWriter();
-    var parseListMLSD_1 = require_parseListMLSD();
-    var netUtils_1 = require_netUtils();
-    var transfer_1 = require_transfer();
-    var parseControlResponse_1 = require_parseControlResponse();
-    var fsReadDir = (0, util_1.promisify)(fs_1.readdir);
-    var fsMkDir = (0, util_1.promisify)(fs_1.mkdir);
-    var fsStat = (0, util_1.promisify)(fs_1.stat);
-    var fsOpen = (0, util_1.promisify)(fs_1.open);
-    var fsClose = (0, util_1.promisify)(fs_1.close);
-    var fsUnlink = (0, util_1.promisify)(fs_1.unlink);
-    var defaultClientOptions = {
-      allowSeparateTransferHost: true
-    };
-    var LIST_COMMANDS_DEFAULT = () => ["LIST -a", "LIST"];
-    var LIST_COMMANDS_MLSD = () => ["MLSD", "LIST -a", "LIST"];
-    var Client2 = class {
-      /**
-       * Instantiate an FTP client.
-       *
-       * @param timeout  Timeout in milliseconds, use 0 for no timeout. Optional, default is 30 seconds.
-       */
-      constructor(timeout = 3e4, options = defaultClientOptions) {
-        this.availableListCommands = LIST_COMMANDS_DEFAULT();
-        this.ftp = new FtpContext_1.FTPContext(timeout);
-        this.prepareTransfer = this._enterFirstCompatibleMode([
-          transfer_1.enterPassiveModeIPv6,
-          options.allowSeparateTransferHost ? transfer_1.enterPassiveModeIPv4 : transfer_1.enterPassiveModeIPv4_forceControlHostIP
-        ]);
-        this.parseList = parseList_1.parseList;
-        this._progressTracker = new ProgressTracker_1.ProgressTracker();
-      }
-      /**
-       * Close the client and all open socket connections.
-       *
-       * Close the client and all open socket connections. The client can’t be used anymore after calling this method,
-       * you have to either reconnect with `access` or `connect` or instantiate a new instance to continue any work.
-       * A client is also closed automatically if any timeout or connection error occurs.
-       */
-      close() {
-        this.ftp.close();
-        this._progressTracker.stop();
-      }
-      /**
-       * Returns true if the client is closed and can't be used anymore.
-       */
-      get closed() {
-        return this.ftp.closed;
-      }
-      /**
-       * Connect (or reconnect) to an FTP server.
-       *
-       * This is an instance method and thus can be called multiple times during the lifecycle of a `Client`
-       * instance. Whenever you do, the client is reset with a new control connection. This also implies that
-       * you can reopen a `Client` instance that has been closed due to an error when reconnecting with this
-       * method. In fact, reconnecting is the only way to continue using a closed `Client`.
-       *
-       * @param host  Host the client should connect to. Optional, default is "localhost".
-       * @param port  Port the client should connect to. Optional, default is 21.
-       */
-      connect(host = "localhost", port = 21) {
-        this.ftp.reset();
-        this.ftp.socket.connect({
-          host,
-          port,
-          family: this.ftp.ipFamily
-        }, () => this.ftp.log(`Connected to ${(0, netUtils_1.describeAddress)(this.ftp.socket)} (${(0, netUtils_1.describeTLS)(this.ftp.socket)})`));
-        return this._handleConnectResponse();
-      }
-      /**
-       * As `connect` but using implicit TLS. Implicit TLS is not an FTP standard and has been replaced by
-       * explicit TLS. There are still FTP servers that support only implicit TLS, though.
-       */
-      connectImplicitTLS(host = "localhost", port = 21, tlsOptions = {}) {
-        this.ftp.reset();
-        this.ftp.socket = (0, tls_1.connect)(port, host, tlsOptions, () => this.ftp.log(`Connected to ${(0, netUtils_1.describeAddress)(this.ftp.socket)} (${(0, netUtils_1.describeTLS)(this.ftp.socket)})`));
-        this.ftp.tlsOptions = tlsOptions;
-        return this._handleConnectResponse();
-      }
-      /**
-       * Handles the first reponse by an FTP server after the socket connection has been established.
-       */
-      _handleConnectResponse() {
-        return this.ftp.handle(void 0, (res, task) => {
-          if (res instanceof Error) {
-            task.reject(res);
-          } else if ((0, parseControlResponse_1.positiveCompletion)(res.code)) {
-            task.resolve(res);
-          } else {
-            task.reject(new FtpContext_1.FTPError(res));
-          }
-        });
-      }
-      /**
-       * Send an FTP command and handle the first response.
-       */
-      send(command, ignoreErrorCodesDEPRECATED = false) {
-        if (ignoreErrorCodesDEPRECATED) {
-          this.ftp.log("Deprecated call using send(command, flag) with boolean flag to ignore errors. Use sendIgnoringError(command).");
-          return this.sendIgnoringError(command);
-        }
-        return this.ftp.request(command);
-      }
-      /**
-       * Send an FTP command and ignore an FTP error response. Any other kind of error or timeout will still reject the Promise.
-       *
-       * @param command
-       */
-      sendIgnoringError(command) {
-        return this.ftp.handle(command, (res, task) => {
-          if (res instanceof FtpContext_1.FTPError) {
-            task.resolve({ code: res.code, message: res.message });
-          } else if (res instanceof Error) {
-            task.reject(res);
-          } else {
-            task.resolve(res);
-          }
-        });
-      }
-      /**
-       * Upgrade the current socket connection to TLS.
-       *
-       * @param options  TLS options as in `tls.connect(options)`, optional.
-       * @param command  Set the authentication command. Optional, default is "AUTH TLS".
-       */
-      async useTLS(options = {}, command = "AUTH TLS") {
-        const ret = await this.send(command);
-        this.ftp.socket = await (0, netUtils_1.upgradeSocket)(this.ftp.socket, options);
-        this.ftp.tlsOptions = options;
-        this.ftp.log(`Control socket is using: ${(0, netUtils_1.describeTLS)(this.ftp.socket)}`);
-        return ret;
-      }
-      /**
-       * Login a user with a password.
-       *
-       * @param user  Username to use for login. Optional, default is "anonymous".
-       * @param password  Password to use for login. Optional, default is "guest".
-       */
-      login(user = "anonymous", password = "guest") {
-        this.ftp.log(`Login security: ${(0, netUtils_1.describeTLS)(this.ftp.socket)}`);
-        return this.ftp.handle("USER " + user, (res, task) => {
-          if (res instanceof Error) {
-            task.reject(res);
-          } else if ((0, parseControlResponse_1.positiveCompletion)(res.code)) {
-            task.resolve(res);
-          } else if (res.code === 331) {
-            this.ftp.send("PASS " + password);
-          } else {
-            task.reject(new FtpContext_1.FTPError(res));
-          }
-        });
-      }
-      /**
-       * Set the usual default settings.
-       *
-       * Settings used:
-       * * Binary mode (TYPE I)
-       * * File structure (STRU F)
-       * * Additional settings for FTPS (PBSZ 0, PROT P)
-       */
-      async useDefaultSettings() {
-        const features = await this.features();
-        const supportsMLSD = features.has("MLST");
-        this.availableListCommands = supportsMLSD ? LIST_COMMANDS_MLSD() : LIST_COMMANDS_DEFAULT();
-        await this.send("TYPE I");
-        await this.sendIgnoringError("STRU F");
-        await this.sendIgnoringError("OPTS UTF8 ON");
-        if (supportsMLSD) {
-          await this.sendIgnoringError("OPTS MLST type;size;modify;unique;unix.mode;unix.owner;unix.group;unix.ownername;unix.groupname;");
-        }
-        if (this.ftp.hasTLS) {
-          await this.sendIgnoringError("PBSZ 0");
-          await this.sendIgnoringError("PROT P");
-        }
-      }
-      /**
-       * Convenience method that calls `connect`, `useTLS`, `login` and `useDefaultSettings`.
-       *
-       * This is an instance method and thus can be called multiple times during the lifecycle of a `Client`
-       * instance. Whenever you do, the client is reset with a new control connection. This also implies that
-       * you can reopen a `Client` instance that has been closed due to an error when reconnecting with this
-       * method. In fact, reconnecting is the only way to continue using a closed `Client`.
-       */
-      async access(options = {}) {
-        var _a, _b;
-        const useExplicitTLS = options.secure === true;
-        const useImplicitTLS = options.secure === "implicit";
-        let welcome;
-        if (useImplicitTLS) {
-          welcome = await this.connectImplicitTLS(options.host, options.port, options.secureOptions);
-        } else {
-          welcome = await this.connect(options.host, options.port);
-        }
-        if (useExplicitTLS) {
-          const secureOptions = (_a = options.secureOptions) !== null && _a !== void 0 ? _a : {};
-          secureOptions.host = (_b = secureOptions.host) !== null && _b !== void 0 ? _b : options.host;
-          await this.useTLS(secureOptions);
-        }
-        await this.sendIgnoringError("OPTS UTF8 ON");
-        await this.login(options.user, options.password);
-        await this.useDefaultSettings();
-        return welcome;
-      }
-      /**
-       * Get the current working directory.
-       */
-      async pwd() {
-        const res = await this.send("PWD");
-        const parsed = res.message.match(/"(.+)"/);
-        if (parsed === null || parsed[1] === void 0) {
-          throw new Error(`Can't parse response to command 'PWD': ${res.message}`);
-        }
-        return parsed[1];
-      }
-      /**
-       * Get a description of supported features.
-       *
-       * This sends the FEAT command and parses the result into a Map where keys correspond to available commands
-       * and values hold further information. Be aware that your FTP servers might not support this
-       * command in which case this method will not throw an exception but just return an empty Map.
-       */
-      async features() {
-        const res = await this.sendIgnoringError("FEAT");
-        const features = /* @__PURE__ */ new Map();
-        if (res.code < 400 && (0, parseControlResponse_1.isMultiline)(res.message)) {
-          res.message.split("\n").slice(1, -1).forEach((line) => {
-            const entry = line.trim().split(" ");
-            features.set(entry[0], entry[1] || "");
-          });
-        }
-        return features;
-      }
-      /**
-       * Set the working directory.
-       */
-      async cd(path12) {
-        const validPath = await this.protectWhitespace(path12);
-        return this.send("CWD " + validPath);
-      }
-      /**
-       * Switch to the parent directory of the working directory.
-       */
-      async cdup() {
-        return this.send("CDUP");
-      }
-      /**
-       * Get the last modified time of a file. This is not supported by every FTP server, in which case
-       * calling this method will throw an exception.
-       */
-      async lastMod(path12) {
-        const validPath = await this.protectWhitespace(path12);
-        const res = await this.send(`MDTM ${validPath}`);
-        const date = res.message.slice(4);
-        return (0, parseListMLSD_1.parseMLSxDate)(date);
-      }
-      /**
-       * Get the size of a file.
-       */
-      async size(path12) {
-        const validPath = await this.protectWhitespace(path12);
-        const command = `SIZE ${validPath}`;
-        const res = await this.send(command);
-        const size = parseInt(res.message.slice(4), 10);
-        if (Number.isNaN(size)) {
-          throw new Error(`Can't parse response to command '${command}' as a numerical value: ${res.message}`);
-        }
-        return size;
-      }
-      /**
-       * Rename a file.
-       *
-       * Depending on the FTP server this might also be used to move a file from one
-       * directory to another by providing full paths.
-       */
-      async rename(srcPath, destPath) {
-        const validSrc = await this.protectWhitespace(srcPath);
-        const validDest = await this.protectWhitespace(destPath);
-        await this.send("RNFR " + validSrc);
-        return this.send("RNTO " + validDest);
-      }
-      /**
-       * Remove a file from the current working directory.
-       *
-       * You can ignore FTP error return codes which won't throw an exception if e.g.
-       * the file doesn't exist.
-       */
-      async remove(path12, ignoreErrorCodes = false) {
-        const validPath = await this.protectWhitespace(path12);
-        if (ignoreErrorCodes) {
-          return this.sendIgnoringError(`DELE ${validPath}`);
-        }
-        return this.send(`DELE ${validPath}`);
-      }
-      /**
-       * Report transfer progress for any upload or download to a given handler.
-       *
-       * This will also reset the overall transfer counter that can be used for multiple transfers. You can
-       * also call the function without a handler to stop reporting to an earlier one.
-       *
-       * @param handler  Handler function to call on transfer progress.
-       */
-      trackProgress(handler) {
-        this._progressTracker.bytesOverall = 0;
-        this._progressTracker.reportTo(handler);
-      }
-      /**
-       * Upload data from a readable stream or a local file to a remote file.
-       *
-       * @param source  Readable stream or path to a local file.
-       * @param toRemotePath  Path to a remote file to write to.
-       */
-      async uploadFrom(source, toRemotePath, options = {}) {
-        return this._uploadWithCommand(source, toRemotePath, "STOR", options);
-      }
-      /**
-       * Upload data from a readable stream or a local file by appending it to an existing file. If the file doesn't
-       * exist the FTP server should create it.
-       *
-       * @param source  Readable stream or path to a local file.
-       * @param toRemotePath  Path to a remote file to write to.
-       */
-      async appendFrom(source, toRemotePath, options = {}) {
-        return this._uploadWithCommand(source, toRemotePath, "APPE", options);
-      }
-      /**
-       * @protected
-       */
-      async _uploadWithCommand(source, remotePath, command, options) {
-        if (typeof source === "string") {
-          return this._uploadLocalFile(source, remotePath, command, options);
-        }
-        return this._uploadFromStream(source, remotePath, command);
-      }
-      /**
-       * @protected
-       */
-      async _uploadLocalFile(localPath2, remotePath, command, options) {
-        const fd = await fsOpen(localPath2, "r");
-        const source = (0, fs_1.createReadStream)("", {
-          fd,
-          start: options.localStart,
-          end: options.localEndInclusive,
-          autoClose: false
-        });
-        try {
-          return await this._uploadFromStream(source, remotePath, command);
-        } finally {
-          await ignoreError(() => fsClose(fd));
-        }
-      }
-      /**
-       * @protected
-       */
-      async _uploadFromStream(source, remotePath, command) {
-        const onError = (err) => this.ftp.closeWithError(err);
-        source.once("error", onError);
-        try {
-          const validPath = await this.protectWhitespace(remotePath);
-          await this.prepareTransfer(this.ftp);
-          return await (0, transfer_1.uploadFrom)(source, {
-            ftp: this.ftp,
-            tracker: this._progressTracker,
-            command,
-            remotePath: validPath,
-            type: "upload"
-          });
-        } finally {
-          source.removeListener("error", onError);
-        }
-      }
-      /**
-       * Download a remote file and pipe its data to a writable stream or to a local file.
-       *
-       * You can optionally define at which position of the remote file you'd like to start
-       * downloading. If the destination you provide is a file, the offset will be applied
-       * to it as well. For example: To resume a failed download, you'd request the size of
-       * the local, partially downloaded file and use that as the offset. Assuming the size
-       * is 23, you'd download the rest using `downloadTo("local.txt", "remote.txt", 23)`.
-       *
-       * @param destination  Stream or path for a local file to write to.
-       * @param fromRemotePath  Path of the remote file to read from.
-       * @param startAt  Position within the remote file to start downloading at. If the destination is a file, this offset is also applied to it.
-       */
-      async downloadTo(destination, fromRemotePath, startAt = 0) {
-        if (typeof destination === "string") {
-          return this._downloadToFile(destination, fromRemotePath, startAt);
-        }
-        return this._downloadToStream(destination, fromRemotePath, startAt);
-      }
-      /**
-       * @protected
-       */
-      async _downloadToFile(localPath2, remotePath, startAt) {
-        const appendingToLocalFile = startAt > 0;
-        const fileSystemFlags = appendingToLocalFile ? "r+" : "w";
-        const fd = await fsOpen(localPath2, fileSystemFlags);
-        const destination = (0, fs_1.createWriteStream)("", {
-          fd,
-          start: startAt,
-          autoClose: false
-        });
-        try {
-          return await this._downloadToStream(destination, remotePath, startAt);
-        } catch (err) {
-          const localFileStats = await ignoreError(() => fsStat(localPath2));
-          const hasDownloadedData = localFileStats && localFileStats.size > 0;
-          const shouldRemoveLocalFile = !appendingToLocalFile && !hasDownloadedData;
-          if (shouldRemoveLocalFile) {
-            await ignoreError(() => fsUnlink(localPath2));
-          }
-          throw err;
-        } finally {
-          await ignoreError(() => fsClose(fd));
-        }
-      }
-      /**
-       * @protected
-       */
-      async _downloadToStream(destination, remotePath, startAt) {
-        const onError = (err) => this.ftp.closeWithError(err);
-        destination.once("error", onError);
-        try {
-          const validPath = await this.protectWhitespace(remotePath);
-          await this.prepareTransfer(this.ftp);
-          return await (0, transfer_1.downloadTo)(destination, {
-            ftp: this.ftp,
-            tracker: this._progressTracker,
-            command: startAt > 0 ? `REST ${startAt}` : `RETR ${validPath}`,
-            remotePath: validPath,
-            type: "download"
-          });
-        } finally {
-          destination.removeListener("error", onError);
-          destination.end();
-        }
-      }
-      /**
-       * List files and directories in the current working directory, or from `path` if specified.
-       *
-       * @param [path]  Path to remote file or directory.
-       */
-      async list(path12 = "") {
-        const validPath = await this.protectWhitespace(path12);
-        let lastError;
-        for (const candidate of this.availableListCommands) {
-          const command = validPath === "" ? candidate : `${candidate} ${validPath}`;
-          await this.prepareTransfer(this.ftp);
-          try {
-            const parsedList = await this._requestListWithCommand(command);
-            this.availableListCommands = [candidate];
-            return parsedList;
-          } catch (err) {
-            const shouldTryNext = err instanceof FtpContext_1.FTPError;
-            if (!shouldTryNext) {
-              throw err;
-            }
-            lastError = err;
-          }
-        }
-        throw lastError;
-      }
-      /**
-       * @protected
-       */
-      async _requestListWithCommand(command) {
-        const buffer = new StringWriter_1.StringWriter();
-        await (0, transfer_1.downloadTo)(buffer, {
-          ftp: this.ftp,
-          tracker: this._progressTracker,
-          command,
-          remotePath: "",
-          type: "list"
-        });
-        const text = buffer.getText(this.ftp.encoding);
-        this.ftp.log(text);
-        return this.parseList(text);
-      }
-      /**
-       * Remove a directory and all of its content.
-       *
-       * @param remoteDirPath  The path of the remote directory to delete.
-       * @example client.removeDir("foo") // Remove directory 'foo' using a relative path.
-       * @example client.removeDir("foo/bar") // Remove directory 'bar' using a relative path.
-       * @example client.removeDir("/foo/bar") // Remove directory 'bar' using an absolute path.
-       * @example client.removeDir("/") // Remove everything.
-       */
-      async removeDir(remoteDirPath) {
-        return this._exitAtCurrentDirectory(async () => {
-          await this.cd(remoteDirPath);
-          const absoluteDirPath = await this.pwd();
-          await this.clearWorkingDir();
-          const dirIsRoot = absoluteDirPath === "/";
-          if (!dirIsRoot) {
-            await this.cdup();
-            await this.removeEmptyDir(absoluteDirPath);
-          }
-        });
-      }
-      /**
-       * Remove all files and directories in the working directory without removing
-       * the working directory itself.
-       */
-      async clearWorkingDir() {
-        for (const file of await this.list()) {
-          if (file.isDirectory) {
-            await this.cd(file.name);
-            await this.clearWorkingDir();
-            await this.cdup();
-            await this.removeEmptyDir(file.name);
-          } else {
-            await this.remove(file.name);
-          }
-        }
-      }
-      /**
-       * Upload the contents of a local directory to the remote working directory.
-       *
-       * This will overwrite existing files with the same names and reuse existing directories.
-       * Unrelated files and directories will remain untouched. You can optionally provide a `remoteDirPath`
-       * to put the contents inside a directory which will be created if necessary including all
-       * intermediate directories. If you did provide a remoteDirPath the working directory will stay
-       * the same as before calling this method.
-       *
-       * @param localDirPath  Local path, e.g. "foo/bar" or "../test"
-       * @param [remoteDirPath]  Remote path of a directory to upload to. Working directory if undefined.
-       */
-      async uploadFromDir(localDirPath, remoteDirPath) {
-        return this._exitAtCurrentDirectory(async () => {
-          if (remoteDirPath) {
-            await this.ensureDir(remoteDirPath);
-          }
-          return await this._uploadToWorkingDir(localDirPath);
-        });
-      }
-      /**
-       * @protected
-       */
-      async _uploadToWorkingDir(localDirPath) {
-        const files = await fsReadDir(localDirPath);
-        for (const file of files) {
-          const fullPath = (0, path_1.join)(localDirPath, file);
-          const stats = await fsStat(fullPath);
-          if (stats.isFile()) {
-            await this.uploadFrom(fullPath, file);
-          } else if (stats.isDirectory()) {
-            await this._openDir(file);
-            await this._uploadToWorkingDir(fullPath);
-            await this.cdup();
-          }
-        }
-      }
-      /**
-       * Download all files and directories of the working directory to a local directory.
-       *
-       * @param localDirPath  The local directory to download to.
-       * @param remoteDirPath  Remote directory to download. Current working directory if not specified.
-       */
-      async downloadToDir(localDirPath, remoteDirPath) {
-        return this._exitAtCurrentDirectory(async () => {
-          if (remoteDirPath) {
-            await this.cd(remoteDirPath);
-          }
-          return await this._downloadFromWorkingDir(localDirPath);
-        });
-      }
-      /**
-       * @protected
-       */
-      async _downloadFromWorkingDir(localDirPath) {
-        await ensureLocalDirectory(localDirPath);
-        for (const file of await this.list()) {
-          const hasInvalidName = !file.name || (0, path_1.basename)(file.name) !== file.name;
-          if (hasInvalidName) {
-            const safeName = JSON.stringify(file.name);
-            this.ftp.log(`Invalid filename from server listing, will skip file. (${safeName})`);
-            continue;
-          }
-          const localPath2 = (0, path_1.join)(localDirPath, file.name);
-          if (file.isDirectory) {
-            await this.cd(file.name);
-            await this._downloadFromWorkingDir(localPath2);
-            await this.cdup();
-          } else if (file.isFile) {
-            await this.downloadTo(localPath2, file.name);
-          }
-        }
-      }
-      /**
-       * Make sure a given remote path exists, creating all directories as necessary.
-       * This function also changes the current working directory to the given path.
-       */
-      async ensureDir(remoteDirPath) {
-        if (remoteDirPath.startsWith("/")) {
-          await this.cd("/");
-        }
-        const names = remoteDirPath.split("/").filter((name) => name !== "");
-        for (const name of names) {
-          await this._openDir(name);
-        }
-      }
-      /**
-       * Try to create a directory and enter it. This will not raise an exception if the directory
-       * couldn't be created if for example it already exists.
-       * @protected
-       */
-      async _openDir(dirName) {
-        await this.sendIgnoringError("MKD " + dirName);
-        await this.cd(dirName);
-      }
-      /**
-       * Remove an empty directory, will fail if not empty.
-       */
-      async removeEmptyDir(path12) {
-        const validPath = await this.protectWhitespace(path12);
-        return this.send(`RMD ${validPath}`);
-      }
-      /**
-       * FTP servers can't handle filenames that have leading whitespace. This method transforms
-       * a given path to fix that issue for most cases.
-       */
-      async protectWhitespace(path12) {
-        if (!path12.startsWith(" ")) {
-          return path12;
-        }
-        const pwd = await this.pwd();
-        const absolutePathPrefix = pwd.endsWith("/") ? pwd : pwd + "/";
-        return absolutePathPrefix + path12;
-      }
-      async _exitAtCurrentDirectory(func) {
-        const userDir = await this.pwd();
-        try {
-          return await func();
-        } finally {
-          if (!this.closed) {
-            await ignoreError(() => this.cd(userDir));
-          }
-        }
-      }
-      /**
-       * Try all available transfer strategies and pick the first one that works. Update `client` to
-       * use the working strategy for all successive transfer requests.
-       *
-       * @returns a function that will try the provided strategies.
-       */
-      _enterFirstCompatibleMode(strategies) {
-        return async (ftp2) => {
-          ftp2.log("Trying to find optimal transfer strategy...");
-          let lastError = void 0;
-          for (const strategy of strategies) {
-            try {
-              const res = await strategy(ftp2);
-              ftp2.log("Optimal transfer strategy found.");
-              this.prepareTransfer = strategy;
-              return res;
-            } catch (err) {
-              lastError = err;
-            }
-          }
-          throw new Error(`None of the available transfer strategies work. Last error response was '${lastError}'.`);
-        };
-      }
-      /**
-       * DEPRECATED, use `uploadFrom`.
-       * @deprecated
-       */
-      async upload(source, toRemotePath, options = {}) {
-        this.ftp.log("Warning: upload() has been deprecated, use uploadFrom().");
-        return this.uploadFrom(source, toRemotePath, options);
-      }
-      /**
-       * DEPRECATED, use `appendFrom`.
-       * @deprecated
-       */
-      async append(source, toRemotePath, options = {}) {
-        this.ftp.log("Warning: append() has been deprecated, use appendFrom().");
-        return this.appendFrom(source, toRemotePath, options);
-      }
-      /**
-       * DEPRECATED, use `downloadTo`.
-       * @deprecated
-       */
-      async download(destination, fromRemotePath, startAt = 0) {
-        this.ftp.log("Warning: download() has been deprecated, use downloadTo().");
-        return this.downloadTo(destination, fromRemotePath, startAt);
-      }
-      /**
-       * DEPRECATED, use `uploadFromDir`.
-       * @deprecated
-       */
-      async uploadDir(localDirPath, remoteDirPath) {
-        this.ftp.log("Warning: uploadDir() has been deprecated, use uploadFromDir().");
-        return this.uploadFromDir(localDirPath, remoteDirPath);
-      }
-      /**
-       * DEPRECATED, use `downloadToDir`.
-       * @deprecated
-       */
-      async downloadDir(localDirPath) {
-        this.ftp.log("Warning: downloadDir() has been deprecated, use downloadToDir().");
-        return this.downloadToDir(localDirPath);
-      }
-    };
-    exports2.Client = Client2;
-    async function ensureLocalDirectory(path12) {
-      try {
-        await fsStat(path12);
-      } catch (_a) {
-        await fsMkDir(path12, { recursive: true });
-      }
-    }
-    async function ignoreError(func) {
-      try {
-        return await func();
-      } catch (_a) {
-        return void 0;
-      }
-    }
-  }
-});
-
-// node_modules/basic-ftp/dist/StringEncoding.js
-var require_StringEncoding = __commonJS({
-  "node_modules/basic-ftp/dist/StringEncoding.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-  }
-});
-
-// node_modules/basic-ftp/dist/index.js
-var require_dist = __commonJS({
-  "node_modules/basic-ftp/dist/index.js"(exports2) {
-    "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      var desc = Object.getOwnPropertyDescriptor(m, k);
-      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function() {
-          return m[k];
-        } };
-      }
-      Object.defineProperty(o, k2, desc);
-    }) : (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      o[k2] = m[k];
-    }));
-    var __exportStar = exports2 && exports2.__exportStar || function(m, exports3) {
-      for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
-    };
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.enterPassiveModeIPv6 = exports2.enterPassiveModeIPv4 = void 0;
-    __exportStar(require_Client(), exports2);
-    __exportStar(require_FtpContext(), exports2);
-    __exportStar(require_FileInfo(), exports2);
-    __exportStar(require_parseList(), exports2);
-    __exportStar(require_StringEncoding(), exports2);
-    var transfer_1 = require_transfer();
-    Object.defineProperty(exports2, "enterPassiveModeIPv4", { enumerable: true, get: function() {
-      return transfer_1.enterPassiveModeIPv4;
-    } });
-    Object.defineProperty(exports2, "enterPassiveModeIPv6", { enumerable: true, get: function() {
-      return transfer_1.enterPassiveModeIPv6;
-    } });
-  }
-});
-
-// src/services/BambuFtpsClient.js
-var BambuFtpsClient_exports = {};
-__export(BambuFtpsClient_exports, {
-  BambuFtpsClient: () => BambuFtpsClient,
-  default: () => BambuFtpsClient_default
-});
-var ftp, import_node_tls, import_node_stream, import_node_perf_hooks, log2, BambuFtpsClient, BambuFtpsClient_default;
-var init_BambuFtpsClient = __esm({
-  "src/services/BambuFtpsClient.js"() {
-    ftp = __toESM(require_dist(), 1);
-    import_node_tls = __toESM(require("node:tls"), 1);
-    import_node_stream = require("node:stream");
-    import_node_perf_hooks = require("node:perf_hooks");
-    init_logger();
-    log2 = createLogger("BambuFTPS");
-    BambuFtpsClient = class {
-      constructor({ ip, accessCode, printerId }) {
-        this.ip = ip;
-        this.accessCode = accessCode;
-        this.printerId = printerId || "unknown";
-      }
-      async isReachable() {
-        const net3 = await import("node:net");
-        return new Promise((resolve) => {
-          const socket = new net3.default.Socket();
-          socket.setTimeout(3e3);
-          socket.on("connect", () => {
-            socket.destroy();
-            resolve(true);
-          });
-          socket.on("timeout", () => {
-            socket.destroy();
-            resolve(false);
-          });
-          socket.on("error", () => {
-            socket.destroy();
-            resolve(false);
-          });
-          socket.connect(990, this.ip);
-        });
-      }
-      /**
-       * Upload with full stage timing instrumentation.
-       * Returns { success, bytesUploaded, verified, error?, trace[] }
-       */
-      async upload(content, remoteFileName, onProgress = null) {
-        const buffer = typeof content === "string" ? Buffer.from(content, "utf-8") : content;
-        const totalBytes = buffer.length;
-        const t0 = import_node_perf_hooks.performance.now();
-        const trace = [];
-        const stage = (name, detail = null) => {
-          const elapsed = Math.round(import_node_perf_hooks.performance.now() - t0);
-          trace.push({ stage: name, elapsed_ms: elapsed, detail, ts: (/* @__PURE__ */ new Date()).toISOString() });
-          log2.info(`[${this.printerId}] [+${elapsed}ms] ${name}${detail ? " \u2014 " + (typeof detail === "object" ? JSON.stringify(detail) : detail) : ""}`);
-        };
-        stage("FTPS_CONFIG", {
-          host: this.ip,
-          port: 990,
-          user: "bblp",
-          timeout_ms: 3e5,
-          file_size: totalBytes,
-          file_name: remoteFileName,
-          upload_method: "streaming_from_buffer_via_Readable.from",
-          tls: "implicit",
-          tls_session_reuse: true
-        });
-        let client;
-        let origTlsConnect;
-        try {
-          stage("FTPS_CONNECT_START");
-          client = new ftp.Client(3e5);
-          client.ftp.verbose = false;
-          const tlsOptions = {
-            rejectUnauthorized: false,
-            minVersion: "TLSv1.2"
-          };
-          await client.access({
-            host: this.ip,
-            port: 990,
-            user: "bblp",
-            password: this.accessCode,
-            secure: "implicit",
-            secureOptions: tlsOptions
-          });
-          stage("FTPS_CONNECT_OK");
-          const controlSocket = client.ftp.socket;
-          if (controlSocket instanceof import_node_tls.default.TLSSocket) {
-            stage("FTPS_TLS_HANDSHAKE_OK", {
-              protocol: controlSocket.getProtocol?.(),
-              cipher: controlSocket.getCipher?.()?.name,
-              session_reuse: !!controlSocket.getSession()
-            });
-            origTlsConnect = import_node_tls.default.connect;
-            const self2 = this;
-            import_node_tls.default.connect = function(options, ...args) {
-              if (options && options.host === self2.ip) {
-                options.session = controlSocket.getSession();
-                options.rejectUnauthorized = false;
-              }
-              return origTlsConnect.call(import_node_tls.default, options, ...args);
-            };
-          }
-          stage("FTPS_CD_CACHE_START");
-          try {
-            await client.cd("/cache");
-            stage("FTPS_CD_CACHE_OK");
-          } catch (e) {
-            stage("FTPS_CD_CACHE_FAIL", e.message);
-          }
-          stage("UPLOAD_STREAM_OPENED", { total_bytes: totalBytes });
-          let lastProgressLog = import_node_perf_hooks.performance.now();
-          let bytesTransferred = 0;
-          client.trackProgress((info) => {
-            bytesTransferred = info.bytesOverall;
-            const now = import_node_perf_hooks.performance.now();
-            if (now - lastProgressLog >= 1e3 || bytesTransferred === totalBytes) {
-              const elapsedSec = (now - t0) / 1e3;
-              const kbps = bytesTransferred > 0 ? Math.round(bytesTransferred / 1024 / elapsedSec) : 0;
-              stage("UPLOAD_PROGRESS", {
-                bytes_sent: bytesTransferred,
-                total: totalBytes,
-                percent: Math.round(bytesTransferred / totalBytes * 100),
-                throughput_kbps: kbps
-              });
-              lastProgressLog = now;
-            }
-            if (onProgress) {
-              onProgress({
-                bytes: bytesTransferred,
-                total: totalBytes,
-                percent: Math.round(bytesTransferred / totalBytes * 100)
-              });
-            }
-          });
-          const uploadStart = import_node_perf_hooks.performance.now();
-          const stream = import_node_stream.Readable.from(buffer);
-          await client.uploadFrom(stream, remoteFileName);
-          const uploadEnd = import_node_perf_hooks.performance.now();
-          const uploadDurationMs = Math.round(uploadEnd - uploadStart);
-          const uploadKBps = Math.round(totalBytes / 1024 / (uploadDurationMs / 1e3));
-          client.trackProgress();
-          stage("UPLOAD_FINISHED", {
-            bytes_sent: totalBytes,
-            duration_ms: uploadDurationMs,
-            throughput_kbps: uploadKBps,
-            throughput_mbps: Math.round(uploadKBps * 8 / 1024 * 100) / 100
-          });
-          stage("REMOTE_VERIFY_START", { method: "FTP SIZE command" });
-          let verified = false;
-          try {
-            const remoteSize = await client.size(remoteFileName);
-            verified = remoteSize === totalBytes;
-            stage("REMOTE_VERIFY_END", { remote_size: remoteSize, local_size: totalBytes, match: verified });
-          } catch (e) {
-            stage("REMOTE_VERIFY_END", { error: e.message, assumed_ok: true });
-            verified = true;
-          }
-          return { success: true, bytesUploaded: totalBytes, verified, trace };
-        } catch (err) {
-          stage("FTPS_ERROR", { error: err.message, code: err.code });
-          const msg = err.message.toLowerCase();
-          if (msg.includes("microsd") || msg.includes("read/write") || msg.includes("storage") || msg.includes("sd card")) {
-            stage("PRINTER_ERROR_DETECTED", {
-              type: "SD_STORAGE",
-              raw_message: err.message,
-              guidance: "Format SD in printer or replace card"
-            });
-          }
-          return { success: false, bytesUploaded: 0, error: err.message, trace };
-        } finally {
-          if (origTlsConnect) import_node_tls.default.connect = origTlsConnect;
-          if (client) client.close();
-        }
-      }
-      async listCache() {
-        let client;
-        let origTlsConnect;
-        try {
-          client = new ftp.Client(3e5);
-          client.ftp.verbose = false;
-          await client.access({ host: this.ip, port: 990, user: "bblp", password: this.accessCode, secure: "implicit", secureOptions: { rejectUnauthorized: false } });
-          const controlSocket = client.ftp.socket;
-          if (controlSocket instanceof import_node_tls.default.TLSSocket) {
-            origTlsConnect = import_node_tls.default.connect;
-            const self2 = this;
-            import_node_tls.default.connect = function(options, ...args) {
-              if (options && options.host === self2.ip) {
-                options.session = controlSocket.getSession();
-                options.rejectUnauthorized = false;
-              }
-              return origTlsConnect.call(import_node_tls.default, options, ...args);
-            };
-          }
-          try {
-            await client.cd("/cache");
-          } catch {
-          }
-          const list = await client.list();
-          return list.map((f) => ({ name: f.name, size: f.size, date: f.modifiedAt }));
-        } catch (err) {
-          log2.error(`[${this.printerId}] FTPS list failed: ${err.message}`);
-          return [];
-        } finally {
-          if (origTlsConnect) import_node_tls.default.connect = origTlsConnect;
-          if (client) client.close();
-        }
-      }
-      /**
-       * List filenames in /cache/ (convenience wrapper).
-       * @returns {string[]} Array of filenames
-       */
-      async listCacheFiles() {
-        const entries = await this.listCache();
-        return entries.map((e) => e.name);
-      }
-    };
-    BambuFtpsClient_default = BambuFtpsClient;
   }
 });
 
@@ -34941,11 +32879,11 @@ var require_build2 = __commonJS({
 });
 
 // src/mqtt/BambuMqttClient.js
-var log3, BambuMqttClient;
+var log2, BambuMqttClient;
 var init_BambuMqttClient = __esm({
   "src/mqtt/BambuMqttClient.js"() {
     init_logger();
-    log3 = createLogger("BambuMQTT");
+    log2 = createLogger("BambuMQTT");
     BambuMqttClient = class {
       constructor(printer, authData) {
         this.printerId = printer.printer_id;
@@ -34983,12 +32921,12 @@ var init_BambuMqttClient = __esm({
             this.connected = true;
             this.consecutiveErrors = 0;
             this._loggedDisconnect = false;
-            log3.info(`Connected to printer ${this.printerId} @ ${this.host}`);
+            log2.info(`Connected to printer ${this.printerId} @ ${this.host}`);
             const topic = `device/${this.serial}/report`;
             this.client.subscribe(topic, (err) => {
-              if (err) log3.error(`Subscribe error: ${err.message}`);
+              if (err) log2.error(`Subscribe error: ${err.message}`);
               else {
-                log3.info(`Subscribed to ${topic}`);
+                log2.info(`Subscribed to ${topic}`);
                 this.requestStatus();
               }
             });
@@ -35000,30 +32938,30 @@ var init_BambuMqttClient = __esm({
                 this.statusCallback(data);
               }
             } catch (e) {
-              log3.warn(`Failed to parse printer message: ${e.message}`);
+              log2.warn(`Failed to parse printer message: ${e.message}`);
             }
           });
           this.client.on("error", (err) => {
             this.consecutiveErrors++;
             if (this.consecutiveErrors <= this.maxLoggedErrors) {
-              log3.error(`MQTT error for ${this.printerId}: ${err.message}`);
+              log2.error(`MQTT error for ${this.printerId}: ${err.message}`);
               if (this.consecutiveErrors === this.maxLoggedErrors) {
-                log3.warn(`Suppressing further MQTT errors for ${this.printerId} (printer unreachable)`);
+                log2.warn(`Suppressing further MQTT errors for ${this.printerId} (printer unreachable)`);
               }
             }
           });
           this.client.on("close", () => {
             this.connected = false;
             if (!this._loggedDisconnect) {
-              log3.warn(`MQTT disconnected from ${this.printerId} (will keep retrying quietly)`);
+              log2.warn(`MQTT disconnected from ${this.printerId} (will keep retrying quietly)`);
               this._loggedDisconnect = true;
             }
           });
           this.client.on("reconnect", () => {
-            log3.debug(`MQTT reconnecting to ${this.printerId}`);
+            log2.debug(`MQTT reconnecting to ${this.printerId}`);
           });
         } catch (err) {
-          log3.error(`MQTT connect failed for ${this.printerId}: ${err.message}`);
+          log2.error(`MQTT connect failed for ${this.printerId}: ${err.message}`);
           throw err;
         }
       }
@@ -35032,7 +32970,7 @@ var init_BambuMqttClient = __esm({
        */
       publish(command) {
         if (!this.client || !this.connected) {
-          log3.warn(`Cannot publish: not connected to ${this.printerId}`);
+          log2.warn(`Cannot publish: not connected to ${this.printerId}`);
           return false;
         }
         const topic = `device/${this.serial}/request`;
@@ -35052,7 +32990,7 @@ var init_BambuMqttClient = __esm({
        * Bambu printers can retain error codes even after the problem resolves.
        */
       cleanPrintError() {
-        log3.info(`Sending clean_print_error to printer ${this.printerId}`);
+        log2.info(`Sending clean_print_error to printer ${this.printerId}`);
         return this.publish({
           print: { sequence_id: "0", command: "clean_print_error" }
         });
@@ -35083,7 +33021,7 @@ var init_BambuMqttClient = __esm({
             task_id: "0"
           }
         };
-        log3.info(`Starting print: ${filename} (plate ${plateNumber})`);
+        log2.info(`Starting print: ${filename} (plate ${plateNumber})`);
         return this.publish(payload);
       }
       /**
@@ -35093,7 +33031,7 @@ var init_BambuMqttClient = __esm({
        */
       setAmsTrayFilament(payload) {
         const p = payload.print || payload;
-        log3.info(`Setting AMS[${p.ams_id}] tray ${p.tray_id} \u2192 ${p.tray_type} color=${p.tray_color} setting=${p.setting_id}`);
+        log2.info(`Setting AMS[${p.ams_id}] tray ${p.tray_id} \u2192 ${p.tray_type} color=${p.tray_color} setting=${p.setting_id}`);
         return this.publish(payload);
       }
       /**
@@ -35137,7 +33075,7 @@ var init_BambuMqttClient = __esm({
       // ═══════════════════════════════════════════
       /** Toggle chamber light on/off */
       setLight(on) {
-        log3.info(`Light \u2192 ${on ? "ON" : "OFF"}`);
+        log2.info(`Light \u2192 ${on ? "ON" : "OFF"}`);
         return this.publish({
           system: {
             sequence_id: String(Date.now()),
@@ -35155,24 +33093,24 @@ var init_BambuMqttClient = __esm({
       setFan(fan, speed) {
         const clamped = Math.max(0, Math.min(255, Math.round(speed)));
         const names = { 1: "part", 2: "aux", 3: "chamber" };
-        log3.info(`Fan ${names[fan] || fan} \u2192 ${clamped}/255`);
+        log2.info(`Fan ${names[fan] || fan} \u2192 ${clamped}/255`);
         return this.sendGcode(`M106 P${fan} S${clamped}`);
       }
       /** Set nozzle target temperature (°C). 0 = off. */
       setNozzleTemp(temp) {
         const t = Math.max(0, Math.min(300, Math.round(temp)));
-        log3.info(`Nozzle temp \u2192 ${t}\xB0C`);
+        log2.info(`Nozzle temp \u2192 ${t}\xB0C`);
         return this.sendGcode(`M104 S${t}`);
       }
       /** Set bed target temperature (°C). 0 = off. */
       setBedTemp(temp) {
         const t = Math.max(0, Math.min(120, Math.round(temp)));
-        log3.info(`Bed temp \u2192 ${t}\xB0C`);
+        log2.info(`Bed temp \u2192 ${t}\xB0C`);
         return this.sendGcode(`M140 S${t}`);
       }
       /** Home axes. axes: 'all', 'XY', 'Z' */
       homeAxes(axes = "all") {
-        log3.info(`Homing: ${axes}`);
+        log2.info(`Homing: ${axes}`);
         if (axes === "XY") return this.sendGcode("G28 X Y");
         if (axes === "Z") return this.sendGcode("G28 Z");
         return this.sendGcode("G28");
@@ -35186,29 +33124,29 @@ var init_BambuMqttClient = __esm({
         if (z !== void 0) cmd += ` Z${z}`;
         cmd += ` F${speed}`;
         parts.push(cmd);
-        log3.info(`Move \u2192 ${cmd}`);
+        log2.info(`Move \u2192 ${cmd}`);
         return this.sendGcode(parts.join("\n"));
       }
       /** Start auto bed leveling. */
       startBedLeveling() {
-        log3.info("Starting bed leveling (G29)");
+        log2.info("Starting bed leveling (G29)");
         return this.sendGcode("G29");
       }
       /** Extrude filament. mm: length in mm, speed: mm/min (default 300 = 5mm/s). */
       extrude(mm = 10, speed = 300) {
-        log3.info(`Extrude ${mm}mm at F${speed}`);
+        log2.info(`Extrude ${mm}mm at F${speed}`);
         return this.sendGcode(`M83
 G1 E${Math.abs(mm)} F${speed}`);
       }
       /** Retract filament. mm: length in mm, speed: mm/min. */
       retract(mm = 10, speed = 300) {
-        log3.info(`Retract ${mm}mm at F${speed}`);
+        log2.info(`Retract ${mm}mm at F${speed}`);
         return this.sendGcode(`M83
 G1 E-${Math.abs(mm)} F${speed}`);
       }
       /** Load filament - heats nozzle then feeds filament in. */
       loadFilament(temp = 220) {
-        log3.info(`Loading filament at ${temp}\xB0C`);
+        log2.info(`Loading filament at ${temp}\xB0C`);
         return this.sendGcode([
           `M104 S${temp}`,
           `M109 S${temp}`,
@@ -35218,7 +33156,7 @@ G1 E-${Math.abs(mm)} F${speed}`);
       }
       /** Unload filament - heats nozzle then retracts filament out. */
       unloadFilament(temp = 220) {
-        log3.info(`Unloading filament at ${temp}\xB0C`);
+        log2.info(`Unloading filament at ${temp}\xB0C`);
         return this.sendGcode([
           `M104 S${temp}`,
           `M109 S${temp}`,
@@ -35229,7 +33167,7 @@ G1 E-${Math.abs(mm)} F${speed}`);
       /** Set speed profile. level: 1=silent, 2=standard, 3=sport, 4=ludicrous */
       setSpeedProfile(level) {
         const names = { 1: "Silent", 2: "Standard", 3: "Sport", 4: "Ludicrous" };
-        log3.info(`Speed profile \u2192 ${names[level] || level}`);
+        log2.info(`Speed profile \u2192 ${names[level] || level}`);
         return this.publish({
           print: {
             sequence_id: String(Date.now()),
@@ -35241,19 +33179,19 @@ G1 E-${Math.abs(mm)} F${speed}`);
       /** Set speed override percentage via M220. percent: 50-200. */
       setSpeedOverride(percent) {
         const p = Math.max(10, Math.min(300, Math.round(percent)));
-        log3.info(`Speed override \u2192 ${p}%`);
+        log2.info(`Speed override \u2192 ${p}%`);
         return this.sendGcode(`M220 S${p}`);
       }
       /** Set flow rate override percentage via M221. percent: 50-200. */
       setFlowOverride(percent) {
         const p = Math.max(50, Math.min(200, Math.round(percent)));
-        log3.info(`Flow override \u2192 ${p}%`);
+        log2.info(`Flow override \u2192 ${p}%`);
         return this.sendGcode(`M221 S${p}`);
       }
       /** Baby-step Z-offset adjustment during print. offset in mm (e.g. -0.05). */
       setZOffset(offset) {
         const z = Number.isFinite(Number(offset)) ? Number(offset) : 0;
-        log3.info(`Z offset adjustment -> ${z}mm`);
+        log2.info(`Z offset adjustment -> ${z}mm`);
         return this.sendGcode(`M290 Z${z.toFixed(3)}`);
       }
       disconnect() {
@@ -35367,13 +33305,13 @@ var init_Command = __esm({
 });
 
 // src/services/CommandBus.js
-var log4, CommandBus;
+var log3, CommandBus;
 var init_CommandBus = __esm({
   "src/services/CommandBus.js"() {
     init_Command();
     init_Event();
     init_logger();
-    log4 = createLogger("CommandBus");
+    log3 = createLogger("CommandBus");
     CommandBus = class {
       /**
        * Enqueue a new command.
@@ -35395,7 +33333,7 @@ var init_CommandBus = __esm({
           event_type: "command.queued",
           payload: { action, target_type, target_id }
         });
-        log4.info(`Command queued: ${action} \u2192 ${target_type}/${target_id} [${cmd.command_id}]`);
+        log3.info(`Command queued: ${action} \u2192 ${target_type}/${target_id} [${cmd.command_id}]`);
         return cmd;
       }
       /**
@@ -35434,7 +33372,7 @@ var init_CommandBus = __esm({
           event_type: "command.done",
           payload: { result }
         });
-        log4.info(`Command done: ${cmd.action} [${commandId}]`);
+        log3.info(`Command done: ${cmd.action} [${commandId}]`);
         return cmd;
       }
       /**
@@ -35451,7 +33389,7 @@ var init_CommandBus = __esm({
             event_type: "command.retry",
             payload: { attempt: cmd.attempt_count, error, max_retries: cmd.max_retries }
           });
-          log4.warn(`Command retry ${cmd.attempt_count}/${cmd.max_retries}: ${cmd.action} [${commandId}]`);
+          log3.warn(`Command retry ${cmd.attempt_count}/${cmd.max_retries}: ${cmd.action} [${commandId}]`);
           return CommandModel.findById(commandId);
         }
         const failed = CommandModel.updateStatus(commandId, "failed", { error });
@@ -35461,7 +33399,7 @@ var init_CommandBus = __esm({
           event_type: "command.failed",
           payload: { error, attempts: cmd.attempt_count }
         });
-        log4.error(`Command failed: ${cmd.action} [${commandId}]: ${error}`);
+        log3.error(`Command failed: ${cmd.action} [${commandId}]: ${error}`);
         return failed;
       }
       /**
@@ -35515,7 +33453,7 @@ var init_CommandBus = __esm({
           }
         }
         if (timeoutCount > 0) {
-          log4.warn(`Timed out ${timeoutCount} commands`);
+          log3.warn(`Timed out ${timeoutCount} commands`);
         }
         return timeoutCount;
       }
@@ -35572,11 +33510,11 @@ function isBlockingError(errorCode) {
   const known = KNOWN_ERRORS[hex];
   return true;
 }
-var log5, KNOWN_ERRORS, PrinterErrors_default;
+var log4, KNOWN_ERRORS, PrinterErrors_default;
 var init_PrinterErrors = __esm({
   "src/utils/PrinterErrors.js"() {
     init_logger();
-    log5 = createLogger("PrinterErrors");
+    log4 = createLogger("PrinterErrors");
     KNOWN_ERRORS = {
       "0500C010": {
         message: "MicroSD card read/write exception",
@@ -35614,7 +33552,7 @@ var init_PrinterErrors = __esm({
 });
 
 // src/runtime/PrinterWorker.js
-var log6, VALID_TRANSITIONS, PrinterWorker;
+var log5, VALID_TRANSITIONS, PrinterWorker;
 var init_PrinterWorker = __esm({
   "src/runtime/PrinterWorker.js"() {
     init_BambuMqttClient();
@@ -35623,7 +33561,7 @@ var init_PrinterWorker = __esm({
     init_Event();
     init_logger();
     init_PrinterErrors();
-    log6 = createLogger("PrinterWorker");
+    log5 = createLogger("PrinterWorker");
     VALID_TRANSITIONS = {
       unknown: ["idle", "printing", "paused", "error", "offline"],
       offline: ["idle", "unknown"],
@@ -35643,6 +33581,7 @@ var init_PrinterWorker = __esm({
         this.latestStatus = printer.status_snapshot && typeof printer.status_snapshot === "object" ? { ...printer.status_snapshot } : {};
         this.onStatusUpdate = null;
         this.onAlert = null;
+        this.onJobFinished = null;
         this.mockMode = process.env.MOCK_MODE === "true";
         this.activeJobId = null;
         this.lastReportTime = null;
@@ -35706,7 +33645,7 @@ var init_PrinterWorker = __esm({
        */
       _tryClearPrintError() {
         if (this.mqttClient && this.mqttClient.connected) {
-          log6.info(`Auto-clearing stale print_error on ${this.printer.name}`);
+          log5.info(`Auto-clearing stale print_error on ${this.printer.name}`);
           this.mqttClient.cleanPrintError();
           setTimeout(() => {
             if (this.mqttClient) this.mqttClient.requestStatus();
@@ -35725,12 +33664,12 @@ var init_PrinterWorker = __esm({
           this.connected = true;
           this.latestStatus = { state: "idle", bed_temp: 25, nozzle_temp: 25, progress: 0 };
           PrinterModel.updateStatus(this.printerId, this.latestStatus);
-          log6.info(`MockMode: printer ${this.printer.name} marked idle`);
+          log5.info(`MockMode: printer ${this.printer.name} marked idle`);
           return;
         }
         const authData = PrinterModel.getAuth(this.printerId);
         if (!authData) {
-          log6.warn(`No auth configured for printer ${this.printer.name}`);
+          log5.warn(`No auth configured for printer ${this.printer.name}`);
           this.state = "offline";
           return;
         }
@@ -35790,8 +33729,8 @@ var init_PrinterWorker = __esm({
           throw new Error(`Cannot start print: printer is ${this.state} (must be idle)`);
         }
         if (this.mockMode) {
+          this.latestStatus = { ...this.latestStatus, state: "printing", gcode_state: "RUNNING", progress: 0 };
           this._transitionState("printing");
-          this.latestStatus = { ...this.latestStatus, state: "printing", progress: 0 };
           this._simulatePrint(params);
           return { started: true, mock: true };
         }
@@ -35828,6 +33767,7 @@ var init_PrinterWorker = __esm({
       }
       _stopPrint() {
         if (this.mockMode) {
+          this.latestStatus = { ...this.latestStatus, gcode_state: "IDLE" };
           this._transitionState("idle");
           return { stopped: true, mock: true };
         }
@@ -35876,9 +33816,9 @@ var init_PrinterWorker = __esm({
           if (print.print_error !== prevError) {
             if (print.print_error !== 0) {
               const decoded = decodePrintError(print.print_error);
-              log6.warn(`Printer ${this.printer.name}: print_error=${decoded.formatted} (${decoded.message})`);
+              log5.warn(`Printer ${this.printer.name}: print_error=${decoded.formatted} (${decoded.message})`);
             } else if (prevError && prevError !== 0) {
-              log6.info(`Printer ${this.printer.name}: print_error cleared (was ${formatErrorCode(prevError)})`);
+              log5.info(`Printer ${this.printer.name}: print_error cleared (was ${formatErrorCode(prevError)})`);
             }
           }
         }
@@ -35975,7 +33915,7 @@ var init_PrinterWorker = __esm({
           state: this.state,
           at: (/* @__PURE__ */ new Date()).toISOString()
         };
-        log6.error(`Printer ${this.printer.name}: FAILURE during print \u2014 ${decoded?.formatted} (${decoded?.message}); auto_cancel=${this._autoCancelEnabled()}`);
+        log5.error(`Printer ${this.printer.name}: FAILURE during print \u2014 ${decoded?.formatted} (${decoded?.message}); auto_cancel=${this._autoCancelEnabled()}`);
         try {
           EventModel.create({
             entity_type: "printer",
@@ -36004,7 +33944,7 @@ var init_PrinterWorker = __esm({
               this.onAlert({ ...alert, kind: "auto_canceled", message: `Auto-canceled: ${decoded?.message}` });
             }
           } catch (e) {
-            log6.error(`Auto-cancel failed for ${this.printer.name}: ${e.message}`);
+            log5.error(`Auto-cancel failed for ${this.printer.name}: ${e.message}`);
           }
         }
       }
@@ -36029,7 +33969,44 @@ var init_PrinterWorker = __esm({
             event_type: "printer.state_changed",
             payload: { from: oldState, to: newState }
           });
-          log6.info(`Printer ${this.printer.name}: ${oldState} \u2192 ${newState}`);
+          log5.info(`Printer ${this.printer.name}: ${oldState} \u2192 ${newState}`);
+          this._maybeFinishActiveJob(oldState, newState);
+        }
+      }
+      /**
+       * Completion detection: when a print we started ends (printing/paused → idle
+       * or error), resolve the active job and notify the supervisor. This is the
+       * producer for JobOrchestrator.onJobCompleted — without it, ejection,
+       * repeat-loops, and auto-start-next never run and jobs stay "printing".
+       *
+       * Outcomes:
+       *  - completed: printer reports FINISH (a real finished print)
+       *  - aborted:   printer went idle without FINISH (stopped/canceled on-device)
+       *  - failed:    printer entered the error state mid-print
+       * An offline transition is NOT terminal — Bambu printers keep printing
+       * through an MQTT drop, so the job stays active until a real end state.
+       */
+      _maybeFinishActiveJob(oldState, newState) {
+        if (!this.activeJobId) return;
+        if (oldState !== "printing" && oldState !== "paused") return;
+        let outcome = null;
+        if (newState === "idle") {
+          outcome = this.latestStatus?.gcode_state === "FINISH" ? "completed" : "aborted";
+        } else if (newState === "error") {
+          outcome = "failed";
+        }
+        if (!outcome) return;
+        const jobId = this.activeJobId;
+        this.activeJobId = null;
+        log5.info(`Printer ${this.printer.name}: active job ${jobId} ${outcome}`);
+        EventModel.create({
+          entity_type: "job",
+          entity_id: jobId,
+          event_type: "job.print_finished",
+          payload: { printer_id: this.printerId, outcome, gcode_state: this.latestStatus?.gcode_state || null }
+        });
+        if (this.onJobFinished) {
+          Promise.resolve(this.onJobFinished({ job_id: jobId, printer_id: this.printerId, outcome })).catch((err) => log5.error(`onJobFinished handler failed for job ${jobId}: ${err.message}`));
         }
       }
       /** Simulate a print (mock mode only). */
@@ -36048,9 +34025,10 @@ var init_PrinterWorker = __esm({
           if (this.onStatusUpdate) this.onStatusUpdate(this.latestStatus);
           if (progress >= 100) {
             clearInterval(interval);
-            this._transitionState("idle");
             this.latestStatus.state = "idle";
-            this.latestStatus.bed_temp = 60;
+            this.latestStatus.gcode_state = "FINISH";
+            this.latestStatus.bed_temp = 25;
+            this._transitionState("idle");
             PrinterModel.updateStatus(this.printerId, this.latestStatus);
           }
         }, 3e3);
@@ -36067,7 +34045,7 @@ var init_PrinterWorker = __esm({
           const age = this.lastReportTime ? Date.now() - this.lastReportTime : Infinity;
           if (age > this.staleReportMs) {
             if (!this._staleNudged) {
-              log6.warn(`Printer ${this.printer.name}: no status for ${Math.round(age / 1e3)}s \u2014 requesting refresh`);
+              log5.warn(`Printer ${this.printer.name}: no status for ${Math.round(age / 1e3)}s \u2014 requesting refresh`);
               this._staleNudged = true;
             }
             this.requestStatusRefresh();
@@ -36096,13 +34074,13 @@ var init_PrinterWorker = __esm({
         if (!authData) return;
         this._reconnectAttempts += 1;
         try {
-          log6.info(`Self-heal: (re)connecting ${this.printer.name} (attempt ${this._reconnectAttempts})`);
+          log5.info(`Self-heal: (re)connecting ${this.printer.name} (attempt ${this._reconnectAttempts})`);
           this.mqttClient = new BambuMqttClient(this.printer, authData);
           this.mqttClient.onStatus((data) => this._handleStatus(data));
           await this.mqttClient.connect();
           this._reconnectAttempts = 0;
         } catch (err) {
-          log6.warn(`Self-heal reconnect failed for ${this.printer.name}: ${err.message}`);
+          log5.warn(`Self-heal reconnect failed for ${this.printer.name}: ${err.message}`);
           this.mqttClient = null;
         }
       }
@@ -36191,12 +34169,12 @@ var init_DriverInterface = __esm({
 });
 
 // src/drivers/HttpDriver.js
-var log7, HttpDriver;
+var log6, HttpDriver;
 var init_HttpDriver = __esm({
   "src/drivers/HttpDriver.js"() {
     init_DriverInterface();
     init_logger();
-    log7 = createLogger("HttpDriver");
+    log6 = createLogger("HttpDriver");
     HttpDriver = class extends DriverInterface {
       constructor(accessory) {
         super(accessory);
@@ -36229,7 +34207,7 @@ var init_HttpDriver = __esm({
           return { success: true, data };
         } catch (err) {
           this._updateHealth("offline", err.message);
-          log7.error(`HTTP execute failed: ${err.message}`);
+          log6.error(`HTTP execute failed: ${err.message}`);
           return { success: false, error: err.message };
         }
       }
@@ -36250,12 +34228,12 @@ var init_HttpDriver = __esm({
 });
 
 // src/drivers/MqttDriver.js
-var log8, MqttDriver;
+var log7, MqttDriver;
 var init_MqttDriver = __esm({
   "src/drivers/MqttDriver.js"() {
     init_DriverInterface();
     init_logger();
-    log8 = createLogger("MqttDriver");
+    log7 = createLogger("MqttDriver");
     MqttDriver = class extends DriverInterface {
       constructor(accessory) {
         super(accessory);
@@ -36277,26 +34255,26 @@ var init_MqttDriver = __esm({
           this.client.on("connect", () => {
             this._updateHealth("online");
             this.client.subscribe(`${this.topicPrefix}/state`);
-            log8.info(`MQTT connected to ${this.broker}`);
+            log7.info(`MQTT connected to ${this.broker}`);
           });
           this.client.on("message", (topic, message) => {
             try {
               this.latestState = JSON.parse(message.toString());
               this._updateHealth("online");
             } catch (e) {
-              log8.warn("Failed to parse MQTT message", e.message);
+              log7.warn("Failed to parse MQTT message", e.message);
             }
           });
           this.client.on("error", (err) => {
             this._updateHealth("offline", err.message);
-            log8.error(`MQTT error: ${err.message}`);
+            log7.error(`MQTT error: ${err.message}`);
           });
           this.client.on("close", () => {
             this._updateHealth("offline", "Connection closed");
           });
         } catch (err) {
           this._updateHealth("offline", err.message);
-          log8.error(`MQTT init failed: ${err.message}`);
+          log7.error(`MQTT init failed: ${err.message}`);
         }
       }
       async execute(action, params = {}) {
@@ -36324,7 +34302,7 @@ var init_MqttDriver = __esm({
 });
 
 // node_modules/@serialport/parser-byte-length/dist/index.js
-var require_dist2 = __commonJS({
+var require_dist = __commonJS({
   "node_modules/@serialport/parser-byte-length/dist/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -36371,7 +34349,7 @@ var require_dist2 = __commonJS({
 });
 
 // node_modules/@serialport/parser-cctalk/dist/index.js
-var require_dist3 = __commonJS({
+var require_dist2 = __commonJS({
   "node_modules/@serialport/parser-cctalk/dist/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -36415,7 +34393,7 @@ var require_dist3 = __commonJS({
 });
 
 // node_modules/@serialport/parser-delimiter/dist/index.js
-var require_dist4 = __commonJS({
+var require_dist3 = __commonJS({
   "node_modules/@serialport/parser-delimiter/dist/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -36458,7 +34436,7 @@ var require_dist4 = __commonJS({
 });
 
 // node_modules/@serialport/parser-inter-byte-timeout/dist/index.js
-var require_dist5 = __commonJS({
+var require_dist4 = __commonJS({
   "node_modules/@serialport/parser-inter-byte-timeout/dist/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -36522,7 +34500,7 @@ var require_dist5 = __commonJS({
 });
 
 // node_modules/@serialport/parser-packet-length/dist/index.js
-var require_dist6 = __commonJS({
+var require_dist5 = __commonJS({
   "node_modules/@serialport/parser-packet-length/dist/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -36576,12 +34554,12 @@ var require_dist6 = __commonJS({
 });
 
 // node_modules/@serialport/parser-readline/dist/index.js
-var require_dist7 = __commonJS({
+var require_dist6 = __commonJS({
   "node_modules/@serialport/parser-readline/dist/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ReadlineParser = void 0;
-    var parser_delimiter_1 = require_dist4();
+    var parser_delimiter_1 = require_dist3();
     var ReadlineParser = class extends parser_delimiter_1.DelimiterParser {
       constructor(options) {
         const opts = {
@@ -36600,7 +34578,7 @@ var require_dist7 = __commonJS({
 });
 
 // node_modules/@serialport/parser-ready/dist/index.js
-var require_dist8 = __commonJS({
+var require_dist7 = __commonJS({
   "node_modules/@serialport/parser-ready/dist/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -36653,7 +34631,7 @@ var require_dist8 = __commonJS({
 });
 
 // node_modules/@serialport/parser-regex/dist/index.js
-var require_dist9 = __commonJS({
+var require_dist8 = __commonJS({
   "node_modules/@serialport/parser-regex/dist/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -36832,7 +34810,7 @@ var require_encoder = __commonJS({
 });
 
 // node_modules/@serialport/parser-slip-encoder/dist/index.js
-var require_dist10 = __commonJS({
+var require_dist9 = __commonJS({
   "node_modules/@serialport/parser-slip-encoder/dist/index.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
@@ -36900,7 +34878,7 @@ var require_utils4 = __commonJS({
 });
 
 // node_modules/@serialport/parser-spacepacket/dist/index.js
-var require_dist11 = __commonJS({
+var require_dist10 = __commonJS({
   "node_modules/@serialport/parser-spacepacket/dist/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -37650,7 +35628,7 @@ var require_src4 = __commonJS({
 });
 
 // node_modules/@serialport/stream/dist/index.js
-var require_dist12 = __commonJS({
+var require_dist11 = __commonJS({
   "node_modules/@serialport/stream/dist/index.js"(exports2) {
     "use strict";
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
@@ -38642,7 +36620,7 @@ var require_src5 = __commonJS({
 });
 
 // node_modules/@serialport/binding-mock/dist/index.js
-var require_dist13 = __commonJS({
+var require_dist12 = __commonJS({
   "node_modules/@serialport/binding-mock/dist/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -38926,8 +36904,8 @@ var require_serialport_mock = __commonJS({
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SerialPortMock = void 0;
-    var stream_1 = require_dist12();
-    var binding_mock_1 = require_dist13();
+    var stream_1 = require_dist11();
+    var binding_mock_1 = require_dist12();
     var SerialPortMock = class extends stream_1.SerialPortStream {
       static list = binding_mock_1.MockBinding.list;
       static binding = binding_mock_1.MockBinding;
@@ -40199,7 +38177,7 @@ var require_darwin = __commonJS({
 });
 
 // node_modules/@serialport/bindings-cpp/node_modules/@serialport/parser-delimiter/dist/index.js
-var require_dist14 = __commonJS({
+var require_dist13 = __commonJS({
   "node_modules/@serialport/bindings-cpp/node_modules/@serialport/parser-delimiter/dist/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -40239,12 +38217,12 @@ var require_dist14 = __commonJS({
 });
 
 // node_modules/@serialport/bindings-cpp/node_modules/@serialport/parser-readline/dist/index.js
-var require_dist15 = __commonJS({
+var require_dist14 = __commonJS({
   "node_modules/@serialport/bindings-cpp/node_modules/@serialport/parser-readline/dist/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ReadlineParser = void 0;
-    var parser_delimiter_1 = require_dist14();
+    var parser_delimiter_1 = require_dist13();
     var ReadlineParser = class extends parser_delimiter_1.DelimiterParser {
       constructor(options) {
         const opts = {
@@ -40269,7 +38247,7 @@ var require_linux_list = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.linuxList = void 0;
     var child_process_1 = require("child_process");
-    var parser_readline_1 = require_dist15();
+    var parser_readline_1 = require_dist14();
     function checkPathOfDevice(path12) {
       return /(tty(S|WCH|ACM|USB|AMA|MFD|O|XRUSB)|rfcomm)/.test(path12) && path12;
     }
@@ -40564,7 +38542,7 @@ var require_win32 = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.WindowsPortBinding = exports2.WindowsBinding = void 0;
     var debug_1 = __importDefault(require_src6());
-    var _1 = require_dist17();
+    var _1 = require_dist16();
     var load_bindings_1 = require_load_bindings();
     var win32_sn_parser_1 = require_win32_sn_parser();
     var debug = (0, debug_1.default)("serialport/bindings-cpp");
@@ -40718,14 +38696,14 @@ var require_win32 = __commonJS({
 });
 
 // node_modules/@serialport/bindings-interface/dist/index.js
-var require_dist16 = __commonJS({
+var require_dist15 = __commonJS({
   "node_modules/@serialport/bindings-interface/dist/index.js"() {
     "use strict";
   }
 });
 
 // node_modules/@serialport/bindings-cpp/dist/index.js
-var require_dist17 = __commonJS({
+var require_dist16 = __commonJS({
   "node_modules/@serialport/bindings-cpp/dist/index.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
@@ -40754,7 +38732,7 @@ var require_dist17 = __commonJS({
     var linux_1 = require_linux();
     var win32_1 = require_win32();
     var debug = (0, debug_1.default)("serialport/bindings-cpp");
-    __exportStar(require_dist16(), exports2);
+    __exportStar(require_dist15(), exports2);
     __exportStar(require_darwin(), exports2);
     __exportStar(require_linux(), exports2);
     __exportStar(require_win32(), exports2);
@@ -40782,8 +38760,8 @@ var require_serialport = __commonJS({
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SerialPort = void 0;
-    var stream_1 = require_dist12();
-    var bindings_cpp_1 = require_dist17();
+    var stream_1 = require_dist11();
+    var bindings_cpp_1 = require_dist16();
     var DetectedBinding = (0, bindings_cpp_1.autoDetect)();
     var SerialPort = class extends stream_1.SerialPortStream {
       static list = DetectedBinding.list;
@@ -40801,7 +38779,7 @@ var require_serialport = __commonJS({
 });
 
 // node_modules/serialport/dist/index.js
-var require_dist18 = __commonJS({
+var require_dist17 = __commonJS({
   "node_modules/serialport/dist/index.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
@@ -40821,6 +38799,7 @@ var require_dist18 = __commonJS({
       for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
+    __exportStar(require_dist(), exports2);
     __exportStar(require_dist2(), exports2);
     __exportStar(require_dist3(), exports2);
     __exportStar(require_dist4(), exports2);
@@ -40830,19 +38809,18 @@ var require_dist18 = __commonJS({
     __exportStar(require_dist8(), exports2);
     __exportStar(require_dist9(), exports2);
     __exportStar(require_dist10(), exports2);
-    __exportStar(require_dist11(), exports2);
     __exportStar(require_serialport_mock(), exports2);
     __exportStar(require_serialport(), exports2);
   }
 });
 
 // src/drivers/UsbSerialDriver.js
-var log9, UsbSerialDriver;
+var log8, UsbSerialDriver;
 var init_UsbSerialDriver = __esm({
   "src/drivers/UsbSerialDriver.js"() {
     init_DriverInterface();
     init_logger();
-    log9 = createLogger("UsbSerialDriver");
+    log8 = createLogger("UsbSerialDriver");
     UsbSerialDriver = class extends DriverInterface {
       constructor(accessory) {
         super(accessory);
@@ -40867,8 +38845,8 @@ var init_UsbSerialDriver = __esm({
       }
       async initialize() {
         try {
-          const { SerialPort } = await Promise.resolve().then(() => __toESM(require_dist18(), 1));
-          const { ReadlineParser } = await Promise.resolve().then(() => __toESM(require_dist7(), 1));
+          const { SerialPort } = await Promise.resolve().then(() => __toESM(require_dist17(), 1));
+          const { ReadlineParser } = await Promise.resolve().then(() => __toESM(require_dist6(), 1));
           this.port = new SerialPort({ path: this.tty, baudRate: this.baudRate, autoOpen: false });
           this.parser = this.port.pipe(new ReadlineParser({ delimiter: "\n" }));
           this.parser.on("data", (line) => {
@@ -40880,16 +38858,16 @@ var init_UsbSerialDriver = __esm({
           });
           this.port.on("error", (err) => {
             this._updateHealth("offline", err.message);
-            log9.error(`Serial error: ${err.message}`);
+            log8.error(`Serial error: ${err.message}`);
           });
           await new Promise((resolve, reject) => {
             this.port.open((err) => err ? reject(err) : resolve());
           });
           this._updateHealth("online");
-          log9.info(`Serial connected: ${this.tty} @ ${this.baudRate}`);
+          log8.info(`Serial connected: ${this.tty} @ ${this.baudRate}`);
         } catch (err) {
           this._updateHealth("offline", err.message);
-          log9.error(`Serial init failed: ${err.message}`);
+          log8.error(`Serial init failed: ${err.message}`);
         }
       }
       async execute(action, params = {}) {
@@ -40926,7 +38904,7 @@ var init_UsbSerialDriver = __esm({
       /** List available serial ports (static utility). */
       static async listPorts() {
         try {
-          const { SerialPort } = await Promise.resolve().then(() => __toESM(require_dist18(), 1));
+          const { SerialPort } = await Promise.resolve().then(() => __toESM(require_dist17(), 1));
           return await SerialPort.list();
         } catch {
           return [];
@@ -40937,12 +38915,12 @@ var init_UsbSerialDriver = __esm({
 });
 
 // src/drivers/simulators/DoorServoSimulator.js
-var log10, DoorServoSimulator;
+var log9, DoorServoSimulator;
 var init_DoorServoSimulator = __esm({
   "src/drivers/simulators/DoorServoSimulator.js"() {
     init_DriverInterface();
     init_logger();
-    log10 = createLogger("DoorServoSim");
+    log9 = createLogger("DoorServoSim");
     DoorServoSimulator = class extends DriverInterface {
       constructor(accessory) {
         super(accessory);
@@ -40957,7 +38935,7 @@ var init_DoorServoSimulator = __esm({
         this.maxMoveTimeMs = accessory.calibration?.max_move_time_ms || 5e3;
         this.simulateJam = false;
         this._updateHealth("online");
-        log10.info(`DoorServoSimulator created for accessory ${this.accessoryId}`);
+        log9.info(`DoorServoSimulator created for accessory ${this.accessoryId}`);
       }
       getCapabilities() {
         return {
@@ -41028,14 +39006,14 @@ var init_DoorServoSimulator = __esm({
         this.targetPosition = Math.max(0, Math.min(100, target));
         const moveDistance = Math.abs(this.targetPosition - this.position);
         const moveTimeMs = moveDistance / 100 * this.travelTimeMs;
-        log10.debug(`Moving from ${this.position} to ${this.targetPosition} (${moveTimeMs}ms)`);
+        log9.debug(`Moving from ${this.position} to ${this.targetPosition} (${moveTimeMs}ms)`);
         return new Promise((resolve) => {
           if (this.moveTimer) clearTimeout(this.moveTimer);
           this.moveTimer = setTimeout(() => {
             this.position = this.targetPosition;
             this.state = endState;
             this.moveTimer = null;
-            log10.info(`Door move complete: ${endState} at position ${this.position}`);
+            log9.info(`Door move complete: ${endState} at position ${this.position}`);
             resolve({ success: true, data: this.getState() });
           }, Math.min(moveTimeMs, this.maxMoveTimeMs));
         });
@@ -41051,7 +39029,7 @@ var init_DoorServoSimulator = __esm({
           direction_invert: this.directionInvert,
           travel_time_ms: this.travelTimeMs
         };
-        log10.info("Door calibration updated", this.calibration);
+        log9.info("Door calibration updated", this.calibration);
         return { success: true, data: { calibration: this.calibration } };
       }
       _emergencyStop() {
@@ -41060,7 +39038,7 @@ var init_DoorServoSimulator = __esm({
           this.moveTimer = null;
         }
         this.state = "unknown";
-        log10.warn("Emergency stop triggered");
+        log9.warn("Emergency stop triggered");
         return { success: true, data: { state: "unknown", position: this.position } };
       }
       async shutdown() {
@@ -41071,12 +39049,12 @@ var init_DoorServoSimulator = __esm({
 });
 
 // src/drivers/simulators/EjectPusherSimulator.js
-var log11, EjectPusherSimulator;
+var log10, EjectPusherSimulator;
 var init_EjectPusherSimulator = __esm({
   "src/drivers/simulators/EjectPusherSimulator.js"() {
     init_DriverInterface();
     init_logger();
-    log11 = createLogger("EjectPusherSim");
+    log10 = createLogger("EjectPusherSim");
     EjectPusherSimulator = class extends DriverInterface {
       constructor(accessory) {
         super(accessory);
@@ -41090,7 +39068,7 @@ var init_EjectPusherSimulator = __esm({
         this.servoTravelTimeMs = accessory.calibration?.servo_travel_time_ms || 900;
         this.pushForceLimitMs = accessory.calibration?.push_force_limit_ms || 1800;
         this._updateHealth("online");
-        log11.info(`EjectPusherSimulator created for accessory ${this.accessoryId}`);
+        log10.info(`EjectPusherSimulator created for accessory ${this.accessoryId}`);
       }
       getCapabilities() {
         return {
@@ -41159,7 +39137,7 @@ var init_EjectPusherSimulator = __esm({
       async _push(params) {
         const cycles = params.cycles || 2;
         const cycleDelayMs = params.cycle_delay_ms || 700;
-        log11.info(`Executing push: ${cycles} cycles, ${cycleDelayMs}ms delay`);
+        log10.info(`Executing push: ${cycles} cycles, ${cycleDelayMs}ms delay`);
         this.state = "moving";
         for (let i = 0; i < cycles; i++) {
           this.pushCount++;
@@ -41167,7 +39145,7 @@ var init_EjectPusherSimulator = __esm({
             this.state = "jam";
             this.lastPushResult = "jam";
             this._updateHealth("degraded", "Jam detected (simulated)");
-            log11.warn(`Jam detected on push cycle ${i + 1}/${cycles}`);
+            log10.warn(`Jam detected on push cycle ${i + 1}/${cycles}`);
             return { success: false, error: "Jam detected", data: { cycle: i + 1, total: cycles } };
           }
           await this._sleep(this.servoTravelTimeMs);
@@ -41175,27 +39153,27 @@ var init_EjectPusherSimulator = __esm({
           if (i < cycles - 1) {
             await this._sleep(cycleDelayMs);
           }
-          log11.debug(`Push cycle ${i + 1}/${cycles} complete`);
+          log10.debug(`Push cycle ${i + 1}/${cycles} complete`);
         }
         this.state = "ready";
         this.lastPushResult = "success";
-        log11.info(`Push complete: ${cycles} cycles, total pushes: ${this.pushCount}`);
+        log10.info(`Push complete: ${cycles} cycles, total pushes: ${this.pushCount}`);
         return { success: true, data: { cycles_completed: cycles, total_pushes: this.pushCount } };
       }
       async _tap(params) {
         const cycles = params.cycles || 1;
-        log11.info(`Executing tap: ${cycles} cycles`);
+        log10.info(`Executing tap: ${cycles} cycles`);
         this.state = "moving";
         for (let i = 0; i < cycles; i++) {
           await this._sleep(this.servoTravelTimeMs / 2);
           await this._sleep(this.servoTravelTimeMs / 2);
-          log11.debug(`Tap cycle ${i + 1}/${cycles} complete`);
+          log10.debug(`Tap cycle ${i + 1}/${cycles} complete`);
         }
         this.state = "ready";
         return { success: true, data: { cycles_completed: cycles } };
       }
       async _home() {
-        log11.info("Homing (retracting) pusher");
+        log10.info("Homing (retracting) pusher");
         this.state = "moving";
         await this._sleep(this.servoTravelTimeMs);
         this.state = "ready";
@@ -41211,7 +39189,7 @@ var init_EjectPusherSimulator = __esm({
           servo_travel_time_ms: this.servoTravelTimeMs,
           push_force_limit_ms: this.pushForceLimitMs
         };
-        log11.info("Ejector calibration updated", this.calibration);
+        log10.info("Ejector calibration updated", this.calibration);
         return { success: true, data: { calibration: this.calibration } };
       }
       _sleep(ms) {
@@ -41236,7 +39214,7 @@ function resolveDriver(accessory) {
   }
   if (driver) {
     activeDrivers.set(key, driver);
-    log12.info(`Driver created for ${accessory.type} [${key}] (${mockMode ? "simulator" : accessory.connection_type})`);
+    log11.info(`Driver created for ${accessory.type} [${key}] (${mockMode ? "simulator" : accessory.connection_type})`);
   }
   return driver;
 }
@@ -41247,7 +39225,7 @@ function createSimulatorDriver(accessory) {
     case "eject_printhead":
       return new EjectPusherSimulator(accessory);
     default:
-      log12.warn(`No simulator for accessory type: ${accessory.type}`);
+      log11.warn(`No simulator for accessory type: ${accessory.type}`);
       return createRealDriver(accessory);
   }
 }
@@ -41260,7 +39238,7 @@ function createRealDriver(accessory) {
     case "usb_serial":
       return new UsbSerialDriver(accessory);
     default:
-      log12.error(`Unknown connection type: ${accessory.connection_type}`);
+      log11.error(`Unknown connection type: ${accessory.connection_type}`);
       return null;
   }
 }
@@ -41269,10 +39247,10 @@ async function shutdownDriver(accessoryId) {
   if (driver) {
     await driver.shutdown();
     activeDrivers.delete(accessoryId);
-    log12.info(`Driver shutdown: ${accessoryId}`);
+    log11.info(`Driver shutdown: ${accessoryId}`);
   }
 }
-var log12, activeDrivers;
+var log11, activeDrivers;
 var init_DriverManager = __esm({
   "src/drivers/DriverManager.js"() {
     init_HttpDriver();
@@ -41281,20 +39259,20 @@ var init_DriverManager = __esm({
     init_DoorServoSimulator();
     init_EjectPusherSimulator();
     init_logger();
-    log12 = createLogger("DriverManager");
+    log11 = createLogger("DriverManager");
     activeDrivers = /* @__PURE__ */ new Map();
   }
 });
 
 // src/runtime/AccessoryWorker.js
-var log13, AccessoryWorker;
+var log12, AccessoryWorker;
 var init_AccessoryWorker = __esm({
   "src/runtime/AccessoryWorker.js"() {
     init_DriverManager();
     init_Accessory();
     init_CommandBus();
     init_logger();
-    log13 = createLogger("AccessoryWorker");
+    log12 = createLogger("AccessoryWorker");
     AccessoryWorker = class {
       constructor(accessory) {
         this.accessoryId = accessory.accessory_id;
@@ -41308,7 +39286,7 @@ var init_AccessoryWorker = __esm({
           await this.driver.initialize();
           this.health = this.driver.health;
           AccessoryModel.updateHealth(this.accessoryId, this.health);
-          log13.info(`Accessory worker started: ${this.accessory.type} [${this.accessoryId}]`);
+          log12.info(`Accessory worker started: ${this.accessory.type} [${this.accessoryId}]`);
         }
       }
       async stop() {
@@ -41455,13 +39433,13 @@ function getDiscoveryInstance() {
   if (!_instance) _instance = new BambuDiscovery();
   return _instance;
 }
-var import_node_dgram, log14, MODEL_MAP, DISCOVERY_TTL_MS, LISTEN_PORT, BambuDiscovery, _instance, BambuDiscovery_default;
+var import_node_dgram, log13, MODEL_MAP, DISCOVERY_TTL_MS, LISTEN_PORT, BambuDiscovery, _instance, BambuDiscovery_default;
 var init_BambuDiscovery = __esm({
   "src/services/BambuDiscovery.js"() {
     import_node_dgram = __toESM(require("node:dgram"), 1);
     init_logger();
     init_localNetwork();
-    log14 = createLogger("BambuDiscovery");
+    log13 = createLogger("BambuDiscovery");
     MODEL_MAP = {
       "N2S": "Bambu A1",
       "N1": "Bambu A1 Mini",
@@ -41506,20 +39484,20 @@ var init_BambuDiscovery = __esm({
                 network_interface: networkInterface?.name || null
               });
               if (!existing) {
-                log14.info(`Discovered: ${parsed.name || "unnamed"} (${parsed.model}) at ${parsed.ip} [${parsed.serial}] mode=${parsed.connection_mode}`);
+                log13.info(`Discovered: ${parsed.name || "unnamed"} (${parsed.model}) at ${parsed.ip} [${parsed.serial}] mode=${parsed.connection_mode}`);
               }
             } catch (e) {
             }
           });
           this._socket.on("error", (err) => {
-            log14.warn(`SSDP socket error: ${err.message}`);
+            log13.warn(`SSDP socket error: ${err.message}`);
           });
           this._socket.bind(LISTEN_PORT, () => {
-            log14.info(`SSDP discovery listening on UDP port ${LISTEN_PORT}`);
+            log13.info(`SSDP discovery listening on UDP port ${LISTEN_PORT}`);
           });
           this._purgeInterval = setInterval(() => this._purgeStale(), 3e4);
         } catch (e) {
-          log14.warn(`Failed to start SSDP discovery: ${e.message}`);
+          log13.warn(`Failed to start SSDP discovery: ${e.message}`);
           this._running = false;
         }
       }
@@ -41595,7 +39573,7 @@ var init_BambuDiscovery = __esm({
         for (const [serial, info] of this._discovered) {
           if (now - info.last_seen > DISCOVERY_TTL_MS) {
             this._discovered.delete(serial);
-            log14.info(`Pruned stale printer: ${info.name || serial}`);
+            log13.info(`Pruned stale printer: ${info.name || serial}`);
           }
         }
       }
@@ -41618,210 +39596,6 @@ var init_SystemEvents = __esm({
       return originalEmit(event, ...args);
     };
     SystemEvents_default = systemEvents;
-  }
-});
-
-// src/runtime/RuntimeSupervisor.js
-var RuntimeSupervisor_exports = {};
-__export(RuntimeSupervisor_exports, {
-  RuntimeSupervisor: () => RuntimeSupervisor,
-  default: () => RuntimeSupervisor_default,
-  getSupervisor: () => getSupervisor
-});
-function getSupervisor() {
-  if (!_supervisor) _supervisor = new RuntimeSupervisor();
-  return _supervisor;
-}
-var log15, RuntimeSupervisor, _supervisor, RuntimeSupervisor_default;
-var init_RuntimeSupervisor = __esm({
-  "src/runtime/RuntimeSupervisor.js"() {
-    init_Printer();
-    init_Accessory();
-    init_Event();
-    init_PrinterWorker();
-    init_AccessoryWorker();
-    init_CommandBus();
-    init_BambuDiscovery();
-    init_logger();
-    init_SystemEvents();
-    log15 = createLogger("RuntimeSupervisor");
-    RuntimeSupervisor = class _RuntimeSupervisor {
-      static _instance = null;
-      static getInstance() {
-        return this._instance;
-      }
-      constructor() {
-        this.printerWorkers = /* @__PURE__ */ new Map();
-        this.accessoryWorkers = /* @__PURE__ */ new Map();
-        this.discovery = getDiscoveryInstance();
-        this.running = false;
-        this.commandPollInterval = null;
-        this.healthCheckInterval = null;
-        this.wsBroadcast = null;
-        _RuntimeSupervisor._instance = this;
-      }
-      /**
-       * Start the runtime: spawn workers for all registered printers/accessories.
-       */
-      async start() {
-        log15.info("Starting Runtime Supervisor");
-        this.running = true;
-        SystemEvents_default.on("printer.created", (printer) => this.spawnPrinterWorker(printer));
-        SystemEvents_default.on("printer.deleted", (id) => this.removePrinterWorker(id));
-        SystemEvents_default.on("accessory.created", (acc) => this.spawnAccessoryWorker(acc));
-        SystemEvents_default.on("accessory.deleted", (id) => this.removeAccessoryWorker(id));
-        const printers = PrinterModel.findAll();
-        for (const printer of printers) {
-          await this.spawnPrinterWorker(printer);
-        }
-        const accessories = AccessoryModel.findAll();
-        for (const acc of accessories) {
-          await this.spawnAccessoryWorker(acc);
-        }
-        const pollMs = parseInt(process.env.COMMAND_POLL_INTERVAL_MS) || 1e3;
-        this.commandPollInterval = setInterval(() => this._processCommands(), pollMs);
-        const healthMs = parseInt(process.env.HEALTH_CHECK_INTERVAL_MS) || 3e4;
-        this.healthCheckInterval = setInterval(() => this._healthCheckAll(), healthMs);
-        setInterval(() => CommandBus.processTimeouts(), 1e4);
-        const retentionDays = parseInt(process.env.EVENT_RETENTION_DAYS) || 30;
-        this._pruneEvents(retentionDays);
-        this.eventPruneInterval = setInterval(() => this._pruneEvents(retentionDays), 6 * 60 * 60 * 1e3);
-        this._syncDiscoverySerials();
-        this.discovery.start();
-        log15.info(`Runtime started: ${printers.length} printers, ${accessories.length} accessories`);
-      }
-      /**
-       * Stop all workers.
-       */
-      async stop() {
-        this.running = false;
-        if (this.commandPollInterval) clearInterval(this.commandPollInterval);
-        if (this.healthCheckInterval) clearInterval(this.healthCheckInterval);
-        if (this.eventPruneInterval) clearInterval(this.eventPruneInterval);
-        this.discovery.stop();
-        for (const [id, worker] of this.printerWorkers) {
-          await worker.stop();
-        }
-        for (const [id, worker] of this.accessoryWorkers) {
-          await worker.stop();
-        }
-        this.printerWorkers.clear();
-        this.accessoryWorkers.clear();
-        log15.info("Runtime stopped");
-      }
-      async spawnPrinterWorker(printer) {
-        if (this.printerWorkers.has(printer.printer_id)) return;
-        const worker = new PrinterWorker(printer);
-        worker.onStatusUpdate = (status) => this._broadcastStatus("printer", printer.printer_id, status);
-        worker.onAlert = (alert) => {
-          if (this.wsBroadcast) this.wsBroadcast({ type: "printer.alert", id: printer.printer_id, data: alert });
-          SystemEvents_default.emit("printer.alert", alert);
-        };
-        this.printerWorkers.set(printer.printer_id, worker);
-        try {
-          await worker.start();
-          log15.info(`Printer worker spawned: ${printer.name} [${printer.printer_id}]`);
-        } catch (err) {
-          log15.warn(`Printer worker ${printer.name} failed initial start (${err.message}); will self-heal`);
-        }
-      }
-      async spawnAccessoryWorker(accessory) {
-        if (this.accessoryWorkers.has(accessory.accessory_id)) return;
-        const worker = new AccessoryWorker(accessory);
-        this.accessoryWorkers.set(accessory.accessory_id, worker);
-        await worker.start();
-        log15.info(`Accessory worker spawned: ${accessory.type} [${accessory.accessory_id}]`);
-      }
-      async removePrinterWorker(printerId) {
-        const worker = this.printerWorkers.get(printerId);
-        if (worker) {
-          await worker.stop();
-          this.printerWorkers.delete(printerId);
-        }
-      }
-      async removeAccessoryWorker(accessoryId) {
-        const worker = this.accessoryWorkers.get(accessoryId);
-        if (worker) {
-          await worker.stop();
-          this.accessoryWorkers.delete(accessoryId);
-        }
-      }
-      /**
-       * Process queued commands for all workers.
-       */
-      _processCommands() {
-        for (const [printerId, worker] of this.printerWorkers) {
-          const cmds = CommandBus.pullQueued("printer", printerId, 5);
-          for (const cmd of cmds) {
-            worker.executeCommand(cmd).catch((err) => {
-              CommandBus.markFailed(cmd.command_id, err.message);
-            });
-          }
-        }
-        for (const [accId, worker] of this.accessoryWorkers) {
-          const cmds = CommandBus.pullQueued("accessory", accId, 5);
-          for (const cmd of cmds) {
-            worker.executeCommand(cmd).catch((err) => {
-              CommandBus.markFailed(cmd.command_id, err.message);
-            });
-          }
-        }
-      }
-      _pruneEvents(retentionDays) {
-        try {
-          const removed = EventModel.pruneOlderThan(retentionDays);
-          if (removed > 0) log15.info(`Pruned ${removed} events older than ${retentionDays}d`);
-        } catch (err) {
-          log15.warn(`Event prune failed: ${err.message}`);
-        }
-      }
-      _healthCheckAll() {
-        for (const [, worker] of this.printerWorkers) {
-          worker.healthCheck().catch(() => {
-          });
-        }
-        for (const [, worker] of this.accessoryWorkers) {
-          worker.healthCheck().catch(() => {
-          });
-        }
-      }
-      _broadcastStatus(type, id, status) {
-        if (this.wsBroadcast) {
-          this.wsBroadcast({ type: `${type}.status`, id, data: status });
-        }
-      }
-      /** Set WebSocket broadcast function. */
-      setWsBroadcast(fn) {
-        this.wsBroadcast = fn;
-      }
-      /** Get a printer worker by ID. */
-      getWorker(printerId) {
-        return this.printerWorkers.get(printerId) || null;
-      }
-      /** Sync registered printer serials to discovery service. */
-      _syncDiscoverySerials() {
-        const printers = PrinterModel.findAll();
-        const serials = printers.map((p) => p.serial_number).filter(Boolean);
-        this.discovery.setRegisteredSerials(serials);
-      }
-      /** Get running status for all workers. */
-      getStatus() {
-        return {
-          running: this.running,
-          printers: Array.from(this.printerWorkers.entries()).map(([id, w]) => ({
-            printer_id: id,
-            state: w.state,
-            connected: w.connected
-          })),
-          accessories: Array.from(this.accessoryWorkers.entries()).map(([id, w]) => ({
-            accessory_id: id,
-            health: w.health
-          }))
-        };
-      }
-    };
-    _supervisor = null;
-    RuntimeSupervisor_default = { RuntimeSupervisor, getSupervisor };
   }
 });
 
@@ -41871,11 +39645,11 @@ var init_Job = __esm({
     import_node_path4 = __toESM(require("node:path"), 1);
     init_uploadPaths();
     JobModel = class {
-      static create({ name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, priority, scheduled_for, max_retries }) {
+      static create({ name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, priority, scheduled_for, max_retries, metadata }) {
         const id = generateId();
         dbRun(
-          `INSERT INTO jobs (job_id, name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, repeat_remaining, priority, scheduled_for, max_retries)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO jobs (job_id, name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, repeat_remaining, priority, scheduled_for, max_retries, metadata)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             name,
@@ -41887,7 +39661,8 @@ var init_Job = __esm({
             repeat_total || 1,
             Number.isFinite(Number(priority)) ? Number(priority) : 0,
             scheduled_for || null,
-            Number.isFinite(Number(max_retries)) ? Math.max(0, Math.trunc(Number(max_retries))) : 0
+            Number.isFinite(Number(max_retries)) ? Math.max(0, Math.trunc(Number(max_retries))) : 0,
+            metadata ? JSON.stringify(metadata) : null
           ]
         );
         return this.findById(id);
@@ -41914,7 +39689,7 @@ var init_Job = __esm({
         return row ? this._parse(row) : null;
       }
       static update(id, fields) {
-        const allowed = ["name", "printer_id", "status", "transformed_file_name", "transform_report", "diff_summary", "ams_roles", "repeat_total", "repeat_remaining", "priority", "scheduled_for", "max_retries"];
+        const allowed = ["name", "printer_id", "status", "transformed_file_name", "transform_report", "diff_summary", "ams_roles", "repeat_total", "repeat_remaining", "priority", "scheduled_for", "max_retries", "metadata"];
         const sets = [];
         const vals = [];
         for (const [k, v] of Object.entries(fields)) {
@@ -41993,7 +39768,8 @@ var init_Job = __esm({
           ...row,
           transform_report: _pj4(row.transform_report, null),
           diff_summary: _pj4(row.diff_summary, null),
-          ams_roles: _pj4(row.ams_roles, null)
+          ams_roles: _pj4(row.ams_roles, null),
+          metadata: _pj4(row.metadata, null)
         };
       }
     };
@@ -42132,7 +39908,7 @@ var init_GcodeProfile = __esm({
         return row ? this._parse(row) : null;
       }
       static findByName(name) {
-        const row = dbGet("SELECT * FROM gcode_profiles WHERE name = ?", [name]);
+        const row = dbGet("SELECT * FROM gcode_profiles WHERE name = ? COLLATE NOCASE", [name]);
         return row ? this._parse(row) : null;
       }
       static findByModel(model) {
@@ -42244,22 +40020,22 @@ function automate(gcodeText, config = {}) {
     transformTimeMs: 0
   };
   if (cooldownMode === "time") {
-    log16.info(`Automator: model=${printerModel}, loops=${loopsN}, cooldown=TIME ${coolTimeMin}min (G4), sweepZ=${sweepZMm}mm`);
+    log14.info(`Automator: model=${printerModel}, loops=${loopsN}, cooldown=TIME ${coolTimeMin}min (G4), sweepZ=${sweepZMm}mm`);
   } else {
-    log16.info(`Automator: model=${printerModel}, loops=${loopsN}, cooldown=TEMP release=${releaseTempC}\xB0C wait=${waitTempC}\xB0C m190x${m190RepeatCount}, sweepZ=${sweepZMm}mm`);
+    log14.info(`Automator: model=${printerModel}, loops=${loopsN}, cooldown=TEMP release=${releaseTempC}\xB0C wait=${waitTempC}\xB0C m190x${m190RepeatCount}, sweepZ=${sweepZMm}mm`);
   }
   const lines = gcodeText.split("\n");
   const purgeResult = removePurgeBlock(lines, modelDef.purgeFamily);
   report.purgeRemoval = purgeResult;
   if (purgeResult.found) {
-    log16.info(`Purge removed: ${purgeResult.method}, lines ${purgeResult.startLine}-${purgeResult.endLine} (${purgeResult.linesCommented} lines commented)`);
+    log14.info(`Purge removed: ${purgeResult.method}, lines ${purgeResult.startLine}-${purgeResult.endLine} (${purgeResult.linesCommented} lines commented)`);
   } else {
-    log16.info(`Purge removal: no anchors found (fail-safe, nothing removed)`);
+    log14.info(`Purge removal: no anchors found (fail-safe, nothing removed)`);
     report.warnings.push("No purge anchors found \u2014 nothing removed (fail-safe)");
   }
   const insertionIdx = findInsertionPoint(lines, modelDef.purgeFamily);
   report.insertionPoint = insertionIdx;
-  log16.info(`Insertion point: line ${insertionIdx.line} (method: ${insertionIdx.method})`);
+  log14.info(`Insertion point: line ${insertionIdx.line} (method: ${insertionIdx.method})`);
   const automationBlock = buildAutomationBlock({
     cooldownMode,
     waitTempC,
@@ -42292,10 +40068,10 @@ function automate(gcodeText, config = {}) {
   const negZCount = countNegativeZMoves(finalOutput);
   if (negZCount > 0) {
     report.warnings.push(`WARNING: Found ${negZCount} negative Z move(s) in output \u2014 review manually`);
-    log16.warn(`Negative Z moves found: ${negZCount}`);
+    log14.warn(`Negative Z moves found: ${negZCount}`);
   }
   report.transformTimeMs = Date.now() - startTime;
-  log16.info(`Automator complete: ${report.transformTimeMs}ms, ${finalOutput.split("\n").length} lines`);
+  log14.info(`Automator complete: ${report.transformTimeMs}ms, ${finalOutput.split("\n").length} lines`);
   return { output: finalOutput, report };
 }
 function removePurgeBlock(lines, family) {
@@ -42466,11 +40242,11 @@ function buildSingleLoop(lines, insertionIdx, automationBlock) {
 function countNegativeZMoves(gcodeText) {
   return gcodeText.split("\n").filter((line) => /\bG0?1\b/i.test(line) && /\bZ-\d/i.test(line)).length;
 }
-var log16, MODEL_DEFAULTS;
+var log14, MODEL_DEFAULTS;
 var init_Automator = __esm({
   "src/gcode/Automator.js"() {
     init_logger();
-    log16 = createLogger("Automator");
+    log14 = createLogger("Automator");
     MODEL_DEFAULTS = {
       P1S: {
         zMax: 250,
@@ -42573,12 +40349,12 @@ ${plateBlocks.join("\n")}
 </config>`;
   zip.addFile("Metadata/slice_info.config", Buffer.from(sliceInfo, "utf-8"));
   const buf = zip.toBuffer();
-  log17.info(`Built .gcode.3mf: ${plates.length} plate(s), ${buf.length} bytes`);
+  log15.info(`Built .gcode.3mf: ${plates.length} plate(s), ${buf.length} bytes`);
   return buf;
 }
 function extractGcodeFrom3mf(buf) {
   const entries = parseZipEntries(buf);
-  log17.info(`Parsed ${entries.length} ZIP entries`);
+  log15.info(`Parsed ${entries.length} ZIP entries`);
   const gcodeEntry = entries.find(
     (e) => e.fileName.match(/^Metadata\/plate_\d+\.gcode$/i) || e.fileName.match(/plate_\d+\.gcode$/i)
   );
@@ -42587,7 +40363,7 @@ function extractGcodeFrom3mf(buf) {
     if (!fallback) {
       throw new Error("No plate_*.gcode found in 3MF archive");
     }
-    log17.warn(`No Metadata/plate_*.gcode found, using fallback: ${fallback.fileName}`);
+    log15.warn(`No Metadata/plate_*.gcode found, using fallback: ${fallback.fileName}`);
     return {
       gcodeText: decompressEntry(buf, fallback),
       gcodeEntryName: fallback.fileName,
@@ -42796,14 +40572,14 @@ function crc32(buf) {
   }
   return (crc ^ 4294967295) >>> 0;
 }
-var import_node_crypto2, import_node_zlib, import_adm_zip, log17, CONTENT_TYPES_XML, RELS_XML, MODEL_XML, LOCAL_FILE_HEADER_SIG, CENTRAL_DIR_SIG, EOCD_SIG, CRC32_TABLE;
+var import_node_crypto2, import_node_zlib, import_adm_zip, log15, CONTENT_TYPES_XML, RELS_XML, MODEL_XML, LOCAL_FILE_HEADER_SIG, CENTRAL_DIR_SIG, EOCD_SIG, CRC32_TABLE;
 var init_AutomatorZip = __esm({
   "src/gcode/AutomatorZip.js"() {
     import_node_crypto2 = require("node:crypto");
     import_node_zlib = require("node:zlib");
     import_adm_zip = __toESM(require_adm_zip(), 1);
     init_logger();
-    log17 = createLogger("AutomatorZip");
+    log15 = createLogger("AutomatorZip");
     CONTENT_TYPES_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
@@ -42852,7 +40628,7 @@ async function executeEjectionSequence(params) {
   } = params;
   const ejectParams = profile?.eject_params || {};
   const startTime = Date.now();
-  log18.info(`Starting ejection sequence for job ${job_id} on printer ${printer_id}`);
+  log16.info(`Starting ejection sequence for job ${job_id} on printer ${printer_id}`);
   EventModel.create({
     entity_type: "job",
     entity_id: job_id,
@@ -42860,7 +40636,18 @@ async function executeEjectionSequence(params) {
     payload: { printer_id, release_temp_c }
   });
   try {
-    log18.info(`Waiting for bed temp \u2264 ${release_temp_c}\xB0C (timeout: ${max_wait_minutes}min)`);
+    const ejectorAccessories = AccessoryModel.findByPrinterId(printer_id).filter((a) => a.type === "eject_printhead");
+    if (ejectorAccessories.length === 0) {
+      log16.info(`No eject_printhead accessory for printer ${printer_id} \u2014 skipping hardware ejection (in-gcode ejection, if configured, already ran)`);
+      EventModel.create({
+        entity_type: "job",
+        entity_id: job_id,
+        event_type: "eject.no_ejector",
+        payload: { printer_id }
+      });
+      return { success: false, skipped: true, error: "No ejector accessory found" };
+    }
+    log16.info(`Waiting for bed temp \u2264 ${release_temp_c}\xB0C (timeout: ${max_wait_minutes}min)`);
     const coolResult = await waitForCoolDown(printer_id, release_temp_c, hysteresis_c, hold_seconds, max_wait_minutes);
     if (!coolResult.success) {
       EventModel.create({
@@ -42871,25 +40658,14 @@ async function executeEjectionSequence(params) {
       });
       return { success: false, error: "Cool-down timeout", ...coolResult };
     }
-    log18.info(`Bed cooled to ${coolResult.lastTemp}\xB0C in ${coolResult.elapsedMinutes.toFixed(1)} min`);
-    const ejectorAccessories = AccessoryModel.findByPrinterId(printer_id).filter((a) => a.type === "eject_printhead");
-    if (ejectorAccessories.length === 0) {
-      log18.warn(`No eject_printhead accessory found for printer ${printer_id}`);
-      EventModel.create({
-        entity_type: "job",
-        entity_id: job_id,
-        event_type: "eject.no_ejector",
-        payload: { printer_id }
-      });
-      return { success: false, error: "No ejector accessory found" };
-    }
+    log16.info(`Bed cooled to ${coolResult.lastTemp}\xB0C in ${coolResult.elapsedMinutes.toFixed(1)} min`);
     const ejector = ejectorAccessories[0];
     const maxAttempts = ejectParams.max_eject_attempts || 3;
     const preTapCycles = ejectParams.pre_push_tap_cycles || 1;
     const pushCycles = ejectParams.push_cycles || 2;
     const cycleDelayMs = ejectParams.push_cycle_delay_ms || 700;
     if (preTapCycles > 0) {
-      log18.info(`Pre-push tap: ${preTapCycles} cycles`);
+      log16.info(`Pre-push tap: ${preTapCycles} cycles`);
       CommandBus.enqueue({
         target_type: "accessory",
         target_id: ejector.accessory_id,
@@ -42902,7 +40678,7 @@ async function executeEjectionSequence(params) {
       await sleep(preTapCycles * 1500);
     }
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      log18.info(`Eject attempt ${attempt}/${maxAttempts}: ${pushCycles} push cycles`);
+      log16.info(`Eject attempt ${attempt}/${maxAttempts}: ${pushCycles} push cycles`);
       const pushCmd = CommandBus.enqueue({
         target_type: "accessory",
         target_id: ejector.accessory_id,
@@ -42921,7 +40697,7 @@ async function executeEjectionSequence(params) {
           event_type: "eject.success",
           payload: { attempt, elapsed_ms: Date.now() - startTime }
         });
-        log18.info(`Ejection successful on attempt ${attempt}`);
+        log16.info(`Ejection successful on attempt ${attempt}`);
         CommandBus.enqueue({
           target_type: "accessory",
           target_id: ejector.accessory_id,
@@ -42932,7 +40708,7 @@ async function executeEjectionSequence(params) {
         return { success: true, attempt, elapsed_ms: Date.now() - startTime };
       }
       if (attempt < maxAttempts) {
-        log18.warn(`Eject attempt ${attempt} failed, retrying...`);
+        log16.warn(`Eject attempt ${attempt} failed, retrying...`);
         await sleep(2e3);
       }
     }
@@ -42944,7 +40720,7 @@ async function executeEjectionSequence(params) {
     });
     return { success: false, error: `Ejection failed after ${maxAttempts} attempts` };
   } catch (err) {
-    log18.error(`Ejection error: ${err.message}`);
+    log16.error(`Ejection error: ${err.message}`);
     EventModel.create({
       entity_type: "job",
       entity_id: job_id,
@@ -42968,7 +40744,7 @@ async function waitForCoolDown(printerId, targetTemp, hysteresis, holdSeconds, m
       if (bedTemp <= targetTemp) {
         if (!holdStart) {
           holdStart = Date.now();
-          log18.debug(`Bed at ${bedTemp}\xB0C, starting hold (${holdSeconds}s)`);
+          log16.debug(`Bed at ${bedTemp}\xB0C, starting hold (${holdSeconds}s)`);
         }
         if (bedTemp <= targetTemp + hysteresis) {
           const heldMs = Date.now() - holdStart;
@@ -42997,7 +40773,7 @@ async function waitForCoolDown(printerId, targetTemp, hysteresis, holdSeconds, m
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
-var log18;
+var log16;
 var init_EjectionService = __esm({
   "src/services/EjectionService.js"() {
     init_CommandBus();
@@ -43005,7 +40781,7 @@ var init_EjectionService = __esm({
     init_Printer();
     init_Accessory();
     init_logger();
-    log18 = createLogger("EjectionService");
+    log16 = createLogger("EjectionService");
   }
 });
 
@@ -43095,13 +40871,2211 @@ var init_JobRetryService = __esm({
   }
 });
 
+// node_modules/basic-ftp/dist/parseControlResponse.js
+var require_parseControlResponse = __commonJS({
+  "node_modules/basic-ftp/dist/parseControlResponse.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.parseControlResponse = parseControlResponse;
+    exports2.isSingleLine = isSingleLine;
+    exports2.isMultiline = isMultiline;
+    exports2.positiveCompletion = positiveCompletion;
+    exports2.positiveIntermediate = positiveIntermediate;
+    var LF = "\n";
+    function parseControlResponse(text) {
+      const lines = text.split(/\r?\n/).filter(isNotBlank);
+      const messages = [];
+      let startAt = 0;
+      let tokenRegex;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!tokenRegex) {
+          if (isMultiline(line)) {
+            const token = line.substr(0, 3);
+            tokenRegex = new RegExp(`^${token}(?:$| )`);
+            startAt = i;
+          } else if (isSingleLine(line)) {
+            messages.push(line);
+          }
+        } else if (tokenRegex.test(line)) {
+          tokenRegex = void 0;
+          messages.push(lines.slice(startAt, i + 1).join(LF));
+        }
+      }
+      const rest = tokenRegex ? lines.slice(startAt).join(LF) + LF : "";
+      return { messages, rest };
+    }
+    function isSingleLine(line) {
+      return /^\d\d\d(?:$| )/.test(line);
+    }
+    function isMultiline(line) {
+      return /^\d\d\d-/.test(line);
+    }
+    function positiveCompletion(code) {
+      return code >= 200 && code < 300;
+    }
+    function positiveIntermediate(code) {
+      return code >= 300 && code < 400;
+    }
+    function isNotBlank(str) {
+      return str.trim() !== "";
+    }
+  }
+});
+
+// node_modules/basic-ftp/dist/FtpContext.js
+var require_FtpContext = __commonJS({
+  "node_modules/basic-ftp/dist/FtpContext.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.FTPContext = exports2.FTPError = void 0;
+    var net_1 = require("net");
+    var parseControlResponse_1 = require_parseControlResponse();
+    var FTPError = class extends Error {
+      constructor(res) {
+        super(res.message);
+        this.name = this.constructor.name;
+        this.code = res.code;
+      }
+    };
+    exports2.FTPError = FTPError;
+    function doNothing() {
+    }
+    var FTPContext = class {
+      /**
+       * Instantiate an FTP context.
+       *
+       * @param timeout - Timeout in milliseconds to apply to control and data connections. Use 0 for no timeout.
+       * @param encoding - Encoding to use for control connection. UTF-8 by default. Use "latin1" for older servers.
+       */
+      constructor(timeout = 0, encoding = "utf8") {
+        this.timeout = timeout;
+        this.verbose = false;
+        this.ipFamily = void 0;
+        this.tlsOptions = {};
+        this._partialResponse = "";
+        this._encoding = encoding;
+        this._socket = this.socket = this._newSocket();
+        this._dataSocket = void 0;
+      }
+      /**
+       * Close the context.
+       */
+      close() {
+        const message = this._task ? "User closed client during task" : "User closed client";
+        const err = new Error(message);
+        this.closeWithError(err);
+      }
+      /**
+       * Close the context with an error.
+       */
+      closeWithError(err) {
+        if (this._closingError) {
+          return;
+        }
+        this._closingError = err;
+        this._closeControlSocket();
+        this._closeSocket(this._dataSocket);
+        this._passToHandler(err);
+        this._stopTrackingTask();
+      }
+      /**
+       * Returns true if this context has been closed or hasn't been connected yet. You can reopen it with `access`.
+       */
+      get closed() {
+        return this.socket.remoteAddress === void 0 || this._closingError !== void 0;
+      }
+      /**
+       * Reset this contex and all of its state.
+       */
+      reset() {
+        this.socket = this._newSocket();
+      }
+      /**
+       * Get the FTP control socket.
+       */
+      get socket() {
+        return this._socket;
+      }
+      /**
+       * Set the socket for the control connection. This will only close the current control socket
+       * if the new one is not an upgrade to the current one.
+       */
+      set socket(socket) {
+        this.dataSocket = void 0;
+        this.tlsOptions = {};
+        this._partialResponse = "";
+        if (this._socket) {
+          const newSocketUpgradesExisting = socket.localPort === this._socket.localPort;
+          if (newSocketUpgradesExisting) {
+            this._removeSocketListeners(this.socket);
+          } else {
+            this._closeControlSocket();
+          }
+        }
+        if (socket) {
+          this._closingError = void 0;
+          socket.setTimeout(0);
+          socket.setEncoding(this._encoding);
+          socket.setKeepAlive(true);
+          socket.on("data", (data) => this._onControlSocketData(data));
+          socket.on("end", () => this.closeWithError(new Error("Server sent FIN packet unexpectedly, closing connection.")));
+          socket.on("close", (hadError) => {
+            if (!hadError)
+              this.closeWithError(new Error("Server closed connection unexpectedly."));
+          });
+          this._setupDefaultErrorHandlers(socket, "control socket");
+        }
+        this._socket = socket;
+      }
+      /**
+       * Get the current FTP data connection if present.
+       */
+      get dataSocket() {
+        return this._dataSocket;
+      }
+      /**
+       * Set the socket for the data connection. This will automatically close the former data socket.
+       */
+      set dataSocket(socket) {
+        this._closeSocket(this._dataSocket);
+        if (socket) {
+          socket.setTimeout(0);
+          this._setupDefaultErrorHandlers(socket, "data socket");
+        }
+        this._dataSocket = socket;
+      }
+      /**
+       * Get the currently used encoding.
+       */
+      get encoding() {
+        return this._encoding;
+      }
+      /**
+       * Set the encoding used for the control socket.
+       *
+       * See https://nodejs.org/api/buffer.html#buffer_buffers_and_character_encodings for what encodings
+       * are supported by Node.
+       */
+      set encoding(encoding) {
+        this._encoding = encoding;
+        if (this.socket) {
+          this.socket.setEncoding(encoding);
+        }
+      }
+      /**
+       * Send an FTP command without waiting for or handling the result.
+       */
+      send(command) {
+        const containsPassword = command.startsWith("PASS");
+        const message = containsPassword ? "> PASS ###" : `> ${command}`;
+        this.log(message);
+        this._socket.write(command + "\r\n", this.encoding);
+      }
+      /**
+       * Send an FTP command and handle the first response. Use this if you have a simple
+       * request-response situation.
+       */
+      request(command) {
+        return this.handle(command, (res, task) => {
+          if (res instanceof Error) {
+            task.reject(res);
+          } else {
+            task.resolve(res);
+          }
+        });
+      }
+      /**
+       * Send an FTP command and handle any response until you resolve/reject. Use this if you expect multiple responses
+       * to a request. This returns a Promise that will hold whatever the response handler passed on when resolving/rejecting its task.
+       */
+      handle(command, responseHandler) {
+        if (this._task) {
+          const err = new Error("User launched a task while another one is still running. Forgot to use 'await' or '.then()'?");
+          err.stack += `
+Running task launched at: ${this._task.stack}`;
+          this.closeWithError(err);
+        }
+        return new Promise((resolveTask, rejectTask) => {
+          this._task = {
+            stack: new Error().stack || "Unknown call stack",
+            responseHandler,
+            resolver: {
+              resolve: (arg) => {
+                this._stopTrackingTask();
+                resolveTask(arg);
+              },
+              reject: (err) => {
+                this._stopTrackingTask();
+                rejectTask(err);
+              }
+            }
+          };
+          if (this._closingError) {
+            const err = new Error(`Client is closed because ${this._closingError.message}`);
+            err.stack += `
+Closing reason: ${this._closingError.stack}`;
+            err.code = this._closingError.code !== void 0 ? this._closingError.code : "0";
+            this._passToHandler(err);
+            return;
+          }
+          this.socket.setTimeout(this.timeout);
+          if (command) {
+            this.send(command);
+          }
+        });
+      }
+      /**
+       * Log message if set to be verbose.
+       */
+      log(message) {
+        if (this.verbose) {
+          console.log(message);
+        }
+      }
+      /**
+       * Return true if the control socket is using TLS. This does not mean that a session
+       * has already been negotiated.
+       */
+      get hasTLS() {
+        return "encrypted" in this._socket;
+      }
+      /**
+       * Removes reference to current task and handler. This won't resolve or reject the task.
+       * @protected
+       */
+      _stopTrackingTask() {
+        this.socket.setTimeout(0);
+        this._task = void 0;
+      }
+      /**
+       * Handle incoming data on the control socket. The chunk is going to be of type `string`
+       * because we let `socket` handle encoding with `setEncoding`.
+       * @protected
+       */
+      _onControlSocketData(chunk) {
+        this.log(`< ${chunk}`);
+        const completeResponse = this._partialResponse + chunk;
+        const parsed = (0, parseControlResponse_1.parseControlResponse)(completeResponse);
+        this._partialResponse = parsed.rest;
+        for (const message of parsed.messages) {
+          const code = parseInt(message.substr(0, 3), 10);
+          const response = { code, message };
+          const err = code >= 400 ? new FTPError(response) : void 0;
+          this._passToHandler(err ? err : response);
+        }
+      }
+      /**
+       * Send the current handler a response. This is usually a control socket response
+       * or a socket event, like an error or timeout.
+       * @protected
+       */
+      _passToHandler(response) {
+        if (this._task) {
+          this._task.responseHandler(response, this._task.resolver);
+        }
+      }
+      /**
+       * Setup all error handlers for a socket.
+       * @protected
+       */
+      _setupDefaultErrorHandlers(socket, identifier) {
+        socket.once("error", (error) => {
+          error.message += ` (${identifier})`;
+          this.closeWithError(error);
+        });
+        socket.once("close", (hadError) => {
+          if (hadError) {
+            this.closeWithError(new Error(`Socket closed due to transmission error (${identifier})`));
+          }
+        });
+        socket.once("timeout", () => {
+          socket.destroy();
+          this.closeWithError(new Error(`Timeout (${identifier})`));
+        });
+      }
+      /**
+       * Close the control socket. Sends QUIT, then FIN, and ignores any response or error.
+       */
+      _closeControlSocket() {
+        this._removeSocketListeners(this._socket);
+        this._socket.on("error", doNothing);
+        this.send("QUIT");
+        this._closeSocket(this._socket);
+      }
+      /**
+       * Close a socket, ignores any error.
+       * @protected
+       */
+      _closeSocket(socket) {
+        if (socket) {
+          this._removeSocketListeners(socket);
+          socket.on("error", doNothing);
+          socket.destroy();
+        }
+      }
+      /**
+       * Remove all default listeners for socket.
+       * @protected
+       */
+      _removeSocketListeners(socket) {
+        socket.removeAllListeners();
+        socket.removeAllListeners("timeout");
+        socket.removeAllListeners("data");
+        socket.removeAllListeners("end");
+        socket.removeAllListeners("error");
+        socket.removeAllListeners("close");
+        socket.removeAllListeners("connect");
+      }
+      /**
+       * Provide a new socket instance.
+       *
+       * Internal use only, replaced for unit tests.
+       */
+      _newSocket() {
+        return new net_1.Socket();
+      }
+    };
+    exports2.FTPContext = FTPContext;
+  }
+});
+
+// node_modules/basic-ftp/dist/FileInfo.js
+var require_FileInfo = __commonJS({
+  "node_modules/basic-ftp/dist/FileInfo.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.FileInfo = exports2.FileType = void 0;
+    var FileType;
+    (function(FileType2) {
+      FileType2[FileType2["Unknown"] = 0] = "Unknown";
+      FileType2[FileType2["File"] = 1] = "File";
+      FileType2[FileType2["Directory"] = 2] = "Directory";
+      FileType2[FileType2["SymbolicLink"] = 3] = "SymbolicLink";
+    })(FileType || (exports2.FileType = FileType = {}));
+    var FileInfo = class {
+      constructor(name) {
+        this.name = name;
+        this.type = FileType.Unknown;
+        this.size = 0;
+        this.rawModifiedAt = "";
+        this.modifiedAt = void 0;
+        this.permissions = void 0;
+        this.hardLinkCount = void 0;
+        this.link = void 0;
+        this.group = void 0;
+        this.user = void 0;
+        this.uniqueID = void 0;
+        this.name = name;
+      }
+      get isDirectory() {
+        return this.type === FileType.Directory;
+      }
+      get isSymbolicLink() {
+        return this.type === FileType.SymbolicLink;
+      }
+      get isFile() {
+        return this.type === FileType.File;
+      }
+      /**
+       * Deprecated, legacy API. Use `rawModifiedAt` instead.
+       * @deprecated
+       */
+      get date() {
+        return this.rawModifiedAt;
+      }
+      set date(rawModifiedAt) {
+        this.rawModifiedAt = rawModifiedAt;
+      }
+    };
+    exports2.FileInfo = FileInfo;
+    FileInfo.UnixPermission = {
+      Read: 4,
+      Write: 2,
+      Execute: 1
+    };
+  }
+});
+
+// node_modules/basic-ftp/dist/parseListDOS.js
+var require_parseListDOS = __commonJS({
+  "node_modules/basic-ftp/dist/parseListDOS.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.testLine = testLine;
+    exports2.parseLine = parseLine2;
+    exports2.transformList = transformList;
+    var FileInfo_1 = require_FileInfo();
+    var RE_LINE = new RegExp(
+      "(\\S+)\\s+(\\S+)\\s+(?:(<DIR>)|([0-9]+))\\s+(\\S.*)"
+      // First non-space followed by rest of line (name)
+    );
+    function testLine(line) {
+      return /^\d{2}/.test(line) && RE_LINE.test(line);
+    }
+    function parseLine2(line) {
+      const groups = line.match(RE_LINE);
+      if (groups === null) {
+        return void 0;
+      }
+      const name = groups[5];
+      if (name === "." || name === "..") {
+        return void 0;
+      }
+      const file = new FileInfo_1.FileInfo(name);
+      const fileType = groups[3];
+      if (fileType === "<DIR>") {
+        file.type = FileInfo_1.FileType.Directory;
+        file.size = 0;
+      } else {
+        file.type = FileInfo_1.FileType.File;
+        file.size = parseInt(groups[4], 10);
+      }
+      file.rawModifiedAt = groups[1] + " " + groups[2];
+      return file;
+    }
+    function transformList(files) {
+      return files;
+    }
+  }
+});
+
+// node_modules/basic-ftp/dist/parseListUnix.js
+var require_parseListUnix = __commonJS({
+  "node_modules/basic-ftp/dist/parseListUnix.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.testLine = testLine;
+    exports2.parseLine = parseLine2;
+    exports2.transformList = transformList;
+    var FileInfo_1 = require_FileInfo();
+    var JA_MONTH = "\u6708";
+    var JA_DAY = "\u65E5";
+    var JA_YEAR = "\u5E74";
+    var RE_LINE = new RegExp("([bcdelfmpSs-])(((r|-)(w|-)([xsStTL-]))((r|-)(w|-)([xsStTL-]))((r|-)(w|-)([xsStTL-]?)))\\+?\\s*(\\d+)\\s+(?:(\\S+(?:\\s\\S+)*?)\\s+)?(?:(\\S+(?:\\s\\S+)*)\\s+)?(\\d+(?:,\\s*\\d+)?)\\s+((?:\\d+[-/]\\d+[-/]\\d+)|(?:\\S{3}\\s+\\d{1,2})|(?:\\d{1,2}\\s+\\S{3})|(?:\\d{1,2}" + JA_MONTH + "\\s+\\d{1,2}" + JA_DAY + "))\\s+((?:\\d+(?::\\d+)?)|(?:\\d{4}" + JA_YEAR + "))\\s(.*)");
+    function testLine(line) {
+      return RE_LINE.test(line);
+    }
+    function parseLine2(line) {
+      const groups = line.match(RE_LINE);
+      if (groups === null) {
+        return void 0;
+      }
+      const name = groups[21];
+      if (name === "." || name === "..") {
+        return void 0;
+      }
+      const file = new FileInfo_1.FileInfo(name);
+      file.size = parseInt(groups[18], 10);
+      file.user = groups[16];
+      file.group = groups[17];
+      file.hardLinkCount = parseInt(groups[15], 10);
+      file.rawModifiedAt = groups[19] + " " + groups[20];
+      file.permissions = {
+        user: parseMode(groups[4], groups[5], groups[6]),
+        group: parseMode(groups[8], groups[9], groups[10]),
+        world: parseMode(groups[12], groups[13], groups[14])
+      };
+      switch (groups[1].charAt(0)) {
+        case "d":
+          file.type = FileInfo_1.FileType.Directory;
+          break;
+        case "e":
+          file.type = FileInfo_1.FileType.SymbolicLink;
+          break;
+        case "l":
+          file.type = FileInfo_1.FileType.SymbolicLink;
+          break;
+        case "b":
+        case "c":
+          file.type = FileInfo_1.FileType.File;
+          break;
+        case "f":
+        case "-":
+          file.type = FileInfo_1.FileType.File;
+          break;
+        default:
+          file.type = FileInfo_1.FileType.Unknown;
+      }
+      if (file.isSymbolicLink) {
+        const end = name.indexOf(" -> ");
+        if (end !== -1) {
+          file.name = name.substring(0, end);
+          file.link = name.substring(end + 4);
+        }
+      }
+      return file;
+    }
+    function transformList(files) {
+      return files;
+    }
+    function parseMode(r, w, x) {
+      let value = 0;
+      if (r !== "-") {
+        value += FileInfo_1.FileInfo.UnixPermission.Read;
+      }
+      if (w !== "-") {
+        value += FileInfo_1.FileInfo.UnixPermission.Write;
+      }
+      const execToken = x.charAt(0);
+      if (execToken !== "-" && execToken.toUpperCase() !== execToken) {
+        value += FileInfo_1.FileInfo.UnixPermission.Execute;
+      }
+      return value;
+    }
+  }
+});
+
+// node_modules/basic-ftp/dist/parseListMLSD.js
+var require_parseListMLSD = __commonJS({
+  "node_modules/basic-ftp/dist/parseListMLSD.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.testLine = testLine;
+    exports2.parseLine = parseLine2;
+    exports2.transformList = transformList;
+    exports2.parseMLSxDate = parseMLSxDate;
+    var FileInfo_1 = require_FileInfo();
+    function parseSize(value, info) {
+      info.size = parseInt(value, 10);
+    }
+    var factHandlersByName = {
+      "size": parseSize,
+      // File size
+      "sizd": parseSize,
+      // Directory size
+      "unique": (value, info) => {
+        info.uniqueID = value;
+      },
+      "modify": (value, info) => {
+        info.modifiedAt = parseMLSxDate(value);
+        info.rawModifiedAt = info.modifiedAt.toISOString();
+      },
+      "type": (value, info) => {
+        if (value.startsWith("OS.unix=slink")) {
+          info.type = FileInfo_1.FileType.SymbolicLink;
+          info.link = value.substr(value.indexOf(":") + 1);
+          return 1;
+        }
+        switch (value) {
+          case "file":
+            info.type = FileInfo_1.FileType.File;
+            break;
+          case "dir":
+            info.type = FileInfo_1.FileType.Directory;
+            break;
+          case "OS.unix=symlink":
+            info.type = FileInfo_1.FileType.SymbolicLink;
+            break;
+          case "cdir":
+          // Current directory being listed
+          case "pdir":
+            return 2;
+          // Don't include these entries in the listing
+          default:
+            info.type = FileInfo_1.FileType.Unknown;
+        }
+        return 1;
+      },
+      "unix.mode": (value, info) => {
+        const digits = value.substr(-3);
+        info.permissions = {
+          user: parseInt(digits[0], 10),
+          group: parseInt(digits[1], 10),
+          world: parseInt(digits[2], 10)
+        };
+      },
+      "unix.ownername": (value, info) => {
+        info.user = value;
+      },
+      "unix.owner": (value, info) => {
+        if (info.user === void 0)
+          info.user = value;
+      },
+      get "unix.uid"() {
+        return this["unix.owner"];
+      },
+      "unix.groupname": (value, info) => {
+        info.group = value;
+      },
+      "unix.group": (value, info) => {
+        if (info.group === void 0)
+          info.group = value;
+      },
+      get "unix.gid"() {
+        return this["unix.group"];
+      }
+      // Regarding the fact "perm":
+      // We don't handle permission information stored in "perm" because its information is conceptually
+      // different from what users of FTP clients usually associate with "permissions". Those that have
+      // some expectations (and probably want to edit them with a SITE command) often unknowingly expect
+      // the Unix permission system. The information passed by "perm" describes what FTP commands can be
+      // executed with a file/directory. But even this can be either incomplete or just meant as a "guide"
+      // as the spec mentions. From https://tools.ietf.org/html/rfc3659#section-7.5.5: "The permissions are
+      // described here as they apply to FTP commands. They may not map easily into particular permissions
+      // available on the server's operating system." The parser by Apache Commons tries to translate these
+      // to Unix permissions – this is misleading users and might not even be correct.
+    };
+    function splitStringOnce(str, delimiter) {
+      const pos = str.indexOf(delimiter);
+      const a = str.substr(0, pos);
+      const b = str.substr(pos + delimiter.length);
+      return [a, b];
+    }
+    function testLine(line) {
+      return /^\S+=\S+;/.test(line) || line.startsWith(" ");
+    }
+    function parseLine2(line) {
+      const [packedFacts, name] = splitStringOnce(line, " ");
+      if (name === "" || name === "." || name === "..") {
+        return void 0;
+      }
+      const info = new FileInfo_1.FileInfo(name);
+      const facts = packedFacts.split(";");
+      for (const fact of facts) {
+        const [factName, factValue] = splitStringOnce(fact, "=");
+        if (!factValue) {
+          continue;
+        }
+        const factHandler = factHandlersByName[factName.toLowerCase()];
+        if (!factHandler) {
+          continue;
+        }
+        const result = factHandler(factValue, info);
+        if (result === 2) {
+          return void 0;
+        }
+      }
+      return info;
+    }
+    function transformList(files) {
+      const nonLinksByID = /* @__PURE__ */ new Map();
+      for (const file of files) {
+        if (!file.isSymbolicLink && file.uniqueID !== void 0) {
+          nonLinksByID.set(file.uniqueID, file);
+        }
+      }
+      const resolvedFiles = [];
+      for (const file of files) {
+        if (file.isSymbolicLink && file.uniqueID !== void 0 && file.link === void 0) {
+          const target = nonLinksByID.get(file.uniqueID);
+          if (target !== void 0) {
+            file.link = target.name;
+          }
+        }
+        const isPartOfDirectory = !file.name.includes("/");
+        if (isPartOfDirectory) {
+          resolvedFiles.push(file);
+        }
+      }
+      return resolvedFiles;
+    }
+    function parseMLSxDate(fact) {
+      return new Date(Date.UTC(
+        +fact.slice(0, 4),
+        // Year
+        +fact.slice(4, 6) - 1,
+        // Month
+        +fact.slice(6, 8),
+        // Date
+        +fact.slice(8, 10),
+        // Hours
+        +fact.slice(10, 12),
+        // Minutes
+        +fact.slice(12, 14),
+        // Seconds
+        +fact.slice(15, 18)
+        // Milliseconds
+      ));
+    }
+  }
+});
+
+// node_modules/basic-ftp/dist/parseList.js
+var require_parseList = __commonJS({
+  "node_modules/basic-ftp/dist/parseList.js"(exports2) {
+    "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      o[k2] = m[k];
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
+      Object.defineProperty(o, "default", { enumerable: true, value: v });
+    }) : function(o, v) {
+      o["default"] = v;
+    });
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
+      var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function(o2) {
+          var ar = [];
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
+          return ar;
+        };
+        return ownKeys(o);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        }
+        __setModuleDefault(result, mod);
+        return result;
+      };
+    })();
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.parseList = parseList;
+    var dosParser = __importStar(require_parseListDOS());
+    var unixParser = __importStar(require_parseListUnix());
+    var mlsdParser = __importStar(require_parseListMLSD());
+    var availableParsers = [
+      dosParser,
+      unixParser,
+      mlsdParser
+      // Keep MLSD last, may accept filename only
+    ];
+    function firstCompatibleParser(line, parsers) {
+      return parsers.find((parser) => parser.testLine(line) === true);
+    }
+    function isNotBlank(str) {
+      return str.trim() !== "";
+    }
+    function isNotMeta(str) {
+      return !str.startsWith("total");
+    }
+    var REGEX_NEWLINE = /\r?\n/;
+    function parseList(rawList) {
+      const lines = rawList.split(REGEX_NEWLINE).filter(isNotBlank).filter(isNotMeta);
+      if (lines.length === 0) {
+        return [];
+      }
+      const testLine = lines[lines.length - 1];
+      const parser = firstCompatibleParser(testLine, availableParsers);
+      if (!parser) {
+        throw new Error("This library only supports MLSD, Unix- or DOS-style directory listing. Your FTP server seems to be using another format. You can see the transmitted listing when setting `client.ftp.verbose = true`. You can then provide a custom parser to `client.parseList`, see the documentation for details.");
+      }
+      const files = lines.map(parser.parseLine).filter((info) => info !== void 0);
+      return parser.transformList(files);
+    }
+  }
+});
+
+// node_modules/basic-ftp/dist/ProgressTracker.js
+var require_ProgressTracker = __commonJS({
+  "node_modules/basic-ftp/dist/ProgressTracker.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.ProgressTracker = void 0;
+    var ProgressTracker = class {
+      constructor() {
+        this.bytesOverall = 0;
+        this.intervalMs = 500;
+        this.onStop = noop;
+        this.onHandle = noop;
+      }
+      /**
+       * Register a new handler for progress info. Use `undefined` to disable reporting.
+       */
+      reportTo(onHandle = noop) {
+        this.onHandle = onHandle;
+      }
+      /**
+       * Start tracking transfer progress of a socket.
+       *
+       * @param socket  The socket to observe.
+       * @param name  A name associated with this progress tracking, e.g. a filename.
+       * @param type  The type of the transfer, typically "upload" or "download".
+       */
+      start(socket, name, type) {
+        let lastBytes = 0;
+        this.onStop = poll(this.intervalMs, () => {
+          const bytes = socket.bytesRead + socket.bytesWritten;
+          this.bytesOverall += bytes - lastBytes;
+          lastBytes = bytes;
+          this.onHandle({
+            name,
+            type,
+            bytes,
+            bytesOverall: this.bytesOverall
+          });
+        });
+      }
+      /**
+       * Stop tracking transfer progress.
+       */
+      stop() {
+        this.onStop(false);
+      }
+      /**
+       * Call the progress handler one more time, then stop tracking.
+       */
+      updateAndStop() {
+        this.onStop(true);
+      }
+    };
+    exports2.ProgressTracker = ProgressTracker;
+    function poll(intervalMs, updateFunc) {
+      const id = setInterval(updateFunc, intervalMs);
+      const stopFunc = (stopWithUpdate) => {
+        clearInterval(id);
+        if (stopWithUpdate) {
+          updateFunc();
+        }
+        updateFunc = noop;
+      };
+      updateFunc();
+      return stopFunc;
+    }
+    function noop() {
+    }
+  }
+});
+
+// node_modules/basic-ftp/dist/StringWriter.js
+var require_StringWriter = __commonJS({
+  "node_modules/basic-ftp/dist/StringWriter.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.StringWriter = void 0;
+    var stream_1 = require("stream");
+    var StringWriter = class extends stream_1.Writable {
+      constructor() {
+        super(...arguments);
+        this.buf = Buffer.alloc(0);
+      }
+      _write(chunk, _, callback) {
+        if (chunk instanceof Buffer) {
+          this.buf = Buffer.concat([this.buf, chunk]);
+          callback(null);
+        } else {
+          callback(new Error("StringWriter expects chunks of type 'Buffer'."));
+        }
+      }
+      getText(encoding) {
+        return this.buf.toString(encoding);
+      }
+    };
+    exports2.StringWriter = StringWriter;
+  }
+});
+
+// node_modules/basic-ftp/dist/netUtils.js
+var require_netUtils = __commonJS({
+  "node_modules/basic-ftp/dist/netUtils.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.describeTLS = describeTLS;
+    exports2.describeAddress = describeAddress;
+    exports2.upgradeSocket = upgradeSocket;
+    exports2.ipIsPrivateV4Address = ipIsPrivateV4Address;
+    var tls_1 = require("tls");
+    function describeTLS(socket) {
+      if (socket instanceof tls_1.TLSSocket) {
+        const protocol = socket.getProtocol();
+        return protocol ? protocol : "Server socket or disconnected client socket";
+      }
+      return "No encryption";
+    }
+    function describeAddress(socket) {
+      if (socket.remoteFamily === "IPv6") {
+        return `[${socket.remoteAddress}]:${socket.remotePort}`;
+      }
+      return `${socket.remoteAddress}:${socket.remotePort}`;
+    }
+    function upgradeSocket(socket, options) {
+      return new Promise((resolve, reject) => {
+        const tlsOptions = Object.assign({}, options, {
+          socket
+        });
+        const tlsSocket = (0, tls_1.connect)(tlsOptions, () => {
+          const expectCertificate = tlsOptions.rejectUnauthorized !== false;
+          if (expectCertificate && !tlsSocket.authorized) {
+            reject(tlsSocket.authorizationError);
+          } else {
+            tlsSocket.removeAllListeners("error");
+            resolve(tlsSocket);
+          }
+        }).once("error", (error) => {
+          reject(error);
+        });
+      });
+    }
+    function ipIsPrivateV4Address(ip = "") {
+      if (ip.startsWith("::ffff:")) {
+        ip = ip.substr(7);
+      }
+      const octets = ip.split(".").map((o) => parseInt(o, 10));
+      return octets[0] === 10 || octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31 || octets[0] === 192 && octets[1] === 168 || ip === "127.0.0.1";
+    }
+  }
+});
+
+// node_modules/basic-ftp/dist/transfer.js
+var require_transfer = __commonJS({
+  "node_modules/basic-ftp/dist/transfer.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.enterPassiveModeIPv6 = enterPassiveModeIPv6;
+    exports2.parseEpsvResponse = parseEpsvResponse;
+    exports2.enterPassiveModeIPv4 = enterPassiveModeIPv4;
+    exports2.enterPassiveModeIPv4_forceControlHostIP = enterPassiveModeIPv4_forceControlHostIP;
+    exports2.parsePasvResponse = parsePasvResponse;
+    exports2.connectForPassiveTransfer = connectForPassiveTransfer;
+    exports2.uploadFrom = uploadFrom;
+    exports2.downloadTo = downloadTo;
+    var netUtils_1 = require_netUtils();
+    var stream_1 = require("stream");
+    var tls_1 = require("tls");
+    var parseControlResponse_1 = require_parseControlResponse();
+    async function enterPassiveModeIPv6(ftp2) {
+      const res = await ftp2.request("EPSV");
+      const port = parseEpsvResponse(res.message);
+      if (!port) {
+        throw new Error("Can't parse EPSV response: " + res.message);
+      }
+      const controlHost = ftp2.socket.remoteAddress;
+      if (controlHost === void 0) {
+        throw new Error("Control socket is disconnected, can't get remote address.");
+      }
+      await connectForPassiveTransfer(controlHost, port, ftp2);
+      return res;
+    }
+    function parseEpsvResponse(message) {
+      const groups = message.match(/[|!]{3}(.+)[|!]/);
+      if (groups === null || groups[1] === void 0) {
+        throw new Error(`Can't parse response to 'EPSV': ${message}`);
+      }
+      const port = parseInt(groups[1], 10);
+      if (Number.isNaN(port)) {
+        throw new Error(`Can't parse response to 'EPSV', port is not a number: ${message}`);
+      }
+      return port;
+    }
+    async function enterPassiveModeIPv4(ftp2) {
+      const res = await ftp2.request("PASV");
+      const target = parsePasvResponse(res.message);
+      if (!target) {
+        throw new Error("Can't parse PASV response: " + res.message);
+      }
+      const controlHost = ftp2.socket.remoteAddress;
+      if ((0, netUtils_1.ipIsPrivateV4Address)(target.host) && controlHost && !(0, netUtils_1.ipIsPrivateV4Address)(controlHost)) {
+        target.host = controlHost;
+      }
+      await connectForPassiveTransfer(target.host, target.port, ftp2);
+      return res;
+    }
+    async function enterPassiveModeIPv4_forceControlHostIP(ftp2) {
+      const res = await ftp2.request("PASV");
+      const target = parsePasvResponse(res.message);
+      if (!target) {
+        throw new Error("Can't parse PASV response: " + res.message);
+      }
+      const controlHost = ftp2.socket.remoteAddress;
+      if (controlHost === void 0) {
+        throw new Error("Control socket is disconnected, can't get remote address.");
+      }
+      await connectForPassiveTransfer(controlHost, target.port, ftp2);
+      return res;
+    }
+    function parsePasvResponse(message) {
+      const groups = message.match(/([-\d]+,[-\d]+,[-\d]+,[-\d]+),([-\d]+),([-\d]+)/);
+      if (groups === null || groups.length !== 4) {
+        throw new Error(`Can't parse response to 'PASV': ${message}`);
+      }
+      return {
+        host: groups[1].replace(/,/g, "."),
+        port: (parseInt(groups[2], 10) & 255) * 256 + (parseInt(groups[3], 10) & 255)
+      };
+    }
+    function connectForPassiveTransfer(host, port, ftp2) {
+      return new Promise((resolve, reject) => {
+        let socket = ftp2._newSocket();
+        const handleConnErr = function(err) {
+          err.message = "Can't open data connection in passive mode: " + err.message;
+          reject(err);
+        };
+        const handleTimeout = function() {
+          socket.destroy();
+          reject(new Error(`Timeout when trying to open data connection to ${host}:${port}`));
+        };
+        socket.setTimeout(ftp2.timeout);
+        socket.on("error", handleConnErr);
+        socket.on("timeout", handleTimeout);
+        socket.connect({ port, host, family: ftp2.ipFamily }, () => {
+          if (ftp2.socket instanceof tls_1.TLSSocket) {
+            socket = (0, tls_1.connect)(Object.assign({}, ftp2.tlsOptions, {
+              socket,
+              // Reuse the TLS session negotiated earlier when the control connection
+              // was upgraded. Servers expect this because it provides additional
+              // security: If a completely new session would be negotiated, a hacker
+              // could guess the port and connect to the new data connection before we do
+              // by just starting his/her own TLS session.
+              session: ftp2.socket.getSession()
+            }));
+          }
+          socket.removeListener("error", handleConnErr);
+          socket.removeListener("timeout", handleTimeout);
+          ftp2.dataSocket = socket;
+          resolve();
+        });
+      });
+    }
+    var TransferResolver = class {
+      /**
+       * Instantiate a TransferResolver
+       */
+      constructor(ftp2, progress) {
+        this.ftp = ftp2;
+        this.progress = progress;
+        this.response = void 0;
+        this.dataTransferDone = false;
+      }
+      /**
+       * Mark the beginning of a transfer.
+       *
+       * @param name - Name of the transfer, usually the filename.
+       * @param type - Type of transfer, usually "upload" or "download".
+       */
+      onDataStart(name, type) {
+        if (this.ftp.dataSocket === void 0) {
+          throw new Error("Data transfer should start but there is no data connection.");
+        }
+        this.ftp.socket.setTimeout(0);
+        this.ftp.dataSocket.setTimeout(this.ftp.timeout);
+        this.progress.start(this.ftp.dataSocket, name, type);
+      }
+      /**
+       * The data connection has finished the transfer.
+       */
+      onDataDone(task) {
+        this.progress.updateAndStop();
+        this.ftp.socket.setTimeout(this.ftp.timeout);
+        if (this.ftp.dataSocket) {
+          this.ftp.dataSocket.setTimeout(0);
+        }
+        this.dataTransferDone = true;
+        this.tryResolve(task);
+      }
+      /**
+       * The control connection reports the transfer as finished.
+       */
+      onControlDone(task, response) {
+        this.response = response;
+        this.tryResolve(task);
+      }
+      /**
+       * An error has been reported and the task should be rejected.
+       */
+      onError(task, err) {
+        this.progress.updateAndStop();
+        this.ftp.socket.setTimeout(this.ftp.timeout);
+        this.ftp.dataSocket = void 0;
+        task.reject(err);
+      }
+      /**
+       * Control connection sent an unexpected request requiring a response from our part. We
+       * can't provide that (because unknown) and have to close the contrext with an error because
+       * the FTP server is now caught up in a state we can't resolve.
+       */
+      onUnexpectedRequest(response) {
+        const err = new Error(`Unexpected FTP response is requesting an answer: ${response.message}`);
+        this.ftp.closeWithError(err);
+      }
+      tryResolve(task) {
+        const canResolve = this.dataTransferDone && this.response !== void 0;
+        if (canResolve) {
+          this.ftp.dataSocket = void 0;
+          task.resolve(this.response);
+        }
+      }
+    };
+    function uploadFrom(source, config) {
+      const resolver = new TransferResolver(config.ftp, config.tracker);
+      const fullCommand = `${config.command} ${config.remotePath}`;
+      return config.ftp.handle(fullCommand, (res, task) => {
+        if (res instanceof Error) {
+          resolver.onError(task, res);
+        } else if (res.code === 150 || res.code === 125) {
+          const dataSocket = config.ftp.dataSocket;
+          if (!dataSocket) {
+            resolver.onError(task, new Error("Upload should begin but no data connection is available."));
+            return;
+          }
+          const canUpload = "getCipher" in dataSocket ? dataSocket.getCipher() !== void 0 : true;
+          onConditionOrEvent(canUpload, dataSocket, "secureConnect", () => {
+            config.ftp.log(`Uploading to ${(0, netUtils_1.describeAddress)(dataSocket)} (${(0, netUtils_1.describeTLS)(dataSocket)})`);
+            resolver.onDataStart(config.remotePath, config.type);
+            (0, stream_1.pipeline)(source, dataSocket, (err) => {
+              if (err) {
+                resolver.onError(task, err);
+              } else {
+                resolver.onDataDone(task);
+              }
+            });
+          });
+        } else if ((0, parseControlResponse_1.positiveCompletion)(res.code)) {
+          resolver.onControlDone(task, res);
+        } else if ((0, parseControlResponse_1.positiveIntermediate)(res.code)) {
+          resolver.onUnexpectedRequest(res);
+        }
+      });
+    }
+    function downloadTo(destination, config) {
+      if (!config.ftp.dataSocket) {
+        throw new Error("Download will be initiated but no data connection is available.");
+      }
+      const resolver = new TransferResolver(config.ftp, config.tracker);
+      return config.ftp.handle(config.command, (res, task) => {
+        if (res instanceof Error) {
+          resolver.onError(task, res);
+        } else if (res.code === 150 || res.code === 125) {
+          const dataSocket = config.ftp.dataSocket;
+          if (!dataSocket) {
+            resolver.onError(task, new Error("Download should begin but no data connection is available."));
+            return;
+          }
+          config.ftp.log(`Downloading from ${(0, netUtils_1.describeAddress)(dataSocket)} (${(0, netUtils_1.describeTLS)(dataSocket)})`);
+          resolver.onDataStart(config.remotePath, config.type);
+          (0, stream_1.pipeline)(dataSocket, destination, (err) => {
+            if (err) {
+              resolver.onError(task, err);
+            } else {
+              resolver.onDataDone(task);
+            }
+          });
+        } else if (res.code === 350) {
+          config.ftp.send("RETR " + config.remotePath);
+        } else if ((0, parseControlResponse_1.positiveCompletion)(res.code)) {
+          resolver.onControlDone(task, res);
+        } else if ((0, parseControlResponse_1.positiveIntermediate)(res.code)) {
+          resolver.onUnexpectedRequest(res);
+        }
+      });
+    }
+    function onConditionOrEvent(condition, emitter, eventName, action) {
+      if (condition === true) {
+        action();
+      } else {
+        emitter.once(eventName, () => action());
+      }
+    }
+  }
+});
+
+// node_modules/basic-ftp/dist/Client.js
+var require_Client = __commonJS({
+  "node_modules/basic-ftp/dist/Client.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.Client = void 0;
+    var fs_1 = require("fs");
+    var path_1 = require("path");
+    var tls_1 = require("tls");
+    var util_1 = require("util");
+    var FtpContext_1 = require_FtpContext();
+    var parseList_1 = require_parseList();
+    var ProgressTracker_1 = require_ProgressTracker();
+    var StringWriter_1 = require_StringWriter();
+    var parseListMLSD_1 = require_parseListMLSD();
+    var netUtils_1 = require_netUtils();
+    var transfer_1 = require_transfer();
+    var parseControlResponse_1 = require_parseControlResponse();
+    var fsReadDir = (0, util_1.promisify)(fs_1.readdir);
+    var fsMkDir = (0, util_1.promisify)(fs_1.mkdir);
+    var fsStat = (0, util_1.promisify)(fs_1.stat);
+    var fsOpen = (0, util_1.promisify)(fs_1.open);
+    var fsClose = (0, util_1.promisify)(fs_1.close);
+    var fsUnlink = (0, util_1.promisify)(fs_1.unlink);
+    var defaultClientOptions = {
+      allowSeparateTransferHost: true
+    };
+    var LIST_COMMANDS_DEFAULT = () => ["LIST -a", "LIST"];
+    var LIST_COMMANDS_MLSD = () => ["MLSD", "LIST -a", "LIST"];
+    var Client2 = class {
+      /**
+       * Instantiate an FTP client.
+       *
+       * @param timeout  Timeout in milliseconds, use 0 for no timeout. Optional, default is 30 seconds.
+       */
+      constructor(timeout = 3e4, options = defaultClientOptions) {
+        this.availableListCommands = LIST_COMMANDS_DEFAULT();
+        this.ftp = new FtpContext_1.FTPContext(timeout);
+        this.prepareTransfer = this._enterFirstCompatibleMode([
+          transfer_1.enterPassiveModeIPv6,
+          options.allowSeparateTransferHost ? transfer_1.enterPassiveModeIPv4 : transfer_1.enterPassiveModeIPv4_forceControlHostIP
+        ]);
+        this.parseList = parseList_1.parseList;
+        this._progressTracker = new ProgressTracker_1.ProgressTracker();
+      }
+      /**
+       * Close the client and all open socket connections.
+       *
+       * Close the client and all open socket connections. The client can’t be used anymore after calling this method,
+       * you have to either reconnect with `access` or `connect` or instantiate a new instance to continue any work.
+       * A client is also closed automatically if any timeout or connection error occurs.
+       */
+      close() {
+        this.ftp.close();
+        this._progressTracker.stop();
+      }
+      /**
+       * Returns true if the client is closed and can't be used anymore.
+       */
+      get closed() {
+        return this.ftp.closed;
+      }
+      /**
+       * Connect (or reconnect) to an FTP server.
+       *
+       * This is an instance method and thus can be called multiple times during the lifecycle of a `Client`
+       * instance. Whenever you do, the client is reset with a new control connection. This also implies that
+       * you can reopen a `Client` instance that has been closed due to an error when reconnecting with this
+       * method. In fact, reconnecting is the only way to continue using a closed `Client`.
+       *
+       * @param host  Host the client should connect to. Optional, default is "localhost".
+       * @param port  Port the client should connect to. Optional, default is 21.
+       */
+      connect(host = "localhost", port = 21) {
+        this.ftp.reset();
+        this.ftp.socket.connect({
+          host,
+          port,
+          family: this.ftp.ipFamily
+        }, () => this.ftp.log(`Connected to ${(0, netUtils_1.describeAddress)(this.ftp.socket)} (${(0, netUtils_1.describeTLS)(this.ftp.socket)})`));
+        return this._handleConnectResponse();
+      }
+      /**
+       * As `connect` but using implicit TLS. Implicit TLS is not an FTP standard and has been replaced by
+       * explicit TLS. There are still FTP servers that support only implicit TLS, though.
+       */
+      connectImplicitTLS(host = "localhost", port = 21, tlsOptions = {}) {
+        this.ftp.reset();
+        this.ftp.socket = (0, tls_1.connect)(port, host, tlsOptions, () => this.ftp.log(`Connected to ${(0, netUtils_1.describeAddress)(this.ftp.socket)} (${(0, netUtils_1.describeTLS)(this.ftp.socket)})`));
+        this.ftp.tlsOptions = tlsOptions;
+        return this._handleConnectResponse();
+      }
+      /**
+       * Handles the first reponse by an FTP server after the socket connection has been established.
+       */
+      _handleConnectResponse() {
+        return this.ftp.handle(void 0, (res, task) => {
+          if (res instanceof Error) {
+            task.reject(res);
+          } else if ((0, parseControlResponse_1.positiveCompletion)(res.code)) {
+            task.resolve(res);
+          } else {
+            task.reject(new FtpContext_1.FTPError(res));
+          }
+        });
+      }
+      /**
+       * Send an FTP command and handle the first response.
+       */
+      send(command, ignoreErrorCodesDEPRECATED = false) {
+        if (ignoreErrorCodesDEPRECATED) {
+          this.ftp.log("Deprecated call using send(command, flag) with boolean flag to ignore errors. Use sendIgnoringError(command).");
+          return this.sendIgnoringError(command);
+        }
+        return this.ftp.request(command);
+      }
+      /**
+       * Send an FTP command and ignore an FTP error response. Any other kind of error or timeout will still reject the Promise.
+       *
+       * @param command
+       */
+      sendIgnoringError(command) {
+        return this.ftp.handle(command, (res, task) => {
+          if (res instanceof FtpContext_1.FTPError) {
+            task.resolve({ code: res.code, message: res.message });
+          } else if (res instanceof Error) {
+            task.reject(res);
+          } else {
+            task.resolve(res);
+          }
+        });
+      }
+      /**
+       * Upgrade the current socket connection to TLS.
+       *
+       * @param options  TLS options as in `tls.connect(options)`, optional.
+       * @param command  Set the authentication command. Optional, default is "AUTH TLS".
+       */
+      async useTLS(options = {}, command = "AUTH TLS") {
+        const ret = await this.send(command);
+        this.ftp.socket = await (0, netUtils_1.upgradeSocket)(this.ftp.socket, options);
+        this.ftp.tlsOptions = options;
+        this.ftp.log(`Control socket is using: ${(0, netUtils_1.describeTLS)(this.ftp.socket)}`);
+        return ret;
+      }
+      /**
+       * Login a user with a password.
+       *
+       * @param user  Username to use for login. Optional, default is "anonymous".
+       * @param password  Password to use for login. Optional, default is "guest".
+       */
+      login(user = "anonymous", password = "guest") {
+        this.ftp.log(`Login security: ${(0, netUtils_1.describeTLS)(this.ftp.socket)}`);
+        return this.ftp.handle("USER " + user, (res, task) => {
+          if (res instanceof Error) {
+            task.reject(res);
+          } else if ((0, parseControlResponse_1.positiveCompletion)(res.code)) {
+            task.resolve(res);
+          } else if (res.code === 331) {
+            this.ftp.send("PASS " + password);
+          } else {
+            task.reject(new FtpContext_1.FTPError(res));
+          }
+        });
+      }
+      /**
+       * Set the usual default settings.
+       *
+       * Settings used:
+       * * Binary mode (TYPE I)
+       * * File structure (STRU F)
+       * * Additional settings for FTPS (PBSZ 0, PROT P)
+       */
+      async useDefaultSettings() {
+        const features = await this.features();
+        const supportsMLSD = features.has("MLST");
+        this.availableListCommands = supportsMLSD ? LIST_COMMANDS_MLSD() : LIST_COMMANDS_DEFAULT();
+        await this.send("TYPE I");
+        await this.sendIgnoringError("STRU F");
+        await this.sendIgnoringError("OPTS UTF8 ON");
+        if (supportsMLSD) {
+          await this.sendIgnoringError("OPTS MLST type;size;modify;unique;unix.mode;unix.owner;unix.group;unix.ownername;unix.groupname;");
+        }
+        if (this.ftp.hasTLS) {
+          await this.sendIgnoringError("PBSZ 0");
+          await this.sendIgnoringError("PROT P");
+        }
+      }
+      /**
+       * Convenience method that calls `connect`, `useTLS`, `login` and `useDefaultSettings`.
+       *
+       * This is an instance method and thus can be called multiple times during the lifecycle of a `Client`
+       * instance. Whenever you do, the client is reset with a new control connection. This also implies that
+       * you can reopen a `Client` instance that has been closed due to an error when reconnecting with this
+       * method. In fact, reconnecting is the only way to continue using a closed `Client`.
+       */
+      async access(options = {}) {
+        var _a, _b;
+        const useExplicitTLS = options.secure === true;
+        const useImplicitTLS = options.secure === "implicit";
+        let welcome;
+        if (useImplicitTLS) {
+          welcome = await this.connectImplicitTLS(options.host, options.port, options.secureOptions);
+        } else {
+          welcome = await this.connect(options.host, options.port);
+        }
+        if (useExplicitTLS) {
+          const secureOptions = (_a = options.secureOptions) !== null && _a !== void 0 ? _a : {};
+          secureOptions.host = (_b = secureOptions.host) !== null && _b !== void 0 ? _b : options.host;
+          await this.useTLS(secureOptions);
+        }
+        await this.sendIgnoringError("OPTS UTF8 ON");
+        await this.login(options.user, options.password);
+        await this.useDefaultSettings();
+        return welcome;
+      }
+      /**
+       * Get the current working directory.
+       */
+      async pwd() {
+        const res = await this.send("PWD");
+        const parsed = res.message.match(/"(.+)"/);
+        if (parsed === null || parsed[1] === void 0) {
+          throw new Error(`Can't parse response to command 'PWD': ${res.message}`);
+        }
+        return parsed[1];
+      }
+      /**
+       * Get a description of supported features.
+       *
+       * This sends the FEAT command and parses the result into a Map where keys correspond to available commands
+       * and values hold further information. Be aware that your FTP servers might not support this
+       * command in which case this method will not throw an exception but just return an empty Map.
+       */
+      async features() {
+        const res = await this.sendIgnoringError("FEAT");
+        const features = /* @__PURE__ */ new Map();
+        if (res.code < 400 && (0, parseControlResponse_1.isMultiline)(res.message)) {
+          res.message.split("\n").slice(1, -1).forEach((line) => {
+            const entry = line.trim().split(" ");
+            features.set(entry[0], entry[1] || "");
+          });
+        }
+        return features;
+      }
+      /**
+       * Set the working directory.
+       */
+      async cd(path12) {
+        const validPath = await this.protectWhitespace(path12);
+        return this.send("CWD " + validPath);
+      }
+      /**
+       * Switch to the parent directory of the working directory.
+       */
+      async cdup() {
+        return this.send("CDUP");
+      }
+      /**
+       * Get the last modified time of a file. This is not supported by every FTP server, in which case
+       * calling this method will throw an exception.
+       */
+      async lastMod(path12) {
+        const validPath = await this.protectWhitespace(path12);
+        const res = await this.send(`MDTM ${validPath}`);
+        const date = res.message.slice(4);
+        return (0, parseListMLSD_1.parseMLSxDate)(date);
+      }
+      /**
+       * Get the size of a file.
+       */
+      async size(path12) {
+        const validPath = await this.protectWhitespace(path12);
+        const command = `SIZE ${validPath}`;
+        const res = await this.send(command);
+        const size = parseInt(res.message.slice(4), 10);
+        if (Number.isNaN(size)) {
+          throw new Error(`Can't parse response to command '${command}' as a numerical value: ${res.message}`);
+        }
+        return size;
+      }
+      /**
+       * Rename a file.
+       *
+       * Depending on the FTP server this might also be used to move a file from one
+       * directory to another by providing full paths.
+       */
+      async rename(srcPath, destPath) {
+        const validSrc = await this.protectWhitespace(srcPath);
+        const validDest = await this.protectWhitespace(destPath);
+        await this.send("RNFR " + validSrc);
+        return this.send("RNTO " + validDest);
+      }
+      /**
+       * Remove a file from the current working directory.
+       *
+       * You can ignore FTP error return codes which won't throw an exception if e.g.
+       * the file doesn't exist.
+       */
+      async remove(path12, ignoreErrorCodes = false) {
+        const validPath = await this.protectWhitespace(path12);
+        if (ignoreErrorCodes) {
+          return this.sendIgnoringError(`DELE ${validPath}`);
+        }
+        return this.send(`DELE ${validPath}`);
+      }
+      /**
+       * Report transfer progress for any upload or download to a given handler.
+       *
+       * This will also reset the overall transfer counter that can be used for multiple transfers. You can
+       * also call the function without a handler to stop reporting to an earlier one.
+       *
+       * @param handler  Handler function to call on transfer progress.
+       */
+      trackProgress(handler) {
+        this._progressTracker.bytesOverall = 0;
+        this._progressTracker.reportTo(handler);
+      }
+      /**
+       * Upload data from a readable stream or a local file to a remote file.
+       *
+       * @param source  Readable stream or path to a local file.
+       * @param toRemotePath  Path to a remote file to write to.
+       */
+      async uploadFrom(source, toRemotePath, options = {}) {
+        return this._uploadWithCommand(source, toRemotePath, "STOR", options);
+      }
+      /**
+       * Upload data from a readable stream or a local file by appending it to an existing file. If the file doesn't
+       * exist the FTP server should create it.
+       *
+       * @param source  Readable stream or path to a local file.
+       * @param toRemotePath  Path to a remote file to write to.
+       */
+      async appendFrom(source, toRemotePath, options = {}) {
+        return this._uploadWithCommand(source, toRemotePath, "APPE", options);
+      }
+      /**
+       * @protected
+       */
+      async _uploadWithCommand(source, remotePath, command, options) {
+        if (typeof source === "string") {
+          return this._uploadLocalFile(source, remotePath, command, options);
+        }
+        return this._uploadFromStream(source, remotePath, command);
+      }
+      /**
+       * @protected
+       */
+      async _uploadLocalFile(localPath2, remotePath, command, options) {
+        const fd = await fsOpen(localPath2, "r");
+        const source = (0, fs_1.createReadStream)("", {
+          fd,
+          start: options.localStart,
+          end: options.localEndInclusive,
+          autoClose: false
+        });
+        try {
+          return await this._uploadFromStream(source, remotePath, command);
+        } finally {
+          await ignoreError(() => fsClose(fd));
+        }
+      }
+      /**
+       * @protected
+       */
+      async _uploadFromStream(source, remotePath, command) {
+        const onError = (err) => this.ftp.closeWithError(err);
+        source.once("error", onError);
+        try {
+          const validPath = await this.protectWhitespace(remotePath);
+          await this.prepareTransfer(this.ftp);
+          return await (0, transfer_1.uploadFrom)(source, {
+            ftp: this.ftp,
+            tracker: this._progressTracker,
+            command,
+            remotePath: validPath,
+            type: "upload"
+          });
+        } finally {
+          source.removeListener("error", onError);
+        }
+      }
+      /**
+       * Download a remote file and pipe its data to a writable stream or to a local file.
+       *
+       * You can optionally define at which position of the remote file you'd like to start
+       * downloading. If the destination you provide is a file, the offset will be applied
+       * to it as well. For example: To resume a failed download, you'd request the size of
+       * the local, partially downloaded file and use that as the offset. Assuming the size
+       * is 23, you'd download the rest using `downloadTo("local.txt", "remote.txt", 23)`.
+       *
+       * @param destination  Stream or path for a local file to write to.
+       * @param fromRemotePath  Path of the remote file to read from.
+       * @param startAt  Position within the remote file to start downloading at. If the destination is a file, this offset is also applied to it.
+       */
+      async downloadTo(destination, fromRemotePath, startAt = 0) {
+        if (typeof destination === "string") {
+          return this._downloadToFile(destination, fromRemotePath, startAt);
+        }
+        return this._downloadToStream(destination, fromRemotePath, startAt);
+      }
+      /**
+       * @protected
+       */
+      async _downloadToFile(localPath2, remotePath, startAt) {
+        const appendingToLocalFile = startAt > 0;
+        const fileSystemFlags = appendingToLocalFile ? "r+" : "w";
+        const fd = await fsOpen(localPath2, fileSystemFlags);
+        const destination = (0, fs_1.createWriteStream)("", {
+          fd,
+          start: startAt,
+          autoClose: false
+        });
+        try {
+          return await this._downloadToStream(destination, remotePath, startAt);
+        } catch (err) {
+          const localFileStats = await ignoreError(() => fsStat(localPath2));
+          const hasDownloadedData = localFileStats && localFileStats.size > 0;
+          const shouldRemoveLocalFile = !appendingToLocalFile && !hasDownloadedData;
+          if (shouldRemoveLocalFile) {
+            await ignoreError(() => fsUnlink(localPath2));
+          }
+          throw err;
+        } finally {
+          await ignoreError(() => fsClose(fd));
+        }
+      }
+      /**
+       * @protected
+       */
+      async _downloadToStream(destination, remotePath, startAt) {
+        const onError = (err) => this.ftp.closeWithError(err);
+        destination.once("error", onError);
+        try {
+          const validPath = await this.protectWhitespace(remotePath);
+          await this.prepareTransfer(this.ftp);
+          return await (0, transfer_1.downloadTo)(destination, {
+            ftp: this.ftp,
+            tracker: this._progressTracker,
+            command: startAt > 0 ? `REST ${startAt}` : `RETR ${validPath}`,
+            remotePath: validPath,
+            type: "download"
+          });
+        } finally {
+          destination.removeListener("error", onError);
+          destination.end();
+        }
+      }
+      /**
+       * List files and directories in the current working directory, or from `path` if specified.
+       *
+       * @param [path]  Path to remote file or directory.
+       */
+      async list(path12 = "") {
+        const validPath = await this.protectWhitespace(path12);
+        let lastError;
+        for (const candidate of this.availableListCommands) {
+          const command = validPath === "" ? candidate : `${candidate} ${validPath}`;
+          await this.prepareTransfer(this.ftp);
+          try {
+            const parsedList = await this._requestListWithCommand(command);
+            this.availableListCommands = [candidate];
+            return parsedList;
+          } catch (err) {
+            const shouldTryNext = err instanceof FtpContext_1.FTPError;
+            if (!shouldTryNext) {
+              throw err;
+            }
+            lastError = err;
+          }
+        }
+        throw lastError;
+      }
+      /**
+       * @protected
+       */
+      async _requestListWithCommand(command) {
+        const buffer = new StringWriter_1.StringWriter();
+        await (0, transfer_1.downloadTo)(buffer, {
+          ftp: this.ftp,
+          tracker: this._progressTracker,
+          command,
+          remotePath: "",
+          type: "list"
+        });
+        const text = buffer.getText(this.ftp.encoding);
+        this.ftp.log(text);
+        return this.parseList(text);
+      }
+      /**
+       * Remove a directory and all of its content.
+       *
+       * @param remoteDirPath  The path of the remote directory to delete.
+       * @example client.removeDir("foo") // Remove directory 'foo' using a relative path.
+       * @example client.removeDir("foo/bar") // Remove directory 'bar' using a relative path.
+       * @example client.removeDir("/foo/bar") // Remove directory 'bar' using an absolute path.
+       * @example client.removeDir("/") // Remove everything.
+       */
+      async removeDir(remoteDirPath) {
+        return this._exitAtCurrentDirectory(async () => {
+          await this.cd(remoteDirPath);
+          const absoluteDirPath = await this.pwd();
+          await this.clearWorkingDir();
+          const dirIsRoot = absoluteDirPath === "/";
+          if (!dirIsRoot) {
+            await this.cdup();
+            await this.removeEmptyDir(absoluteDirPath);
+          }
+        });
+      }
+      /**
+       * Remove all files and directories in the working directory without removing
+       * the working directory itself.
+       */
+      async clearWorkingDir() {
+        for (const file of await this.list()) {
+          if (file.isDirectory) {
+            await this.cd(file.name);
+            await this.clearWorkingDir();
+            await this.cdup();
+            await this.removeEmptyDir(file.name);
+          } else {
+            await this.remove(file.name);
+          }
+        }
+      }
+      /**
+       * Upload the contents of a local directory to the remote working directory.
+       *
+       * This will overwrite existing files with the same names and reuse existing directories.
+       * Unrelated files and directories will remain untouched. You can optionally provide a `remoteDirPath`
+       * to put the contents inside a directory which will be created if necessary including all
+       * intermediate directories. If you did provide a remoteDirPath the working directory will stay
+       * the same as before calling this method.
+       *
+       * @param localDirPath  Local path, e.g. "foo/bar" or "../test"
+       * @param [remoteDirPath]  Remote path of a directory to upload to. Working directory if undefined.
+       */
+      async uploadFromDir(localDirPath, remoteDirPath) {
+        return this._exitAtCurrentDirectory(async () => {
+          if (remoteDirPath) {
+            await this.ensureDir(remoteDirPath);
+          }
+          return await this._uploadToWorkingDir(localDirPath);
+        });
+      }
+      /**
+       * @protected
+       */
+      async _uploadToWorkingDir(localDirPath) {
+        const files = await fsReadDir(localDirPath);
+        for (const file of files) {
+          const fullPath = (0, path_1.join)(localDirPath, file);
+          const stats = await fsStat(fullPath);
+          if (stats.isFile()) {
+            await this.uploadFrom(fullPath, file);
+          } else if (stats.isDirectory()) {
+            await this._openDir(file);
+            await this._uploadToWorkingDir(fullPath);
+            await this.cdup();
+          }
+        }
+      }
+      /**
+       * Download all files and directories of the working directory to a local directory.
+       *
+       * @param localDirPath  The local directory to download to.
+       * @param remoteDirPath  Remote directory to download. Current working directory if not specified.
+       */
+      async downloadToDir(localDirPath, remoteDirPath) {
+        return this._exitAtCurrentDirectory(async () => {
+          if (remoteDirPath) {
+            await this.cd(remoteDirPath);
+          }
+          return await this._downloadFromWorkingDir(localDirPath);
+        });
+      }
+      /**
+       * @protected
+       */
+      async _downloadFromWorkingDir(localDirPath) {
+        await ensureLocalDirectory(localDirPath);
+        for (const file of await this.list()) {
+          const hasInvalidName = !file.name || (0, path_1.basename)(file.name) !== file.name;
+          if (hasInvalidName) {
+            const safeName = JSON.stringify(file.name);
+            this.ftp.log(`Invalid filename from server listing, will skip file. (${safeName})`);
+            continue;
+          }
+          const localPath2 = (0, path_1.join)(localDirPath, file.name);
+          if (file.isDirectory) {
+            await this.cd(file.name);
+            await this._downloadFromWorkingDir(localPath2);
+            await this.cdup();
+          } else if (file.isFile) {
+            await this.downloadTo(localPath2, file.name);
+          }
+        }
+      }
+      /**
+       * Make sure a given remote path exists, creating all directories as necessary.
+       * This function also changes the current working directory to the given path.
+       */
+      async ensureDir(remoteDirPath) {
+        if (remoteDirPath.startsWith("/")) {
+          await this.cd("/");
+        }
+        const names = remoteDirPath.split("/").filter((name) => name !== "");
+        for (const name of names) {
+          await this._openDir(name);
+        }
+      }
+      /**
+       * Try to create a directory and enter it. This will not raise an exception if the directory
+       * couldn't be created if for example it already exists.
+       * @protected
+       */
+      async _openDir(dirName) {
+        await this.sendIgnoringError("MKD " + dirName);
+        await this.cd(dirName);
+      }
+      /**
+       * Remove an empty directory, will fail if not empty.
+       */
+      async removeEmptyDir(path12) {
+        const validPath = await this.protectWhitespace(path12);
+        return this.send(`RMD ${validPath}`);
+      }
+      /**
+       * FTP servers can't handle filenames that have leading whitespace. This method transforms
+       * a given path to fix that issue for most cases.
+       */
+      async protectWhitespace(path12) {
+        if (!path12.startsWith(" ")) {
+          return path12;
+        }
+        const pwd = await this.pwd();
+        const absolutePathPrefix = pwd.endsWith("/") ? pwd : pwd + "/";
+        return absolutePathPrefix + path12;
+      }
+      async _exitAtCurrentDirectory(func) {
+        const userDir = await this.pwd();
+        try {
+          return await func();
+        } finally {
+          if (!this.closed) {
+            await ignoreError(() => this.cd(userDir));
+          }
+        }
+      }
+      /**
+       * Try all available transfer strategies and pick the first one that works. Update `client` to
+       * use the working strategy for all successive transfer requests.
+       *
+       * @returns a function that will try the provided strategies.
+       */
+      _enterFirstCompatibleMode(strategies) {
+        return async (ftp2) => {
+          ftp2.log("Trying to find optimal transfer strategy...");
+          let lastError = void 0;
+          for (const strategy of strategies) {
+            try {
+              const res = await strategy(ftp2);
+              ftp2.log("Optimal transfer strategy found.");
+              this.prepareTransfer = strategy;
+              return res;
+            } catch (err) {
+              lastError = err;
+            }
+          }
+          throw new Error(`None of the available transfer strategies work. Last error response was '${lastError}'.`);
+        };
+      }
+      /**
+       * DEPRECATED, use `uploadFrom`.
+       * @deprecated
+       */
+      async upload(source, toRemotePath, options = {}) {
+        this.ftp.log("Warning: upload() has been deprecated, use uploadFrom().");
+        return this.uploadFrom(source, toRemotePath, options);
+      }
+      /**
+       * DEPRECATED, use `appendFrom`.
+       * @deprecated
+       */
+      async append(source, toRemotePath, options = {}) {
+        this.ftp.log("Warning: append() has been deprecated, use appendFrom().");
+        return this.appendFrom(source, toRemotePath, options);
+      }
+      /**
+       * DEPRECATED, use `downloadTo`.
+       * @deprecated
+       */
+      async download(destination, fromRemotePath, startAt = 0) {
+        this.ftp.log("Warning: download() has been deprecated, use downloadTo().");
+        return this.downloadTo(destination, fromRemotePath, startAt);
+      }
+      /**
+       * DEPRECATED, use `uploadFromDir`.
+       * @deprecated
+       */
+      async uploadDir(localDirPath, remoteDirPath) {
+        this.ftp.log("Warning: uploadDir() has been deprecated, use uploadFromDir().");
+        return this.uploadFromDir(localDirPath, remoteDirPath);
+      }
+      /**
+       * DEPRECATED, use `downloadToDir`.
+       * @deprecated
+       */
+      async downloadDir(localDirPath) {
+        this.ftp.log("Warning: downloadDir() has been deprecated, use downloadToDir().");
+        return this.downloadToDir(localDirPath);
+      }
+    };
+    exports2.Client = Client2;
+    async function ensureLocalDirectory(path12) {
+      try {
+        await fsStat(path12);
+      } catch (_a) {
+        await fsMkDir(path12, { recursive: true });
+      }
+    }
+    async function ignoreError(func) {
+      try {
+        return await func();
+      } catch (_a) {
+        return void 0;
+      }
+    }
+  }
+});
+
+// node_modules/basic-ftp/dist/StringEncoding.js
+var require_StringEncoding = __commonJS({
+  "node_modules/basic-ftp/dist/StringEncoding.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+  }
+});
+
+// node_modules/basic-ftp/dist/index.js
+var require_dist18 = __commonJS({
+  "node_modules/basic-ftp/dist/index.js"(exports2) {
+    "use strict";
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      o[k2] = m[k];
+    }));
+    var __exportStar = exports2 && exports2.__exportStar || function(m, exports3) {
+      for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
+    };
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.enterPassiveModeIPv6 = exports2.enterPassiveModeIPv4 = void 0;
+    __exportStar(require_Client(), exports2);
+    __exportStar(require_FtpContext(), exports2);
+    __exportStar(require_FileInfo(), exports2);
+    __exportStar(require_parseList(), exports2);
+    __exportStar(require_StringEncoding(), exports2);
+    var transfer_1 = require_transfer();
+    Object.defineProperty(exports2, "enterPassiveModeIPv4", { enumerable: true, get: function() {
+      return transfer_1.enterPassiveModeIPv4;
+    } });
+    Object.defineProperty(exports2, "enterPassiveModeIPv6", { enumerable: true, get: function() {
+      return transfer_1.enterPassiveModeIPv6;
+    } });
+  }
+});
+
+// src/services/BambuFtpsClient.js
+var BambuFtpsClient_exports = {};
+__export(BambuFtpsClient_exports, {
+  BambuFtpsClient: () => BambuFtpsClient,
+  default: () => BambuFtpsClient_default
+});
+var ftp, import_node_tls, import_node_stream, import_node_perf_hooks, log17, BambuFtpsClient, BambuFtpsClient_default;
+var init_BambuFtpsClient = __esm({
+  "src/services/BambuFtpsClient.js"() {
+    ftp = __toESM(require_dist18(), 1);
+    import_node_tls = __toESM(require("node:tls"), 1);
+    import_node_stream = require("node:stream");
+    import_node_perf_hooks = require("node:perf_hooks");
+    init_logger();
+    log17 = createLogger("BambuFTPS");
+    BambuFtpsClient = class {
+      constructor({ ip, accessCode, printerId }) {
+        this.ip = ip;
+        this.accessCode = accessCode;
+        this.printerId = printerId || "unknown";
+      }
+      async isReachable() {
+        const net3 = await import("node:net");
+        return new Promise((resolve) => {
+          const socket = new net3.default.Socket();
+          socket.setTimeout(3e3);
+          socket.on("connect", () => {
+            socket.destroy();
+            resolve(true);
+          });
+          socket.on("timeout", () => {
+            socket.destroy();
+            resolve(false);
+          });
+          socket.on("error", () => {
+            socket.destroy();
+            resolve(false);
+          });
+          socket.connect(990, this.ip);
+        });
+      }
+      /**
+       * Upload with full stage timing instrumentation.
+       * Returns { success, bytesUploaded, verified, error?, trace[] }
+       */
+      async upload(content, remoteFileName, onProgress = null) {
+        const buffer = typeof content === "string" ? Buffer.from(content, "utf-8") : content;
+        const totalBytes = buffer.length;
+        const t0 = import_node_perf_hooks.performance.now();
+        const trace = [];
+        const stage = (name, detail = null) => {
+          const elapsed = Math.round(import_node_perf_hooks.performance.now() - t0);
+          trace.push({ stage: name, elapsed_ms: elapsed, detail, ts: (/* @__PURE__ */ new Date()).toISOString() });
+          log17.info(`[${this.printerId}] [+${elapsed}ms] ${name}${detail ? " \u2014 " + (typeof detail === "object" ? JSON.stringify(detail) : detail) : ""}`);
+        };
+        stage("FTPS_CONFIG", {
+          host: this.ip,
+          port: 990,
+          user: "bblp",
+          timeout_ms: 3e5,
+          file_size: totalBytes,
+          file_name: remoteFileName,
+          upload_method: "streaming_from_buffer_via_Readable.from",
+          tls: "implicit",
+          tls_session_reuse: true
+        });
+        let client;
+        let origTlsConnect;
+        try {
+          stage("FTPS_CONNECT_START");
+          client = new ftp.Client(3e5);
+          client.ftp.verbose = false;
+          const tlsOptions = {
+            rejectUnauthorized: false,
+            minVersion: "TLSv1.2"
+          };
+          await client.access({
+            host: this.ip,
+            port: 990,
+            user: "bblp",
+            password: this.accessCode,
+            secure: "implicit",
+            secureOptions: tlsOptions
+          });
+          stage("FTPS_CONNECT_OK");
+          const controlSocket = client.ftp.socket;
+          if (controlSocket instanceof import_node_tls.default.TLSSocket) {
+            stage("FTPS_TLS_HANDSHAKE_OK", {
+              protocol: controlSocket.getProtocol?.(),
+              cipher: controlSocket.getCipher?.()?.name,
+              session_reuse: !!controlSocket.getSession()
+            });
+            origTlsConnect = import_node_tls.default.connect;
+            const self2 = this;
+            import_node_tls.default.connect = function(options, ...args) {
+              if (options && options.host === self2.ip) {
+                options.session = controlSocket.getSession();
+                options.rejectUnauthorized = false;
+              }
+              return origTlsConnect.call(import_node_tls.default, options, ...args);
+            };
+          }
+          stage("FTPS_CD_CACHE_START");
+          try {
+            await client.cd("/cache");
+            stage("FTPS_CD_CACHE_OK");
+          } catch (e) {
+            stage("FTPS_CD_CACHE_FAIL", e.message);
+          }
+          stage("UPLOAD_STREAM_OPENED", { total_bytes: totalBytes });
+          let lastProgressLog = import_node_perf_hooks.performance.now();
+          let bytesTransferred = 0;
+          client.trackProgress((info) => {
+            bytesTransferred = info.bytesOverall;
+            const now = import_node_perf_hooks.performance.now();
+            if (now - lastProgressLog >= 1e3 || bytesTransferred === totalBytes) {
+              const elapsedSec = (now - t0) / 1e3;
+              const kbps = bytesTransferred > 0 ? Math.round(bytesTransferred / 1024 / elapsedSec) : 0;
+              stage("UPLOAD_PROGRESS", {
+                bytes_sent: bytesTransferred,
+                total: totalBytes,
+                percent: Math.round(bytesTransferred / totalBytes * 100),
+                throughput_kbps: kbps
+              });
+              lastProgressLog = now;
+            }
+            if (onProgress) {
+              onProgress({
+                bytes: bytesTransferred,
+                total: totalBytes,
+                percent: Math.round(bytesTransferred / totalBytes * 100)
+              });
+            }
+          });
+          const uploadStart = import_node_perf_hooks.performance.now();
+          const stream = import_node_stream.Readable.from(buffer);
+          await client.uploadFrom(stream, remoteFileName);
+          const uploadEnd = import_node_perf_hooks.performance.now();
+          const uploadDurationMs = Math.round(uploadEnd - uploadStart);
+          const uploadKBps = Math.round(totalBytes / 1024 / (uploadDurationMs / 1e3));
+          client.trackProgress();
+          stage("UPLOAD_FINISHED", {
+            bytes_sent: totalBytes,
+            duration_ms: uploadDurationMs,
+            throughput_kbps: uploadKBps,
+            throughput_mbps: Math.round(uploadKBps * 8 / 1024 * 100) / 100
+          });
+          stage("REMOTE_VERIFY_START", { method: "FTP SIZE command" });
+          let verified = false;
+          try {
+            const remoteSize = await client.size(remoteFileName);
+            verified = remoteSize === totalBytes;
+            stage("REMOTE_VERIFY_END", { remote_size: remoteSize, local_size: totalBytes, match: verified });
+          } catch (e) {
+            stage("REMOTE_VERIFY_END", { error: e.message, assumed_ok: true });
+            verified = true;
+          }
+          return { success: true, bytesUploaded: totalBytes, verified, trace };
+        } catch (err) {
+          stage("FTPS_ERROR", { error: err.message, code: err.code });
+          const msg = err.message.toLowerCase();
+          if (msg.includes("microsd") || msg.includes("read/write") || msg.includes("storage") || msg.includes("sd card")) {
+            stage("PRINTER_ERROR_DETECTED", {
+              type: "SD_STORAGE",
+              raw_message: err.message,
+              guidance: "Format SD in printer or replace card"
+            });
+          }
+          return { success: false, bytesUploaded: 0, error: err.message, trace };
+        } finally {
+          if (origTlsConnect) import_node_tls.default.connect = origTlsConnect;
+          if (client) client.close();
+        }
+      }
+      async listCache() {
+        let client;
+        let origTlsConnect;
+        try {
+          client = new ftp.Client(3e5);
+          client.ftp.verbose = false;
+          await client.access({ host: this.ip, port: 990, user: "bblp", password: this.accessCode, secure: "implicit", secureOptions: { rejectUnauthorized: false } });
+          const controlSocket = client.ftp.socket;
+          if (controlSocket instanceof import_node_tls.default.TLSSocket) {
+            origTlsConnect = import_node_tls.default.connect;
+            const self2 = this;
+            import_node_tls.default.connect = function(options, ...args) {
+              if (options && options.host === self2.ip) {
+                options.session = controlSocket.getSession();
+                options.rejectUnauthorized = false;
+              }
+              return origTlsConnect.call(import_node_tls.default, options, ...args);
+            };
+          }
+          try {
+            await client.cd("/cache");
+          } catch {
+          }
+          const list = await client.list();
+          return list.map((f) => ({ name: f.name, size: f.size, date: f.modifiedAt }));
+        } catch (err) {
+          log17.error(`[${this.printerId}] FTPS list failed: ${err.message}`);
+          return [];
+        } finally {
+          if (origTlsConnect) import_node_tls.default.connect = origTlsConnect;
+          if (client) client.close();
+        }
+      }
+      /**
+       * List filenames in /cache/ (convenience wrapper).
+       * @returns {string[]} Array of filenames
+       */
+      async listCacheFiles() {
+        const entries = await this.listCache();
+        return entries.map((e) => e.name);
+      }
+    };
+    BambuFtpsClient_default = BambuFtpsClient;
+  }
+});
+
 // src/services/JobOrchestrator.js
 var JobOrchestrator_exports = {};
 __export(JobOrchestrator_exports, {
   JobOrchestrator: () => JobOrchestrator,
   default: () => JobOrchestrator_default
 });
-var import_node_fs3, import_node_path5, log19, UPLOADS_DIR, JobOrchestrator, JobOrchestrator_default;
+var import_node_fs3, import_node_path5, log18, UPLOADS_DIR, JobOrchestrator, JobOrchestrator_default;
 var init_JobOrchestrator = __esm({
   "src/services/JobOrchestrator.js"() {
     init_Job();
@@ -43116,10 +43090,11 @@ var init_JobOrchestrator = __esm({
     init_logger();
     init_PrinterErrors();
     init_JobRetryService();
+    init_SystemEvents();
     import_node_fs3 = __toESM(require("node:fs"), 1);
     import_node_path5 = __toESM(require("node:path"), 1);
     init_uploadPaths();
-    log19 = createLogger("JobOrchestrator");
+    log18 = createLogger("JobOrchestrator");
     UPLOADS_DIR = getUploadRoot();
     JobOrchestrator = class {
       static wsBroadcast = null;
@@ -43135,8 +43110,16 @@ var init_JobOrchestrator = __esm({
       }
       /**
        * Submit a new job: upload → transform → store → optionally start.
+       *
+       * transform_mode (only meaningful with a 3MF input):
+       *  - 'required' (default): transform failure fails the job.
+       *  - 'optional': transform failure falls back to printing the original
+       *    artifact untouched (used for cloud/merchant files we didn't slice).
+       *  - 'skip': never transform; print the original artifact as-is.
+       * auto_start: when a printer is assigned, false leaves the job 'assigned'
+       * (queued for that printer) instead of starting it immediately.
        */
-      static async submit({ name, printer_id, profile_id, repeat_total, ams_roles, fileContent, fileName, skip_transform = false, transform_overrides = null, rawBuffer3mf = null, originalFileName3mf = null }) {
+      static async submit({ name, printer_id, profile_id, repeat_total, ams_roles, fileContent, fileName, skip_transform = false, transform_overrides = null, rawBuffer3mf = null, originalFileName3mf = null, transform_mode = "required", auto_start = true, metadata = null }) {
         if (!import_node_fs3.default.existsSync(UPLOADS_DIR)) import_node_fs3.default.mkdirSync(UPLOADS_DIR, { recursive: true });
         let profile;
         if (profile_id) {
@@ -43144,6 +43127,9 @@ var init_JobOrchestrator = __esm({
         }
         if (!profile) {
           profile = GcodeProfileModel.findByName("universal");
+        }
+        if (!profile) {
+          profile = GcodeProfileModel.findByModel("*")[0] || null;
         }
         if (!profile) {
           throw new Error("No G-code transform profile found");
@@ -43154,9 +43140,10 @@ var init_JobOrchestrator = __esm({
           profile_id: profile.profile_id,
           source_file_name: fileName,
           ams_roles,
-          repeat_total: repeat_total || 1
+          repeat_total: repeat_total || 1,
+          metadata
         });
-        log19.info(`Job created: ${job.name} [${job.job_id}]`);
+        log18.info(`Job created: ${job.name} [${job.job_id}]`);
         try {
           const sourcePath = import_node_path5.default.join(UPLOADS_DIR, `${job.job_id}_${fileName}`);
           import_node_fs3.default.writeFileSync(sourcePath, fileContent);
@@ -43176,7 +43163,7 @@ var init_JobOrchestrator = __esm({
               event_type: "job.submitted",
               payload: { raw_mode: true }
             });
-            log19.info(`Job submitted (raw mode, no transform): ${rawFileName}`);
+            log18.info(`Job submitted (raw mode, no transform): ${rawFileName}`);
           } else {
             const automatorConfig = {
               printerModel: transform_overrides?.printer_model || profile.printer_model || "P1S",
@@ -43194,27 +43181,66 @@ var init_JobOrchestrator = __esm({
             let doubleLoopWarning = null;
             if (automatorConfig.loopsN > 1 && jobRepeats > 1) {
               doubleLoopWarning = `Double-loop guard: n_loops=${automatorConfig.loopsN} AND repeat_total=${jobRepeats} \u2192 ${automatorConfig.loopsN * jobRepeats} total prints. Verify this is intended.`;
-              log19.warn(`[${job.job_id}] ${doubleLoopWarning}`);
+              log18.warn(`[${job.job_id}] ${doubleLoopWarning}`);
             }
-            log19.info(`=== AUTOMATOR CONFIG (diagnostic) ===`);
-            log19.info(`  raw overrides: ${JSON.stringify(transform_overrides)}`);
-            log19.info(`  resolved config: ${JSON.stringify(automatorConfig)}`);
-            log19.info(`  profile.n_loops=${profile.n_loops}, repeat_total=${repeat_total}`);
-            log19.info(`=====================================`);
+            log18.info(`=== AUTOMATOR CONFIG (diagnostic) ===`);
+            log18.info(`  raw overrides: ${JSON.stringify(transform_overrides)}`);
+            log18.info(`  resolved config: ${JSON.stringify(automatorConfig)}`);
+            log18.info(`  profile.n_loops=${profile.n_loops}, repeat_total=${repeat_total}`);
+            log18.info(`=====================================`);
             let gcodeText = fileContent;
             let gcodeEntryName = null;
             if (rawBuffer3mf) {
               const extracted = extractGcodeFrom3mf(rawBuffer3mf);
               gcodeText = extracted.gcodeText;
               gcodeEntryName = extracted.gcodeEntryName;
-              log19.info(`Extracted gcode from 3MF: ${gcodeEntryName}`);
+              log18.info(`Extracted gcode from 3MF: ${gcodeEntryName}`);
             }
-            const { output: transformedGcode, report } = automate(gcodeText, automatorConfig);
+            let transformedGcode = null;
+            let report = null;
+            let transformError = null;
+            if (transform_mode !== "skip") {
+              try {
+                ({ output: transformedGcode, report } = automate(gcodeText, automatorConfig));
+              } catch (transformErr) {
+                if (transform_mode !== "optional" || !rawBuffer3mf) throw transformErr;
+                transformError = transformErr.message;
+                log18.warn(`Transform failed for ${job.job_id}, falling back to original artifact: ${transformError}`);
+              }
+            }
+            if (transformedGcode === null) {
+              if (!rawBuffer3mf) throw new Error("transform_mode skip/fallback requires a .gcode.3mf input");
+              const passthroughName = originalFileName3mf || fileName;
+              import_node_fs3.default.writeFileSync(import_node_path5.default.join(UPLOADS_DIR, `${job.job_id}_${passthroughName}`), rawBuffer3mf);
+              JobModel.update(job.job_id, {
+                transformed_file_name: passthroughName,
+                transform_report: {
+                  skipped: true,
+                  mode: transform_mode,
+                  transform_error: transformError,
+                  gcode_entry_name: gcodeEntryName
+                },
+                diff_summary: { raw_mode: true },
+                status: printer_id ? "assigned" : "queued"
+              });
+              EventModel.create({
+                entity_type: "job",
+                entity_id: job.job_id,
+                event_type: "job.submitted",
+                payload: { raw_mode: true, transform_mode, transform_error: transformError }
+              });
+              log18.info(`Job submitted (original artifact, no transform): ${passthroughName}`);
+              this._broadcast("job.created", JobModel.findById(job.job_id));
+              if (printer_id && auto_start) {
+                await this.startJob(job.job_id);
+              }
+              return JobModel.findById(job.job_id);
+            }
             if (doubleLoopWarning) report.warnings.push(doubleLoopWarning);
             const debugGcodeFileName = fileName.replace(/\.gcode(\.3mf)?$/i, ".AG.gcode");
             const debugGcodePath = import_node_path5.default.join(UPLOADS_DIR, `${job.job_id}_${debugGcodeFileName}`);
             import_node_fs3.default.writeFileSync(debugGcodePath, transformedGcode, "utf-8");
-            log19.info(`Saved debug .gcode: ${debugGcodeFileName}`);
+            log18.info(`Saved debug .gcode: ${debugGcodeFileName}`);
             const filesWritten = [debugGcodeFileName];
             let primaryFileName = debugGcodeFileName;
             if (rawBuffer3mf && originalFileName3mf && gcodeEntryName) {
@@ -43225,9 +43251,9 @@ var init_JobOrchestrator = __esm({
                 import_node_fs3.default.writeFileSync(threemfPath, repacked);
                 primaryFileName = threemfFileName;
                 filesWritten.push(threemfFileName);
-                log19.info(`Saved repacked .3mf: ${threemfFileName}`);
+                log18.info(`Saved repacked .3mf: ${threemfFileName}`);
               } catch (repackErr) {
-                log19.warn(`3MF repack failed (plain .gcode still available): ${repackErr.message}`);
+                log18.warn(`3MF repack failed (plain .gcode still available): ${repackErr.message}`);
                 report.warnings.push(`3MF repack failed: ${repackErr.message}`);
               }
             }
@@ -43249,10 +43275,10 @@ var init_JobOrchestrator = __esm({
                 files_written: filesWritten
               }
             });
-            log19.info(`Job transformed: ${primaryFileName} (${report.transformTimeMs}ms)`);
+            log18.info(`Job transformed: ${primaryFileName} (${report.transformTimeMs}ms)`);
             this._broadcast("job.created", job);
           }
-          if (printer_id) {
+          if (printer_id && auto_start) {
             await this.startJob(job.job_id);
           }
           return JobModel.findById(job.job_id);
@@ -43280,7 +43306,7 @@ var init_JobOrchestrator = __esm({
           const elapsed = Math.round(performance3.now() - t0);
           const entry = { stage: name, elapsed_ms: elapsed, detail, ts: (/* @__PURE__ */ new Date()).toISOString() };
           debugTrace.push(entry);
-          log19.info(`[SEND:${jobId.slice(0, 8)}] [+${elapsed}ms] ${name}${detail ? " \u2014 " + (typeof detail === "object" ? JSON.stringify(detail) : detail) : ""}`);
+          log18.info(`[SEND:${jobId.slice(0, 8)}] [+${elapsed}ms] ${name}${detail ? " \u2014 " + (typeof detail === "object" ? JSON.stringify(detail) : detail) : ""}`);
           this._broadcast("job.debug_trace", { job_id: jobId, ...entry });
         };
         stage("SEND_CLICK_RECEIVED");
@@ -43332,7 +43358,7 @@ var init_JobOrchestrator = __esm({
           stage("PREFLIGHT_OK", { state: preflight.state, nozzle: preflight.nozzle_temp, bed: preflight.bed_temp, warnings: preflight.warnings });
           broadcastPhase("preflight", "ok", { state: preflight.state, nozzle_temp: preflight.nozzle_temp, bed_temp: preflight.bed_temp, warnings: preflight.warnings });
           stage("FILE_READ_START");
-          const auth = PrinterModel.getAuth(job.printer_id);
+          const auth = worker.mockMode ? { access_code: "mock" } : PrinterModel.getAuth(job.printer_id);
           if (!auth?.access_code) {
             stage("FILE_READ_FAIL", "No access code");
             throw new Error("Upload failed: No access code");
@@ -43363,59 +43389,64 @@ var init_JobOrchestrator = __esm({
           const plateMatch = gcodeEntry.match(/plate_(\d+)/i);
           if (plateMatch) plateNumber = parseInt(plateMatch[1], 10);
           stage("ARTIFACT_VALIDATION_OK", { type: ".gcode.3mf", gcode_entry: gcodeEntry, plate: plateNumber, remote_file: remoteFileName });
-          stage("FTPS_REACHABILITY_START");
-          const { BambuFtpsClient: BambuFtpsClient2 } = await Promise.resolve().then(() => (init_BambuFtpsClient(), BambuFtpsClient_exports));
-          const ftpsClient = new BambuFtpsClient2({ ip: printer.ip_hostname, accessCode: auth.access_code, printerId: job.printer_id });
-          const ftpsReachable = await ftpsClient.isReachable();
-          stage(ftpsReachable ? "FTPS_REACHABILITY_OK" : "FTPS_REACHABILITY_FAIL");
-          if (!ftpsReachable) {
-            broadcastPhase("upload", "failed", "FTPS port 990 not reachable.");
-            throw new Error("Upload failed: FTPS not reachable");
-          }
-          stage("UPLOAD_DELEGATED_TO_FTPS_CLIENT");
-          broadcastPhase("upload", "running");
-          const uploadResult = await ftpsClient.upload(fileBuffer, remoteFileName, (progress) => {
-            this._broadcast("job.upload_progress", {
-              job_id: jobId,
-              printer_id: job.printer_id,
-              bytes: progress.bytes,
-              total: progress.total,
-              percent: progress.percent
+          if (worker.mockMode) {
+            stage("UPLOAD_SKIPPED_MOCK", { bytes: fileBuffer.length });
+            broadcastPhase("upload", "ok", { mock: true, bytes: fileBuffer.length, filename: remoteFileName });
+          } else {
+            stage("FTPS_REACHABILITY_START");
+            const { BambuFtpsClient: BambuFtpsClient2 } = await Promise.resolve().then(() => (init_BambuFtpsClient(), BambuFtpsClient_exports));
+            const ftpsClient = new BambuFtpsClient2({ ip: printer.ip_hostname, accessCode: auth.access_code, printerId: job.printer_id });
+            const ftpsReachable = await ftpsClient.isReachable();
+            stage(ftpsReachable ? "FTPS_REACHABILITY_OK" : "FTPS_REACHABILITY_FAIL");
+            if (!ftpsReachable) {
+              broadcastPhase("upload", "failed", "FTPS port 990 not reachable.");
+              throw new Error("Upload failed: FTPS not reachable");
+            }
+            stage("UPLOAD_DELEGATED_TO_FTPS_CLIENT");
+            broadcastPhase("upload", "running");
+            const uploadResult = await ftpsClient.upload(fileBuffer, remoteFileName, (progress) => {
+              this._broadcast("job.upload_progress", {
+                job_id: jobId,
+                printer_id: job.printer_id,
+                bytes: progress.bytes,
+                total: progress.total,
+                percent: progress.percent
+              });
             });
-          });
-          if (uploadResult.trace) {
-            for (const t of uploadResult.trace) {
-              debugTrace.push({ ...t, source: "ftps_client" });
-              this._broadcast("job.debug_trace", { job_id: jobId, ...t, source: "ftps_client" });
+            if (uploadResult.trace) {
+              for (const t of uploadResult.trace) {
+                debugTrace.push({ ...t, source: "ftps_client" });
+                this._broadcast("job.debug_trace", { job_id: jobId, ...t, source: "ftps_client" });
+              }
             }
-          }
-          if (!uploadResult.success) {
-            stage("UPLOAD_FAILED", uploadResult.error);
-            broadcastPhase("upload", "failed", uploadResult.error);
-            const errLower = (uploadResult.error || "").toLowerCase();
-            if (errLower.includes("microsd") || errLower.includes("read/write") || errLower.includes("storage") || errLower.includes("sd card")) {
-              stage("PRINTER_ERROR_DETECTED", { type: "SD_STORAGE", raw: uploadResult.error });
+            if (!uploadResult.success) {
+              stage("UPLOAD_FAILED", uploadResult.error);
+              broadcastPhase("upload", "failed", uploadResult.error);
+              const errLower = (uploadResult.error || "").toLowerCase();
+              if (errLower.includes("microsd") || errLower.includes("read/write") || errLower.includes("storage") || errLower.includes("sd card")) {
+                stage("PRINTER_ERROR_DETECTED", { type: "SD_STORAGE", raw: uploadResult.error });
+              }
+              throw new Error(`Upload failed: ${uploadResult.error}`);
             }
-            throw new Error(`Upload failed: ${uploadResult.error}`);
-          }
-          stage("UPLOAD_COMPLETE", { bytes: uploadResult.bytesUploaded, verified: uploadResult.verified });
-          broadcastPhase("upload", "ok", { bytes: uploadResult.bytesUploaded, verified: uploadResult.verified, filename: remoteFileName });
-          try {
-            const cacheFiles = await ftpsClient.listCacheFiles();
-            const remoteExists = cacheFiles.some((f) => f.toLowerCase() === remoteFileName.toLowerCase());
-            if (remoteExists) {
-              stage("REMOTE_FILE_RESOLVED", { remote_path: `/cache/${remoteFileName}`, found_in_listing: true });
-            } else {
-              stage("REMOTE_FILE_RESOLUTION_FAILED", { remote_file: remoteFileName, cache_files: cacheFiles.slice(0, 10) });
-              log19.warn(`Remote file not found in /cache/ listing. Expected: ${remoteFileName}. Found: ${cacheFiles.join(", ")}`);
+            stage("UPLOAD_COMPLETE", { bytes: uploadResult.bytesUploaded, verified: uploadResult.verified });
+            broadcastPhase("upload", "ok", { bytes: uploadResult.bytesUploaded, verified: uploadResult.verified, filename: remoteFileName });
+            try {
+              const cacheFiles = await ftpsClient.listCacheFiles();
+              const remoteExists = cacheFiles.some((f) => f.toLowerCase() === remoteFileName.toLowerCase());
+              if (remoteExists) {
+                stage("REMOTE_FILE_RESOLVED", { remote_path: `/cache/${remoteFileName}`, found_in_listing: true });
+              } else {
+                stage("REMOTE_FILE_RESOLUTION_FAILED", { remote_file: remoteFileName, cache_files: cacheFiles.slice(0, 10) });
+                log18.warn(`Remote file not found in /cache/ listing. Expected: ${remoteFileName}. Found: ${cacheFiles.join(", ")}`);
+              }
+            } catch (listErr) {
+              stage("REMOTE_FILE_LIST_SKIPPED", { error: listErr.message });
             }
-          } catch (listErr) {
-            stage("REMOTE_FILE_LIST_SKIPPED", { error: listErr.message });
           }
           stage("START_PRINT_REQUESTED");
           broadcastPhase("start", "running");
           const run = JobRunModel.create({ job_id: jobId, printer_id: job.printer_id });
-          if (worker.mqttClient) {
+          if (worker.mockMode || worker.mqttClient) {
             let amsMapping = [];
             if (job.ams_roles?.slot_map) amsMapping = Object.values(job.ams_roles.slot_map);
             const startPayload = {
@@ -43430,9 +43461,15 @@ var init_JobOrchestrator = __esm({
               throw new Error("Start payload invalid: filename must be .3mf");
             }
             stage("START_PAYLOAD_VALIDATED", { filename: startPayload.filename, plate: startPayload.plateNumber, ams: startPayload.useAms });
-            worker.mqttClient.startPrint(startPayload);
-            worker.activeJobId = jobId;
-            stage("MQTT_START_COMMAND_SENT");
+            if (worker.mockMode) {
+              await worker._startPrint(startPayload);
+              worker.activeJobId = jobId;
+              stage("MOCK_START_COMMAND_SENT");
+            } else {
+              worker.mqttClient.startPrint(startPayload);
+              worker.activeJobId = jobId;
+              stage("MQTT_START_COMMAND_SENT");
+            }
           } else {
             stage("START_PRINT_FAIL", "MQTT not available");
             broadcastPhase("start", "failed", "MQTT client not available");
@@ -43477,7 +43514,7 @@ var init_JobOrchestrator = __esm({
             stage("START_PRINT_NO_ACK", { final_state: ackResult.newState, standing_error: standing?.formatted || null });
             const detail = standing ? `Printer did not start and reports ${standing.message} [${standing.formatted}].` : `Printer accepted the command but did not begin printing within ${ackTimeout / 1e3}s (still idle, no error). The file may be unreadable on the printer's storage, or the printer is waiting on an on-screen confirmation.`;
             broadcastPhase("start", "failed", detail);
-            log19.warn(`Printer ${job.printer_id} did not ACK start within ${ackTimeout}ms (stayed idle)`);
+            log18.warn(`Printer ${job.printer_id} did not ACK start within ${ackTimeout}ms (stayed idle)`);
             throw new Error(`Start failed: ${detail}`);
           }
           stage("FIRST_TELEMETRY_STATE_AFTER_START", {
@@ -43497,8 +43534,9 @@ var init_JobOrchestrator = __esm({
             event_type: "job.started",
             payload: { printer_id: job.printer_id, run_id: run.run_id, send_trace: sendTrace, debug_trace: debugTrace }
           });
-          log19.info(`Job started: ${job.name} on printer ${job.printer_id} (total: ${totalElapsed}ms)`);
+          log18.info(`Job started: ${job.name} on printer ${job.printer_id} (total: ${totalElapsed}ms)`);
           this._broadcast("job.started", { job_id: jobId, printer_id: job.printer_id, run_id: run.run_id });
+          SystemEvents_default.emit("job.started", { job: JobModel.findById(jobId), printer_id: job.printer_id, run_id: run.run_id });
           this._broadcast("job.status_changed", { job_id: jobId, status: "printing" });
           this._broadcast("job.debug_trace_complete", { job_id: jobId, trace: debugTrace });
           return { job: JobModel.findById(jobId), run, send_trace: sendTrace, debug_trace: debugTrace };
@@ -43516,8 +43554,9 @@ var init_JobOrchestrator = __esm({
           });
           this._broadcast("job.send_failed", { job_id: jobId, error: err.message, send_trace: sendTrace, debug_trace: debugTrace });
           this._broadcast("job.status_changed", { job_id: jobId, status: "failed" });
+          let requeue = { requeued: false };
           try {
-            const requeue = JobRetryService.maybeRequeue(jobId, { error: err.message });
+            requeue = JobRetryService.maybeRequeue(jobId, { error: err.message });
             if (requeue.requeued) {
               this._broadcast("job.requeued", { job_id: jobId, attempt: requeue.attempt, remaining: requeue.remaining });
               this._broadcast("job.status_changed", { job_id: jobId, status: "queued" });
@@ -43527,17 +43566,25 @@ var init_JobOrchestrator = __esm({
               }
             }
           } catch (retryErr) {
-            log19.warn(`Auto-retry evaluation failed: ${retryErr.message}`);
+            log18.warn(`Auto-retry evaluation failed: ${retryErr.message}`);
+          }
+          if (!requeue.requeued) {
+            SystemEvents_default.emit("job.failed", { job: JobModel.findById(jobId), printer_id: job.printer_id, reason: err.message });
           }
           throw err;
         }
       }
       /**
        * Handle job completion (called when printer reports done).
+       * Producer: PrinterWorker completion detection via RuntimeSupervisor.
        */
       static async onJobCompleted(jobId, printerId) {
         const job = JobModel.findById(jobId);
         if (!job) return;
+        if (job.status !== "printing") {
+          log18.warn(`onJobCompleted ignored for ${jobId}: status is ${job.status}`);
+          return;
+        }
         const runs = JobRunModel.findByJobId(jobId);
         const activeRun = runs.find((r) => r.status === "printing");
         if (activeRun) {
@@ -43545,18 +43592,28 @@ var init_JobOrchestrator = __esm({
         }
         const profile = job.profile_id ? GcodeProfileModel.findById(job.profile_id) : null;
         if (profile) {
-          log19.info(`Triggering ejection for job ${jobId}`);
-          const ejectResult = await executeEjectionSequence({
-            job_id: jobId,
-            printer_id: printerId,
-            profile
-          });
-          EventModel.create({
-            entity_type: "job",
-            entity_id: jobId,
-            event_type: "job.eject_result",
-            payload: ejectResult
-          });
+          log18.info(`Triggering ejection for job ${jobId}`);
+          try {
+            const ejectResult = await executeEjectionSequence({
+              job_id: jobId,
+              printer_id: printerId,
+              profile
+            });
+            EventModel.create({
+              entity_type: "job",
+              entity_id: jobId,
+              event_type: "job.eject_result",
+              payload: ejectResult
+            });
+          } catch (ejectErr) {
+            log18.error(`Ejection failed for job ${jobId}: ${ejectErr.message}`);
+            EventModel.create({
+              entity_type: "job",
+              entity_id: jobId,
+              event_type: "job.eject_result",
+              payload: { success: false, error: ejectErr.message }
+            });
+          }
         }
         if (job.repeat_remaining > 1) {
           JobModel.update(jobId, {
@@ -43573,11 +43630,40 @@ var init_JobOrchestrator = __esm({
             event_type: "job.completed",
             payload: { total_repeats: job.repeat_total }
           });
-          log19.info(`Job completed: ${job.name}`);
+          log18.info(`Job completed: ${job.name}`);
           this._broadcast("job.completed", { job_id: jobId, total_repeats: job.repeat_total });
           this._broadcast("job.status_changed", { job_id: jobId, status: "completed" });
+          SystemEvents_default.emit("job.completed", { job: JobModel.findById(jobId), printer_id: printerId });
           await this._autoStartNextJob(printerId);
         }
+      }
+      /**
+       * Handle a print that ended without finishing (stopped on-device or a
+       * blocking error). Marks the job failed so it doesn't sit "printing", and
+       * does NOT auto-start the next job — the bed state is unknown.
+       */
+      static async onJobAborted(jobId, printerId, reason = "aborted") {
+        const job = JobModel.findById(jobId);
+        if (!job) return;
+        if (job.status !== "printing") {
+          log18.warn(`onJobAborted ignored for ${jobId}: status is ${job.status}`);
+          return;
+        }
+        const runs = JobRunModel.findByJobId(jobId);
+        const activeRun = runs.find((r) => r.status === "printing");
+        if (activeRun) {
+          JobRunModel.updateStatus(activeRun.run_id, "failed");
+        }
+        JobModel.update(jobId, { status: "failed" });
+        EventModel.create({
+          entity_type: "job",
+          entity_id: jobId,
+          event_type: "job.print_aborted",
+          payload: { printer_id: printerId, reason }
+        });
+        log18.warn(`Job ${jobId} aborted on printer ${printerId}: ${reason}`);
+        this._broadcast("job.status_changed", { job_id: jobId, status: "failed" });
+        SystemEvents_default.emit("job.failed", { job: JobModel.findById(jobId), printer_id: printerId, reason });
       }
       /**
        * Cancel a job.
@@ -43628,12 +43714,432 @@ var init_JobOrchestrator = __esm({
         try {
           return await this.startJob(next.job_id);
         } catch (error) {
-          log19.warn(`Auto-start next job failed: ${error.message}`);
+          log18.warn(`Auto-start next job failed: ${error.message}`);
           return null;
         }
       }
     };
     JobOrchestrator_default = JobOrchestrator;
+  }
+});
+
+// src/runtime/RuntimeSupervisor.js
+var RuntimeSupervisor_exports = {};
+__export(RuntimeSupervisor_exports, {
+  RuntimeSupervisor: () => RuntimeSupervisor,
+  default: () => RuntimeSupervisor_default,
+  getSupervisor: () => getSupervisor
+});
+function getSupervisor() {
+  if (!_supervisor) _supervisor = new RuntimeSupervisor();
+  return _supervisor;
+}
+var log19, RuntimeSupervisor, _supervisor, RuntimeSupervisor_default;
+var init_RuntimeSupervisor = __esm({
+  "src/runtime/RuntimeSupervisor.js"() {
+    init_Printer();
+    init_Accessory();
+    init_Event();
+    init_PrinterWorker();
+    init_AccessoryWorker();
+    init_CommandBus();
+    init_BambuDiscovery();
+    init_logger();
+    init_SystemEvents();
+    log19 = createLogger("RuntimeSupervisor");
+    RuntimeSupervisor = class _RuntimeSupervisor {
+      static _instance = null;
+      static getInstance() {
+        return this._instance;
+      }
+      constructor() {
+        this.printerWorkers = /* @__PURE__ */ new Map();
+        this.accessoryWorkers = /* @__PURE__ */ new Map();
+        this.discovery = getDiscoveryInstance();
+        this.running = false;
+        this.commandPollInterval = null;
+        this.healthCheckInterval = null;
+        this.wsBroadcast = null;
+        _RuntimeSupervisor._instance = this;
+      }
+      /**
+       * Start the runtime: spawn workers for all registered printers/accessories.
+       */
+      async start() {
+        log19.info("Starting Runtime Supervisor");
+        this.running = true;
+        SystemEvents_default.on("printer.created", (printer) => this.spawnPrinterWorker(printer));
+        SystemEvents_default.on("printer.deleted", (id) => this.removePrinterWorker(id));
+        SystemEvents_default.on("accessory.created", (acc) => this.spawnAccessoryWorker(acc));
+        SystemEvents_default.on("accessory.deleted", (id) => this.removeAccessoryWorker(id));
+        const printers = PrinterModel.findAll();
+        for (const printer of printers) {
+          await this.spawnPrinterWorker(printer);
+        }
+        const accessories = AccessoryModel.findAll();
+        for (const acc of accessories) {
+          await this.spawnAccessoryWorker(acc);
+        }
+        const pollMs = parseInt(process.env.COMMAND_POLL_INTERVAL_MS) || 1e3;
+        this.commandPollInterval = setInterval(() => this._processCommands(), pollMs);
+        const healthMs = parseInt(process.env.HEALTH_CHECK_INTERVAL_MS) || 3e4;
+        this.healthCheckInterval = setInterval(() => this._healthCheckAll(), healthMs);
+        setInterval(() => CommandBus.processTimeouts(), 1e4);
+        const retentionDays = parseInt(process.env.EVENT_RETENTION_DAYS) || 30;
+        this._pruneEvents(retentionDays);
+        this.eventPruneInterval = setInterval(() => this._pruneEvents(retentionDays), 6 * 60 * 60 * 1e3);
+        this._syncDiscoverySerials();
+        this.discovery.start();
+        log19.info(`Runtime started: ${printers.length} printers, ${accessories.length} accessories`);
+      }
+      /**
+       * Stop all workers.
+       */
+      async stop() {
+        this.running = false;
+        if (this.commandPollInterval) clearInterval(this.commandPollInterval);
+        if (this.healthCheckInterval) clearInterval(this.healthCheckInterval);
+        if (this.eventPruneInterval) clearInterval(this.eventPruneInterval);
+        this.discovery.stop();
+        for (const [id, worker] of this.printerWorkers) {
+          await worker.stop();
+        }
+        for (const [id, worker] of this.accessoryWorkers) {
+          await worker.stop();
+        }
+        this.printerWorkers.clear();
+        this.accessoryWorkers.clear();
+        log19.info("Runtime stopped");
+      }
+      async spawnPrinterWorker(printer) {
+        if (this.printerWorkers.has(printer.printer_id)) return;
+        const worker = new PrinterWorker(printer);
+        worker.onStatusUpdate = (status) => this._broadcastStatus("printer", printer.printer_id, status);
+        worker.onAlert = (alert) => {
+          if (this.wsBroadcast) this.wsBroadcast({ type: "printer.alert", id: printer.printer_id, data: alert });
+          SystemEvents_default.emit("printer.alert", alert);
+        };
+        worker.onJobFinished = (finish) => this._handleJobFinished(finish);
+        this.printerWorkers.set(printer.printer_id, worker);
+        try {
+          await worker.start();
+          log19.info(`Printer worker spawned: ${printer.name} [${printer.printer_id}]`);
+        } catch (err) {
+          log19.warn(`Printer worker ${printer.name} failed initial start (${err.message}); will self-heal`);
+        }
+      }
+      async spawnAccessoryWorker(accessory) {
+        if (this.accessoryWorkers.has(accessory.accessory_id)) return;
+        const worker = new AccessoryWorker(accessory);
+        this.accessoryWorkers.set(accessory.accessory_id, worker);
+        await worker.start();
+        log19.info(`Accessory worker spawned: ${accessory.type} [${accessory.accessory_id}]`);
+      }
+      async removePrinterWorker(printerId) {
+        const worker = this.printerWorkers.get(printerId);
+        if (worker) {
+          await worker.stop();
+          this.printerWorkers.delete(printerId);
+        }
+      }
+      async removeAccessoryWorker(accessoryId) {
+        const worker = this.accessoryWorkers.get(accessoryId);
+        if (worker) {
+          await worker.stop();
+          this.accessoryWorkers.delete(accessoryId);
+        }
+      }
+      /**
+       * Process queued commands for all workers.
+       */
+      _processCommands() {
+        for (const [printerId, worker] of this.printerWorkers) {
+          const cmds = CommandBus.pullQueued("printer", printerId, 5);
+          for (const cmd of cmds) {
+            worker.executeCommand(cmd).catch((err) => {
+              CommandBus.markFailed(cmd.command_id, err.message);
+            });
+          }
+        }
+        for (const [accId, worker] of this.accessoryWorkers) {
+          const cmds = CommandBus.pullQueued("accessory", accId, 5);
+          for (const cmd of cmds) {
+            worker.executeCommand(cmd).catch((err) => {
+              CommandBus.markFailed(cmd.command_id, err.message);
+            });
+          }
+        }
+      }
+      _pruneEvents(retentionDays) {
+        try {
+          const removed = EventModel.pruneOlderThan(retentionDays);
+          if (removed > 0) log19.info(`Pruned ${removed} events older than ${retentionDays}d`);
+        } catch (err) {
+          log19.warn(`Event prune failed: ${err.message}`);
+        }
+      }
+      /**
+       * A worker resolved its active job (print ended). Hand the outcome to the
+       * orchestrator: completed → ejection + repeat + auto-start-next; anything
+       * else → mark the job failed so it doesn't sit "printing" forever.
+       * Dynamic import avoids a static require cycle (JobOrchestrator imports
+       * this module dynamically too).
+       */
+      async _handleJobFinished({ job_id, printer_id, outcome }) {
+        try {
+          const { JobOrchestrator: JobOrchestrator2 } = await Promise.resolve().then(() => (init_JobOrchestrator(), JobOrchestrator_exports));
+          if (outcome === "completed") {
+            await JobOrchestrator2.onJobCompleted(job_id, printer_id);
+          } else {
+            await JobOrchestrator2.onJobAborted(job_id, printer_id, outcome);
+          }
+        } catch (err) {
+          log19.error(`Job finish handling failed for ${job_id} (${outcome}): ${err.message}`);
+        }
+      }
+      _healthCheckAll() {
+        for (const [, worker] of this.printerWorkers) {
+          worker.healthCheck().catch(() => {
+          });
+        }
+        for (const [, worker] of this.accessoryWorkers) {
+          worker.healthCheck().catch(() => {
+          });
+        }
+      }
+      _broadcastStatus(type, id, status) {
+        if (this.wsBroadcast) {
+          this.wsBroadcast({ type: `${type}.status`, id, data: status });
+        }
+      }
+      /** Set WebSocket broadcast function. */
+      setWsBroadcast(fn) {
+        this.wsBroadcast = fn;
+      }
+      /** Get a printer worker by ID. */
+      getWorker(printerId) {
+        return this.printerWorkers.get(printerId) || null;
+      }
+      /** Sync registered printer serials to discovery service. */
+      _syncDiscoverySerials() {
+        const printers = PrinterModel.findAll();
+        const serials = printers.map((p) => p.serial_number).filter(Boolean);
+        this.discovery.setRegisteredSerials(serials);
+      }
+      /** Get running status for all workers. */
+      getStatus() {
+        return {
+          running: this.running,
+          printers: Array.from(this.printerWorkers.entries()).map(([id, w]) => ({
+            printer_id: id,
+            state: w.state,
+            connected: w.connected
+          })),
+          accessories: Array.from(this.accessoryWorkers.entries()).map(([id, w]) => ({
+            accessory_id: id,
+            health: w.health
+          }))
+        };
+      }
+    };
+    _supervisor = null;
+    RuntimeSupervisor_default = { RuntimeSupervisor, getSupervisor };
+  }
+});
+
+// src/services/AmsService.js
+var AmsService_exports = {};
+__export(AmsService_exports, {
+  AmsService: () => AmsService,
+  default: () => AmsService_default
+});
+var log20, AmsService, AmsService_default;
+var init_AmsService = __esm({
+  "src/services/AmsService.js"() {
+    init_Printer();
+    init_database();
+    init_FilamentCatalog();
+    init_logger();
+    log20 = createLogger("AmsService");
+    AmsService = class _AmsService {
+      /**
+       * Get AMS slot/tray data from printer status snapshot (live from MQTT).
+       */
+      static getLiveTrays(printerId) {
+        const printer = PrinterModel.findById(printerId);
+        if (!printer || !printer.status_snapshot) return null;
+        const ams = printer.status_snapshot.ams;
+        if (!ams) return { available: false, slots: [] };
+        const units = ams.ams || [];
+        const slots = [];
+        for (const unit of units) {
+          const trays = unit.tray || [];
+          for (let i = 0; i < trays.length; i++) {
+            const tray = trays[i];
+            slots.push({
+              slot: slots.length,
+              unit_id: unit.id,
+              tray_id: tray.id,
+              type: tray.tray_type || "unknown",
+              color: tray.tray_color ? `#${tray.tray_color}` : null,
+              material: tray.tray_sub_brands || tray.tray_type,
+              temp_nozzle: tray.nozzle_temp_max,
+              temp_bed: tray.bed_temp,
+              remaining: tray.remain
+            });
+          }
+        }
+        return { available: true, slots };
+      }
+      // ─────────────────────────────────────────────
+      //  DB-based AMS Configuration (user-managed)
+      // ─────────────────────────────────────────────
+      /**
+       * Get all configured trays for a printer from the DB.
+       */
+      static getConfig(printerId) {
+        return dbAll(
+          `SELECT ams_id, tray_id, material, color_hex, color_name, setting_id
+             FROM printer_ams_config
+             WHERE printer_id = ?
+             ORDER BY ams_id, tray_id`,
+          [printerId]
+        );
+      }
+      /**
+       * Set the filament for a specific AMS tray in the DB.
+       */
+      static setTray(printerId, amsId, trayId, { material, colorHex = "FFFFFFFF", colorName = "White" }) {
+        const printer = PrinterModel.findById(printerId);
+        const printerModel = printer?.model || "Bambu A1";
+        const settingId = getSettingId(material, printerModel);
+        dbRun(
+          `DELETE FROM printer_ams_config WHERE printer_id = ? AND ams_id = ? AND tray_id = ?`,
+          [printerId, amsId, trayId]
+        );
+        dbRun(
+          `INSERT INTO printer_ams_config (printer_id, ams_id, tray_id, material, color_hex, color_name, setting_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [printerId, amsId, trayId, material, colorHex.toUpperCase(), colorName, settingId]
+        );
+        return { ams_id: amsId, tray_id: trayId, material, color_hex: colorHex, color_name: colorName, setting_id: settingId };
+      }
+      /**
+       * Remove configuration for a specific tray (reset to empty).
+       */
+      static clearTray(printerId, amsId, trayId) {
+        dbRun(
+          `DELETE FROM printer_ams_config WHERE printer_id = ? AND ams_id = ? AND tray_id = ?`,
+          [printerId, amsId, trayId]
+        );
+      }
+      // ─────────────────────────────────────────────
+      //  MQTT Sync — Push config to printer
+      // ─────────────────────────────────────────────
+      /**
+       * Push all configured trays to the printer via MQTT ams_filament_setting.
+       * This overrides what the printer thinks is in each AMS slot.
+       */
+      static async syncToDevice(printerId, mqttClient) {
+        const config = this.getConfig(printerId);
+        if (!config.length) {
+          log20.info(`No AMS config found for ${printerId}, skipping sync`);
+          return [];
+        }
+        const printer = PrinterModel.findById(printerId);
+        const printerModel = printer?.model || "Bambu A1";
+        const results = [];
+        for (const tray of config) {
+          try {
+            const payload = buildTrayPayload({
+              amsId: tray.ams_id,
+              trayId: tray.tray_id,
+              material: tray.material,
+              colorHex: tray.color_hex,
+              printerModel
+            });
+            mqttClient.setAmsTrayFilament(payload);
+            results.push({ tray_id: tray.tray_id, status: "sent", material: tray.material });
+            await new Promise((r) => setTimeout(r, 200));
+          } catch (e) {
+            log20.warn(`Failed to sync tray ${tray.tray_id}: ${e.message}`);
+            results.push({ tray_id: tray.tray_id, status: "error", error: e.message });
+          }
+        }
+        log20.info(`Synced ${results.filter((r) => r.status === "sent").length}/${config.length} AMS trays for ${printer?.name || printerId}`);
+        return results;
+      }
+      // ─────────────────────────────────────────────
+      //  AMS Mapping for Print Jobs
+      // ─────────────────────────────────────────────
+      /**
+       * Auto-generate ams_mapping for a print job.
+       */
+      static generateMapping(printerId, slicerFilaments = ["PLA"]) {
+        const config = this.getConfig(printerId);
+        if (!config.length) {
+          return slicerFilaments.map((_, i) => i);
+        }
+        const amsTrays = config.map((c) => ({
+          tray_id: c.ams_id * 4 + c.tray_id,
+          material: c.material,
+          color: c.color_hex
+        }));
+        return autoMapFilaments(slicerFilaments, amsTrays);
+      }
+      /**
+       * Get full AMS status: config from DB + live data from MQTT merged.
+       */
+      static getFullStatus(printerId) {
+        const config = this.getConfig(printerId);
+        const live = this.getLiveTrays(printerId);
+        const configMap = {};
+        for (const c of config) {
+          configMap[`${c.ams_id}_${c.tray_id}`] = c;
+        }
+        const slots = [];
+        const numSlots = live?.slots?.length || 4;
+        for (let i = 0; i < numSlots; i++) {
+          const amsId = Math.floor(i / 4);
+          const trayId = i % 4;
+          const key = `${amsId}_${trayId}`;
+          const cfg = configMap[key];
+          const liveSlot = live?.slots?.[i];
+          slots.push({
+            ams_id: amsId,
+            tray_id: trayId,
+            configured_material: cfg?.material || null,
+            configured_color: cfg?.color_hex || null,
+            configured_color_name: cfg?.color_name || null,
+            configured_setting_id: cfg?.setting_id || null,
+            live_type: liveSlot?.type || null,
+            live_color: liveSlot?.color || null,
+            live_remaining: liveSlot?.remaining ?? null,
+            // Compare the configured material's BASE tray type (e.g. "PLA Silk"
+            // -> "PLA") to the live tray type, not the raw material string —
+            // otherwise every subtype is falsely flagged out-of-sync.
+            in_sync: _AmsService._configMatchesLive(cfg, liveSlot)
+          });
+        }
+        return {
+          printer_id: printerId,
+          ams_available: live?.available ?? false,
+          slots,
+          filament_types: FILAMENT_TYPES.map((f) => f.material),
+          color_palette: COLOR_PALETTE
+        };
+      }
+      /** True when the loaded (live) tray type matches the configured material's base type. */
+      static _configMatchesLive(cfg, liveSlot) {
+        if (!cfg) return true;
+        const live = liveSlot?.type;
+        if (!live) return true;
+        const entry = FILAMENT_TYPES.find((f) => f.material === cfg.material);
+        const expected = entry?.trayType || cfg.material;
+        return String(expected).toUpperCase() === String(live).toUpperCase();
+      }
+    };
+    AmsService_default = AmsService;
   }
 });
 
@@ -58284,10 +58790,10 @@ var require_object_inspect = __commonJS({
       }
       if (!isDate(obj) && !isRegExp(obj)) {
         var ys = arrObjKeys(obj, inspect);
-        var isPlainObject = gPO ? gPO(obj) === Object.prototype : obj instanceof Object || obj.constructor === Object;
+        var isPlainObject2 = gPO ? gPO(obj) === Object.prototype : obj instanceof Object || obj.constructor === Object;
         var protoTag = obj instanceof Object ? "" : "null prototype";
-        var stringTag = !isPlainObject && toStringTag && Object(obj) === obj && toStringTag in obj ? $slice.call(toStr(obj), 8, -1) : protoTag ? "Object" : "";
-        var constructorTag = isPlainObject || typeof obj.constructor !== "function" ? "" : obj.constructor.name ? obj.constructor.name + " " : "";
+        var stringTag = !isPlainObject2 && toStringTag && Object(obj) === obj && toStringTag in obj ? $slice.call(toStr(obj), 8, -1) : protoTag ? "Object" : "";
+        var constructorTag = isPlainObject2 || typeof obj.constructor !== "function" ? "" : obj.constructor.name ? obj.constructor.name + " " : "";
         var tag = constructorTag + (stringTag || protoTag ? "[" + $join.call($concat.call([], stringTag || [], protoTag || []), ": ") + "] " : "");
         if (ys.length === 0) {
           return tag + "{}";
@@ -66086,9 +66592,9 @@ var require_express2 = __commonJS({
 
 // src/db/seeds/default_profiles.js
 function seedDefaultProfiles() {
-  const existing = dbGet("SELECT COUNT(*) as cnt FROM gcode_profiles");
-  if (existing && existing.cnt > 0) return;
   for (const p of PROFILES) {
+    const existing = dbGet("SELECT profile_id FROM gcode_profiles WHERE name = ? COLLATE NOCASE", [p.name]);
+    if (existing) continue;
     dbRun(
       `INSERT INTO gcode_profiles (profile_id, name, description, printer_model, park_y_mm, eject_params, is_system)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -71429,7 +71935,7 @@ var require_lodash5 = __commonJS({
     function isObjectLike(value) {
       return !!value && typeof value == "object";
     }
-    function isPlainObject(value) {
+    function isPlainObject2(value) {
       if (!isObjectLike(value) || objectToString.call(value) != objectTag || isHostObject(value)) {
         return false;
       }
@@ -71440,7 +71946,7 @@ var require_lodash5 = __commonJS({
       var Ctor = hasOwnProperty.call(proto, "constructor") && proto.constructor;
       return typeof Ctor == "function" && Ctor instanceof Ctor && funcToString.call(Ctor) == objectCtorString;
     }
-    module2.exports = isPlainObject;
+    module2.exports = isPlainObject2;
   }
 });
 
@@ -71553,7 +72059,7 @@ var require_sign2 = __commonJS({
     var isBoolean = require_lodash2();
     var isInteger = require_lodash3();
     var isNumber = require_lodash4();
-    var isPlainObject = require_lodash5();
+    var isPlainObject2 = require_lodash5();
     var isString = require_lodash6();
     var once = require_lodash7();
     var { KeyObject, createSecretKey, createPrivateKey } = require("crypto");
@@ -71572,7 +72078,7 @@ var require_sign2 = __commonJS({
         return isString(value) || Array.isArray(value);
       }, message: '"audience" must be a string or array' },
       algorithm: { isValid: includes.bind(null, SUPPORTED_ALGS), message: '"algorithm" must be a valid string enum value' },
-      header: { isValid: isPlainObject, message: '"header" must be an object' },
+      header: { isValid: isPlainObject2, message: '"header" must be an object' },
       encoding: { isValid: isString, message: '"encoding" must be a string' },
       issuer: { isValid: isString, message: '"issuer" must be a string' },
       subject: { isValid: isString, message: '"subject" must be a string' },
@@ -71589,7 +72095,7 @@ var require_sign2 = __commonJS({
       nbf: { isValid: isNumber, message: '"nbf" should be a number of seconds' }
     };
     function validate(schema, allowUnknown, object, parameterName) {
-      if (!isPlainObject(object)) {
+      if (!isPlainObject2(object)) {
         throw new Error('Expected "' + parameterName + '" to be a plain object.');
       }
       Object.keys(object).forEach(function(key) {
@@ -71792,7 +72298,7 @@ function ensureAdminUser() {
     "INSERT INTO users (user_id, username, password_hash, role) VALUES (?, ?, ?, ?)",
     [generateId(), username, hash, "admin"]
   );
-  log20.info(`Created default admin user: ${username}`);
+  log21.info(`Created default admin user: ${username}`);
 }
 function login(username, password) {
   const user = dbGet("SELECT * FROM users WHERE username = ?", [username]);
@@ -71839,7 +72345,7 @@ function requireAdmin(req, res, next) {
     next();
   });
 }
-var import_bcryptjs, import_jsonwebtoken, log20, JWT_EXPIRES;
+var import_bcryptjs, import_jsonwebtoken, log21, JWT_EXPIRES;
 var init_auth = __esm({
   "src/auth/auth.js"() {
     import_bcryptjs = __toESM(require_bcryptjs(), 1);
@@ -71847,13 +72353,13 @@ var init_auth = __esm({
     init_database();
     init_uuid();
     init_logger();
-    log20 = createLogger("Auth");
+    log21 = createLogger("Auth");
     JWT_EXPIRES = "24h";
   }
 });
 
 // src/services/PrinterRegistry.js
-var log21, MODEL_CAPABILITIES, PrinterRegistry;
+var log22, MODEL_CAPABILITIES, PrinterRegistry;
 var init_PrinterRegistry = __esm({
   "src/services/PrinterRegistry.js"() {
     init_Printer();
@@ -71861,7 +72367,7 @@ var init_PrinterRegistry = __esm({
     init_Event();
     init_logger();
     init_SystemEvents();
-    log21 = createLogger("PrinterRegistry");
+    log22 = createLogger("PrinterRegistry");
     MODEL_CAPABILITIES = {
       "Bambu A1": { mqtt_control: true, ams: true, camera: false, max_y: 256, max_x: 256, max_z: 256 },
       "Bambu A1 Mini": { mqtt_control: true, ams: true, camera: false, max_y: 180, max_x: 180, max_z: 180 },
@@ -71884,7 +72390,7 @@ var init_PrinterRegistry = __esm({
           payload: { name: data.name, model: data.model }
         });
         SystemEvents_default.emit("printer.created", printer);
-        log21.info(`Printer registered: ${printer.name} (${printer.model})`);
+        log22.info(`Printer registered: ${printer.name} (${printer.model})`);
         return printer;
       }
       static findAll() {
@@ -71919,7 +72425,7 @@ var init_PrinterRegistry = __esm({
             payload: { name: printer.name }
           });
           SystemEvents_default.emit("printer.deleted", id);
-          log21.info(`Printer removed: ${printer.name}`);
+          log22.info(`Printer removed: ${printer.name}`);
         }
         return printer;
       }
@@ -71965,325 +72471,6 @@ var init_PrinterRegistry = __esm({
         return { ...printer, accessories };
       }
     };
-  }
-});
-
-// src/services/FilamentCatalog.js
-function getSettingId(material, printerModel) {
-  const entry = FILAMENT_TYPES.find((f) => f.material === material);
-  if (!entry) return null;
-  const suffix = PRINTER_SUFFIXES[printerModel] || "_01";
-  return `${entry.settingBase}${suffix}`;
-}
-function getFilamentType(material) {
-  return FILAMENT_TYPES.find((f) => f.material === material) || null;
-}
-function buildTrayPayload({ amsId = 0, trayId, material, colorHex = "FFFFFFFF", printerModel = "Bambu A1" }) {
-  const entry = getFilamentType(material);
-  if (!entry) throw new Error(`Unknown filament material: ${material}`);
-  const settingId = getSettingId(material, printerModel);
-  return {
-    print: {
-      command: "ams_filament_setting",
-      sequence_id: String(Date.now()),
-      ams_id: amsId,
-      tray_id: trayId,
-      tray_info_idx: entry.settingBase.replace("GFS", "GFL").slice(0, -2) + "99",
-      tray_type: entry.trayType,
-      tray_sub_brands: "",
-      tray_color: colorHex.toUpperCase(),
-      nozzle_temp_min: entry.nozzleMin,
-      nozzle_temp_max: entry.nozzleMax,
-      tray_weight: "1000",
-      setting_id: settingId,
-      k: 0.02,
-      n: 1
-    }
-  };
-}
-function autoMapFilaments(slicerFilaments, amsTrays) {
-  const used = /* @__PURE__ */ new Set();
-  return slicerFilaments.map((needed) => {
-    const match = amsTrays.find((t) => t.material === needed && !used.has(t.tray_id));
-    if (match) {
-      used.add(match.tray_id);
-      return match.tray_id;
-    }
-    const neededEntry = getFilamentType(needed);
-    if (neededEntry) {
-      const partialMatch = amsTrays.find((t) => {
-        const tEntry = getFilamentType(t.material);
-        return tEntry && tEntry.trayType === neededEntry.trayType && !used.has(t.tray_id);
-      });
-      if (partialMatch) {
-        used.add(partialMatch.tray_id);
-        return partialMatch.tray_id;
-      }
-    }
-    return -1;
-  });
-}
-var PRINTER_SUFFIXES, FILAMENT_TYPES, COLOR_PALETTE;
-var init_FilamentCatalog = __esm({
-  "src/services/FilamentCatalog.js"() {
-    PRINTER_SUFFIXES = {
-      "Bambu A1": "_04",
-      "Bambu A1 Mini": "_04",
-      // A1M uses same suffix in most cases
-      "Bambu P1S": "_01",
-      "Bambu P1P": "_01",
-      "Bambu X1C": "_01",
-      "Bambu X1E": "_01"
-    };
-    FILAMENT_TYPES = [
-      { material: "PLA", settingBase: "GFSL99", trayType: "PLA", nozzleMin: 190, nozzleMax: 230, bedTemp: 55 },
-      { material: "PLA High Speed", settingBase: "GFSL95", trayType: "PLA", nozzleMin: 190, nozzleMax: 240, bedTemp: 55 },
-      { material: "PLA Silk", settingBase: "GFSL96", trayType: "PLA", nozzleMin: 200, nozzleMax: 230, bedTemp: 55 },
-      { material: "PLA-CF", settingBase: "GFSL98", trayType: "PLA-CF", nozzleMin: 210, nozzleMax: 240, bedTemp: 55 },
-      { material: "PETG", settingBase: "GFSG99", trayType: "PETG", nozzleMin: 220, nozzleMax: 260, bedTemp: 70 },
-      { material: "PETG HF", settingBase: "GFSG96", trayType: "PETG", nozzleMin: 220, nozzleMax: 260, bedTemp: 70 },
-      { material: "PETG-CF", settingBase: "GFSG98", trayType: "PETG-CF", nozzleMin: 230, nozzleMax: 270, bedTemp: 70 },
-      { material: "PCTG", settingBase: "GFSG97", trayType: "PCTG", nozzleMin: 240, nozzleMax: 270, bedTemp: 70 },
-      { material: "ABS", settingBase: "GFSB99", trayType: "ABS", nozzleMin: 240, nozzleMax: 270, bedTemp: 100 },
-      { material: "ASA", settingBase: "GFSB98", trayType: "ASA", nozzleMin: 240, nozzleMax: 270, bedTemp: 100 },
-      { material: "TPU", settingBase: "GFSU99", trayType: "TPU", nozzleMin: 200, nozzleMax: 230, bedTemp: 55 },
-      { material: "TPU for AMS", settingBase: "GFSU98", trayType: "TPU", nozzleMin: 200, nozzleMax: 230, bedTemp: 55 },
-      { material: "PA (Nylon)", settingBase: "GFSN99", trayType: "PA", nozzleMin: 270, nozzleMax: 300, bedTemp: 100 },
-      { material: "PA-CF", settingBase: "GFSN98", trayType: "PA-CF", nozzleMin: 270, nozzleMax: 300, bedTemp: 100 },
-      { material: "PC", settingBase: "GFSC99", trayType: "PC", nozzleMin: 260, nozzleMax: 290, bedTemp: 110 },
-      { material: "PVA", settingBase: "GFSS99", trayType: "PVA", nozzleMin: 190, nozzleMax: 210, bedTemp: 55 },
-      { material: "HIPS", settingBase: "GFSS98", trayType: "HIPS", nozzleMin: 230, nozzleMax: 260, bedTemp: 90 },
-      { material: "BVOH", settingBase: "GFSS97", trayType: "BVOH", nozzleMin: 190, nozzleMax: 210, bedTemp: 55 },
-      { material: "EVA", settingBase: "GFSR99", trayType: "EVA", nozzleMin: 200, nozzleMax: 230, bedTemp: 55 },
-      { material: "PHA", settingBase: "GFSR98", trayType: "PHA", nozzleMin: 190, nozzleMax: 220, bedTemp: 55 },
-      { material: "PE", settingBase: "GFSP99", trayType: "PE", nozzleMin: 190, nozzleMax: 220, bedTemp: 55 },
-      { material: "PE-CF", settingBase: "GFSP98", trayType: "PE-CF", nozzleMin: 200, nozzleMax: 230, bedTemp: 55 },
-      { material: "PP", settingBase: "GFSP97", trayType: "PP", nozzleMin: 200, nozzleMax: 240, bedTemp: 55 },
-      { material: "PP-CF", settingBase: "GFSP96", trayType: "PP-CF", nozzleMin: 210, nozzleMax: 250, bedTemp: 55 },
-      { material: "PP-GF", settingBase: "GFSP95", trayType: "PP-GF", nozzleMin: 210, nozzleMax: 250, bedTemp: 55 },
-      { material: "PPA-CF", settingBase: "GFSN97", trayType: "PPA-CF", nozzleMin: 280, nozzleMax: 310, bedTemp: 100 },
-      { material: "PPA-GF", settingBase: "GFSN96", trayType: "PPA-GF", nozzleMin: 280, nozzleMax: 310, bedTemp: 100 },
-      { material: "PPS", settingBase: "GFSR97", trayType: "PPS", nozzleMin: 300, nozzleMax: 330, bedTemp: 110 },
-      { material: "PPS-CF", settingBase: "GFSR96", trayType: "PPS-CF", nozzleMin: 300, nozzleMax: 330, bedTemp: 110 }
-    ];
-    COLOR_PALETTE = [
-      { name: "White", hex: "FFFFFFFF" },
-      { name: "Black", hex: "000000FF" },
-      { name: "Red", hex: "FF0000FF" },
-      { name: "Blue", hex: "0000FFFF" },
-      { name: "Green", hex: "00FF00FF" },
-      { name: "Yellow", hex: "FFFF00FF" },
-      { name: "Orange", hex: "FF8C00FF" },
-      { name: "Purple", hex: "800080FF" },
-      { name: "Pink", hex: "FF69B4FF" },
-      { name: "Gray", hex: "808080FF" },
-      { name: "Light Gray", hex: "C0C0C0FF" },
-      { name: "Dark Gray", hex: "404040FF" },
-      { name: "Brown", hex: "8B4513FF" },
-      { name: "Cyan", hex: "00FFFFFF" },
-      { name: "Lime", hex: "32CD32FF" },
-      { name: "Navy", hex: "000080FF" },
-      { name: "Teal", hex: "008080FF" },
-      { name: "Gold", hex: "FFD700FF" },
-      { name: "Transparent", hex: "FFFFFF01" },
-      { name: "Natural", hex: "F5F5DCFF" }
-    ];
-  }
-});
-
-// src/services/AmsService.js
-var AmsService_exports = {};
-__export(AmsService_exports, {
-  AmsService: () => AmsService,
-  default: () => AmsService_default
-});
-var log22, AmsService, AmsService_default;
-var init_AmsService = __esm({
-  "src/services/AmsService.js"() {
-    init_Printer();
-    init_database();
-    init_FilamentCatalog();
-    init_logger();
-    log22 = createLogger("AmsService");
-    AmsService = class _AmsService {
-      /**
-       * Get AMS slot/tray data from printer status snapshot (live from MQTT).
-       */
-      static getLiveTrays(printerId) {
-        const printer = PrinterModel.findById(printerId);
-        if (!printer || !printer.status_snapshot) return null;
-        const ams = printer.status_snapshot.ams;
-        if (!ams) return { available: false, slots: [] };
-        const units = ams.ams || [];
-        const slots = [];
-        for (const unit of units) {
-          const trays = unit.tray || [];
-          for (let i = 0; i < trays.length; i++) {
-            const tray = trays[i];
-            slots.push({
-              slot: slots.length,
-              unit_id: unit.id,
-              tray_id: tray.id,
-              type: tray.tray_type || "unknown",
-              color: tray.tray_color ? `#${tray.tray_color}` : null,
-              material: tray.tray_sub_brands || tray.tray_type,
-              temp_nozzle: tray.nozzle_temp_max,
-              temp_bed: tray.bed_temp,
-              remaining: tray.remain
-            });
-          }
-        }
-        return { available: true, slots };
-      }
-      // ─────────────────────────────────────────────
-      //  DB-based AMS Configuration (user-managed)
-      // ─────────────────────────────────────────────
-      /**
-       * Get all configured trays for a printer from the DB.
-       */
-      static getConfig(printerId) {
-        return dbAll(
-          `SELECT ams_id, tray_id, material, color_hex, color_name, setting_id
-             FROM printer_ams_config
-             WHERE printer_id = ?
-             ORDER BY ams_id, tray_id`,
-          [printerId]
-        );
-      }
-      /**
-       * Set the filament for a specific AMS tray in the DB.
-       */
-      static setTray(printerId, amsId, trayId, { material, colorHex = "FFFFFFFF", colorName = "White" }) {
-        const printer = PrinterModel.findById(printerId);
-        const printerModel = printer?.model || "Bambu A1";
-        const settingId = getSettingId(material, printerModel);
-        dbRun(
-          `DELETE FROM printer_ams_config WHERE printer_id = ? AND ams_id = ? AND tray_id = ?`,
-          [printerId, amsId, trayId]
-        );
-        dbRun(
-          `INSERT INTO printer_ams_config (printer_id, ams_id, tray_id, material, color_hex, color_name, setting_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [printerId, amsId, trayId, material, colorHex.toUpperCase(), colorName, settingId]
-        );
-        return { ams_id: amsId, tray_id: trayId, material, color_hex: colorHex, color_name: colorName, setting_id: settingId };
-      }
-      /**
-       * Remove configuration for a specific tray (reset to empty).
-       */
-      static clearTray(printerId, amsId, trayId) {
-        dbRun(
-          `DELETE FROM printer_ams_config WHERE printer_id = ? AND ams_id = ? AND tray_id = ?`,
-          [printerId, amsId, trayId]
-        );
-      }
-      // ─────────────────────────────────────────────
-      //  MQTT Sync — Push config to printer
-      // ─────────────────────────────────────────────
-      /**
-       * Push all configured trays to the printer via MQTT ams_filament_setting.
-       * This overrides what the printer thinks is in each AMS slot.
-       */
-      static async syncToDevice(printerId, mqttClient) {
-        const config = this.getConfig(printerId);
-        if (!config.length) {
-          log22.info(`No AMS config found for ${printerId}, skipping sync`);
-          return [];
-        }
-        const printer = PrinterModel.findById(printerId);
-        const printerModel = printer?.model || "Bambu A1";
-        const results = [];
-        for (const tray of config) {
-          try {
-            const payload = buildTrayPayload({
-              amsId: tray.ams_id,
-              trayId: tray.tray_id,
-              material: tray.material,
-              colorHex: tray.color_hex,
-              printerModel
-            });
-            mqttClient.setAmsTrayFilament(payload);
-            results.push({ tray_id: tray.tray_id, status: "sent", material: tray.material });
-            await new Promise((r) => setTimeout(r, 200));
-          } catch (e) {
-            log22.warn(`Failed to sync tray ${tray.tray_id}: ${e.message}`);
-            results.push({ tray_id: tray.tray_id, status: "error", error: e.message });
-          }
-        }
-        log22.info(`Synced ${results.filter((r) => r.status === "sent").length}/${config.length} AMS trays for ${printer?.name || printerId}`);
-        return results;
-      }
-      // ─────────────────────────────────────────────
-      //  AMS Mapping for Print Jobs
-      // ─────────────────────────────────────────────
-      /**
-       * Auto-generate ams_mapping for a print job.
-       */
-      static generateMapping(printerId, slicerFilaments = ["PLA"]) {
-        const config = this.getConfig(printerId);
-        if (!config.length) {
-          return slicerFilaments.map((_, i) => i);
-        }
-        const amsTrays = config.map((c) => ({
-          tray_id: c.ams_id * 4 + c.tray_id,
-          material: c.material,
-          color: c.color_hex
-        }));
-        return autoMapFilaments(slicerFilaments, amsTrays);
-      }
-      /**
-       * Get full AMS status: config from DB + live data from MQTT merged.
-       */
-      static getFullStatus(printerId) {
-        const config = this.getConfig(printerId);
-        const live = this.getLiveTrays(printerId);
-        const configMap = {};
-        for (const c of config) {
-          configMap[`${c.ams_id}_${c.tray_id}`] = c;
-        }
-        const slots = [];
-        const numSlots = live?.slots?.length || 4;
-        for (let i = 0; i < numSlots; i++) {
-          const amsId = Math.floor(i / 4);
-          const trayId = i % 4;
-          const key = `${amsId}_${trayId}`;
-          const cfg = configMap[key];
-          const liveSlot = live?.slots?.[i];
-          slots.push({
-            ams_id: amsId,
-            tray_id: trayId,
-            configured_material: cfg?.material || null,
-            configured_color: cfg?.color_hex || null,
-            configured_color_name: cfg?.color_name || null,
-            configured_setting_id: cfg?.setting_id || null,
-            live_type: liveSlot?.type || null,
-            live_color: liveSlot?.color || null,
-            live_remaining: liveSlot?.remaining ?? null,
-            // Compare the configured material's BASE tray type (e.g. "PLA Silk"
-            // -> "PLA") to the live tray type, not the raw material string —
-            // otherwise every subtype is falsely flagged out-of-sync.
-            in_sync: _AmsService._configMatchesLive(cfg, liveSlot)
-          });
-        }
-        return {
-          printer_id: printerId,
-          ams_available: live?.available ?? false,
-          slots,
-          filament_types: FILAMENT_TYPES.map((f) => f.material),
-          color_palette: COLOR_PALETTE
-        };
-      }
-      /** True when the loaded (live) tray type matches the configured material's base type. */
-      static _configMatchesLive(cfg, liveSlot) {
-        if (!cfg) return true;
-        const live = liveSlot?.type;
-        if (!live) return true;
-        const entry = FILAMENT_TYPES.find((f) => f.material === cfg.material);
-        const expected = entry?.trayType || cfg.material;
-        return String(expected).toUpperCase() === String(live).toUpperCase();
-      }
-    };
-    AmsService_default = AmsService;
   }
 });
 
@@ -73071,6 +73258,16 @@ async function withLiveState(printers) {
   });
   return Array.isArray(printers) ? enriched : enriched[0];
 }
+function resolveAmsSlot(rawTrayId, rawAmsId) {
+  let trayId = parseInt(rawTrayId);
+  let amsId = parseInt(rawAmsId) || 0;
+  if (!Number.isFinite(trayId) || trayId < 0 || trayId > 15) return null;
+  if (trayId > 3) {
+    amsId = Math.floor(trayId / 4);
+    trayId = trayId % 4;
+  }
+  return { amsId, trayId };
+}
 async function ensureCameraProxy(printerId) {
   const printer = PrinterRegistry.findById(printerId);
   if (!printer) return { error: "Printer not found", status: 404 };
@@ -73337,12 +73534,18 @@ var init_printers = __esm({
     }));
     router.put("/:id/ams/:trayId", requireAdmin, asyncHandler(async (req, res) => {
       const { AmsService: AmsService2 } = await Promise.resolve().then(() => (init_AmsService(), AmsService_exports));
+      const { getFilamentType: getFilamentType2, FILAMENT_TYPES: FILAMENT_TYPES2 } = await Promise.resolve().then(() => (init_FilamentCatalog(), FilamentCatalog_exports));
       const { material, color_hex, color_name } = req.body;
       if (!material) return res.status(400).json({ error: "material is required" });
-      const amsId = parseInt(req.body.ams_id) || 0;
-      const trayId = parseInt(req.params.trayId);
-      if (trayId < 0 || trayId > 15) return res.status(400).json({ error: "tray_id must be 0-15" });
-      const result = AmsService2.setTray(req.params.id, amsId, trayId, {
+      if (!getFilamentType2(material)) {
+        return res.status(400).json({
+          error: `Unknown material "${material}"`,
+          valid_materials: FILAMENT_TYPES2.map((f) => f.material)
+        });
+      }
+      const slot = resolveAmsSlot(req.params.trayId, req.body.ams_id);
+      if (!slot) return res.status(400).json({ error: "tray_id must be 0-15" });
+      const result = AmsService2.setTray(req.params.id, slot.amsId, slot.trayId, {
         material,
         colorHex: color_hex || "FFFFFFFF",
         colorName: color_name || "White"
@@ -73351,8 +73554,9 @@ var init_printers = __esm({
     }));
     router.delete("/:id/ams/:trayId", requireAdmin, asyncHandler(async (req, res) => {
       const { AmsService: AmsService2 } = await Promise.resolve().then(() => (init_AmsService(), AmsService_exports));
-      const amsId = parseInt(req.query.ams_id) || 0;
-      AmsService2.clearTray(req.params.id, amsId, parseInt(req.params.trayId));
+      const slot = resolveAmsSlot(req.params.trayId, req.query.ams_id);
+      if (!slot) return res.status(400).json({ error: "tray_id must be 0-15" });
+      AmsService2.clearTray(req.params.id, slot.amsId, slot.trayId);
       res.json({ ok: true });
     }));
     router.post("/:id/ams/sync", requireAdmin, asyncHandler(async (req, res) => {
@@ -83720,6 +83924,114 @@ var import_node_os6 = __toESM(require("node:os"), 1);
 // src/cloud/localCommandExecutor.js
 var import_node_crypto3 = require("node:crypto");
 var import_adm_zip2 = __toESM(require_adm_zip(), 1);
+
+// src/cloud/localPrinterSnapshot.js
+init_FilamentCatalog();
+var BUILD_VOLUMES = {
+  default: { x: 256, y: 256, z: 256 },
+  mini: { x: 180, y: 180, z: 180 }
+};
+function getBuildVolumeForModel(model) {
+  const normalized = String(model || "").toLowerCase();
+  if (normalized.includes("mini")) return BUILD_VOLUMES.mini;
+  return BUILD_VOLUMES.default;
+}
+function countAmsTrays(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return 0;
+  if (Array.isArray(snapshot.ams?.trays)) return snapshot.ams.trays.length;
+  if (Array.isArray(snapshot.ams?.ams)) {
+    return snapshot.ams.ams.reduce((count, unit) => count + (Array.isArray(unit.tray) ? unit.tray.length : 0), 0);
+  }
+  if (Array.isArray(snapshot.ams?.tray)) return snapshot.ams.tray.length;
+  return 0;
+}
+function collectAmsTrays(amsStatus) {
+  if (!amsStatus || !Array.isArray(amsStatus.slots)) return [];
+  return amsStatus.slots.map((slot) => {
+    const material = slot.configured_material || slot.live_type || null;
+    const colorHex = slot.configured_color || (slot.live_color ? String(slot.live_color).replace(/^#/, "") : null);
+    if (!material && !colorHex) return null;
+    const materialBase = material ? getFilamentType(material)?.trayType || material : null;
+    return {
+      ams_id: slot.ams_id,
+      tray_id: slot.tray_id,
+      material,
+      material_base: materialBase,
+      color_hex: colorHex,
+      color_name: slot.configured_color_name || null,
+      source: slot.configured_material ? "configured" : "live",
+      live_remaining: slot.live_remaining ?? null,
+      in_sync: slot.in_sync !== false
+    };
+  }).filter(Boolean);
+}
+function buildSyncedPrinterRecord(printer, worker, options = {}, amsStatus = null) {
+  const statusSnapshot = printer.status_snapshot && typeof printer.status_snapshot === "object" ? { ...printer.status_snapshot } : {};
+  const liveState = worker?.state && worker.state !== "unknown" ? worker.state : statusSnapshot.state;
+  const status = worker?.connected ? liveState || "online" : liveState || "offline";
+  const record = {
+    local_printer_id: printer.printer_id,
+    name: printer.name || printer.printer_id,
+    model: printer.model || null,
+    ip_hostname: printer.ip_hostname || null,
+    status,
+    connected: !!worker?.connected,
+    capabilities: { ...printer.capabilities || {} },
+    last_seen: printer.last_seen || null
+  };
+  if (!record.capabilities.build_volume_mm) {
+    record.capabilities.build_volume_mm = getBuildVolumeForModel(printer.model);
+  }
+  if (record.capabilities.auto_eject === void 0) {
+    record.capabilities.auto_eject = true;
+    record.capabilities.ejection = { enabled: true, strategy: "in_gcode_sweep" };
+  }
+  if (options.sync_ams || options.sync_filament) {
+    record.status_snapshot = statusSnapshot;
+  }
+  if (options.sync_ams) {
+    record.ams_tray_count = countAmsTrays(statusSnapshot);
+  }
+  if (options.sync_filament && amsStatus) {
+    const trays = collectAmsTrays(amsStatus);
+    record.capabilities.ams_trays = trays;
+    record.capabilities.materials = [...new Set(
+      trays.flatMap((tray) => [tray.material, tray.material_base]).filter(Boolean)
+    )];
+    record.capabilities.colors = [...new Set(trays.map((tray) => tray.color_hex).filter(Boolean))];
+  }
+  return record;
+}
+async function collectLocalPrinterRecords(options = {}) {
+  const effective = {
+    include_saved_printers: options.include_saved_printers !== false,
+    sync_ams: options.sync_ams !== false,
+    sync_filament: options.sync_filament !== false,
+    ...options
+  };
+  const [{ PrinterModel: PrinterModel2 }, { RuntimeSupervisor: RuntimeSupervisor2 }, { AmsService: AmsService2 }] = await Promise.all([
+    Promise.resolve().then(() => (init_Printer(), Printer_exports)),
+    Promise.resolve().then(() => (init_RuntimeSupervisor(), RuntimeSupervisor_exports)),
+    Promise.resolve().then(() => (init_AmsService(), AmsService_exports))
+  ]);
+  const supervisor = RuntimeSupervisor2.getInstance();
+  const registeredPrinters = effective.include_saved_printers === false ? [] : PrinterModel2.findAll();
+  return registeredPrinters.map((printer) => {
+    let amsStatus = null;
+    if (effective.sync_filament) {
+      try {
+        amsStatus = AmsService2.getFullStatus(printer.printer_id);
+      } catch {
+      }
+    }
+    return buildSyncedPrinterRecord(printer, supervisor?.getWorker?.(printer.printer_id), effective, amsStatus);
+  });
+}
+
+// src/cloud/localCommandExecutor.js
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 function buildGcode3mf2(gcode) {
   const zip = new import_adm_zip2.default();
   const gcodeBuffer = Buffer.from(gcode, "utf8");
@@ -83769,7 +84081,62 @@ async function getRequiredWorker(localPrinterId, deps) {
   if (!worker) throw new Error(`Local printer worker not found: ${localPrinterId}`);
   return worker;
 }
+function normalizeAmsSlotRef(payload = {}) {
+  let amsId = Number.parseInt(payload.ams_id ?? 0, 10);
+  let trayId = Number.parseInt(payload.tray_id, 10);
+  if (!Number.isFinite(amsId) || amsId < 0) amsId = 0;
+  if (!Number.isFinite(trayId) || trayId < 0 || trayId > 15) {
+    throw new Error("payload.tray_id must be 0-15");
+  }
+  if (trayId > 3) {
+    amsId = Math.floor(trayId / 4);
+    trayId = trayId % 4;
+  }
+  return { amsId, trayId };
+}
+async function executeAmsAction(command, deps) {
+  const payload = command.payload || {};
+  const localPrinterId = requiredString(payload.local_printer_id, "payload.local_printer_id");
+  const amsService = await deps.getAmsService();
+  if (command.command_type === "printer.ams.get") {
+    return amsService.getFullStatus(localPrinterId);
+  }
+  const { amsId, trayId } = normalizeAmsSlotRef(payload);
+  if (command.command_type === "printer.ams.clear") {
+    amsService.clearTray(localPrinterId, amsId, trayId);
+    return { ok: true, cleared: { ams_id: amsId, tray_id: trayId }, status: amsService.getFullStatus(localPrinterId) };
+  }
+  const material = requiredString(payload.material, "payload.material");
+  const updated = amsService.setTray(localPrinterId, amsId, trayId, {
+    material,
+    colorHex: typeof payload.color_hex === "string" && payload.color_hex.trim() ? payload.color_hex.trim() : "FFFFFFFF",
+    colorName: typeof payload.color_name === "string" && payload.color_name.trim() ? payload.color_name.trim() : "White"
+  });
+  let pushedToPrinter = false;
+  let pushError = null;
+  if (payload.push_to_printer !== false) {
+    try {
+      const worker = await deps.getWorker?.(localPrinterId);
+      if (worker?.mqttClient?.connected) {
+        await amsService.syncToDevice(localPrinterId, worker.mqttClient);
+        pushedToPrinter = true;
+      }
+    } catch (error) {
+      pushError = error.message;
+    }
+  }
+  return {
+    ok: true,
+    updated,
+    pushed_to_printer: pushedToPrinter,
+    push_error: pushError,
+    status: amsService.getFullStatus(localPrinterId)
+  };
+}
 async function executePrinterAction(command, deps) {
+  if (command.command_type.startsWith("printer.ams.")) {
+    return executeAmsAction(command, deps);
+  }
   const localPrinterId = requiredString(command.payload?.local_printer_id, "payload.local_printer_id");
   const worker = await getRequiredWorker(localPrinterId, deps);
   switch (command.command_type) {
@@ -83855,18 +84222,8 @@ async function defaultUploadToPrinter({ localPrinterId, buffer, remoteFileName }
   }
   return uploadResult;
 }
-async function executeCloudPrintReady(command, deps) {
-  const payload = command.payload || {};
-  const localPrinterId = requiredString(payload.local_printer_id, "payload.local_printer_id");
-  const downloadUrl = requiredString(payload.download_url, "payload.download_url");
-  const originalName = safeRemoteFileName(payload.original_name);
-  const worker = await getRequiredWorker(localPrinterId, deps);
+async function executeCloudPrintReadyRaw({ payload, localPrinterId, worker, buffer, remoteFileName }, deps) {
   assertPreflightOk(worker);
-  const downloaded = await deps.downloadArtifact(downloadUrl);
-  const { buffer, remoteFileName } = prepareReadyPrintArtifact({
-    buffer: Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded),
-    originalName
-  });
   const uploaded = await deps.uploadToPrinter({
     localPrinterId,
     buffer,
@@ -83881,10 +84238,70 @@ async function executeCloudPrintReady(command, deps) {
     amsMapping
   });
   return {
+    pipeline: "raw",
     started: startResult?.started === true,
     remote_file_name: remoteFileName,
     uploaded,
     start_result: startResult
+  };
+}
+async function executeCloudPrintReady(command, deps) {
+  const payload = command.payload || {};
+  const localPrinterId = requiredString(payload.local_printer_id, "payload.local_printer_id");
+  const downloadUrl = requiredString(payload.download_url, "payload.download_url");
+  const originalName = safeRemoteFileName(payload.original_name);
+  const worker = await getRequiredWorker(localPrinterId, deps);
+  const downloaded = await deps.downloadArtifact(downloadUrl);
+  const { buffer, remoteFileName } = prepareReadyPrintArtifact({
+    buffer: Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded),
+    originalName
+  });
+  if (payload.pipeline === "raw") {
+    return executeCloudPrintReadyRaw({ payload, localPrinterId, worker, buffer, remoteFileName }, deps);
+  }
+  const amsMapping = Array.isArray(payload.ams_mapping) ? payload.ams_mapping : [];
+  const slotMap = {};
+  amsMapping.forEach((value, index) => {
+    slotMap[index] = value;
+  });
+  const printerBusy = worker.state === "printing" || worker.state === "paused";
+  if (!printerBusy) assertPreflightOk(worker);
+  const loops = Number.parseInt(payload.loops ?? payload.n_loops, 10);
+  const job = await deps.submitJob({
+    name: typeof payload.name === "string" && payload.name.trim() ? payload.name.trim() : originalName,
+    printer_id: localPrinterId,
+    repeat_total: Number.parseInt(payload.repeat_total, 10) || 1,
+    ams_roles: amsMapping.length > 0 ? { slot_map: slotMap } : null,
+    fileName: remoteFileName,
+    fileContent: buffer,
+    rawBuffer3mf: buffer,
+    originalFileName3mf: remoteFileName,
+    transform_mode: payload.skip_transform === true ? "skip" : "optional",
+    transform_overrides: {
+      ...isPlainObject(payload.transform_overrides) ? payload.transform_overrides : {},
+      ...Number.isFinite(loops) && loops > 0 ? { n_loops: loops } : {}
+    },
+    auto_start: !printerBusy,
+    metadata: {
+      origin: "cloud",
+      cloud_job_id: command.job_id || payload.print_job_id || null,
+      cloud_command_id: command.command_id || null,
+      org_id: command.org_id || null,
+      merchant_requirements: isPlainObject(payload.requirements) ? payload.requirements : null
+    }
+  });
+  return {
+    pipeline: "orchestrated",
+    started: job.status === "printing",
+    queued: job.status !== "printing",
+    local_job_id: job.job_id,
+    job_status: job.status,
+    remote_file_name: job.transformed_file_name || remoteFileName,
+    transform: {
+      applied: job.transform_report?.skipped !== true,
+      error: job.transform_report?.transform_error || null,
+      loops: job.diff_summary?.loops || 1
+    }
   };
 }
 function normalizeStringList(value) {
@@ -83915,37 +84332,6 @@ function normalizePrinterSyncOptions(payload = {}) {
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-function countAmsTrays(snapshot) {
-  if (!snapshot || typeof snapshot !== "object") return 0;
-  if (Array.isArray(snapshot.ams?.trays)) return snapshot.ams.trays.length;
-  if (Array.isArray(snapshot.ams?.ams)) {
-    return snapshot.ams.ams.reduce((count, unit) => count + (Array.isArray(unit.tray) ? unit.tray.length : 0), 0);
-  }
-  if (Array.isArray(snapshot.ams?.tray)) return snapshot.ams.tray.length;
-  return 0;
-}
-function buildSyncedPrinterRecord(printer, worker, options) {
-  const statusSnapshot = printer.status_snapshot && typeof printer.status_snapshot === "object" ? { ...printer.status_snapshot } : {};
-  const liveState = worker?.state && worker.state !== "unknown" ? worker.state : statusSnapshot.state;
-  const status = worker?.connected ? liveState || "online" : liveState || "offline";
-  const record = {
-    local_printer_id: printer.printer_id,
-    name: printer.name || printer.printer_id,
-    model: printer.model || null,
-    ip_hostname: printer.ip_hostname || null,
-    status,
-    connected: !!worker?.connected,
-    capabilities: printer.capabilities || {},
-    last_seen: printer.last_seen || null
-  };
-  if (options.sync_ams || options.sync_filament) {
-    record.status_snapshot = statusSnapshot;
-  }
-  if (options.sync_ams) {
-    record.ams_tray_count = countAmsTrays(statusSnapshot);
-  }
-  return record;
-}
 async function defaultDiscoverPrinters(options = {}) {
   const [{ RuntimeSupervisor: RuntimeSupervisor2 }, { getDiscoveryInstance: getDiscoveryInstance2 }] = await Promise.all([
     Promise.resolve().then(() => (init_RuntimeSupervisor(), RuntimeSupervisor_exports)),
@@ -83961,20 +84347,14 @@ async function defaultDiscoverPrinters(options = {}) {
   return discovery.getDiscovered?.() || [];
 }
 async function defaultSyncPrinters(options = {}) {
-  const [{ PrinterModel: PrinterModel2 }, { RuntimeSupervisor: RuntimeSupervisor2 }, { collectNetworkInterfaces: collectNetworkInterfaces2 }] = await Promise.all([
-    Promise.resolve().then(() => (init_Printer(), Printer_exports)),
-    Promise.resolve().then(() => (init_RuntimeSupervisor(), RuntimeSupervisor_exports)),
-    Promise.resolve().then(() => (init_localNetwork(), localNetwork_exports))
-  ]);
-  const supervisor = RuntimeSupervisor2.getInstance();
-  const registeredPrinters = options.include_saved_printers === false ? [] : PrinterModel2.findAll();
-  const printers = registeredPrinters.map((printer) => buildSyncedPrinterRecord(printer, supervisor?.getWorker?.(printer.printer_id), options));
+  const { collectNetworkInterfaces: collectNetworkInterfaces2 } = await Promise.resolve().then(() => (init_localNetwork(), localNetwork_exports));
+  const printers = await collectLocalPrinterRecords(options);
   const online = printers.filter((printer) => printer.connected || String(printer.status).toLowerCase() === "online").length;
   const amsTrays = printers.reduce((count, printer) => count + (Number(printer.ams_tray_count) || 0), 0);
   return {
     printers,
     summary: {
-      registered: registeredPrinters.length,
+      registered: printers.length,
       online,
       ams_trays: amsTrays,
       network_interface_count: collectNetworkInterfaces2().length,
@@ -84027,6 +84407,14 @@ function getDefaultDeps() {
     async startJob(jobId) {
       const { JobOrchestrator: JobOrchestrator2 } = await Promise.resolve().then(() => (init_JobOrchestrator(), JobOrchestrator_exports));
       return JobOrchestrator2.startJob(jobId);
+    },
+    async submitJob(params) {
+      const { JobOrchestrator: JobOrchestrator2 } = await Promise.resolve().then(() => (init_JobOrchestrator(), JobOrchestrator_exports));
+      return JobOrchestrator2.submit(params);
+    },
+    async getAmsService() {
+      const { AmsService: AmsService2 } = await Promise.resolve().then(() => (init_AmsService(), AmsService_exports));
+      return AmsService2;
     },
     downloadArtifact: defaultDownloadArtifact,
     uploadToPrinter: defaultUploadToPrinter,
@@ -84393,6 +84781,12 @@ function getHostInfo() {
 }
 async function sendHeartbeat(client, status = "online", resultOutbox = null) {
   const networkInterfaces = collectNetworkInterfaces();
+  let printers = [];
+  try {
+    printers = await collectLocalPrinterRecords({ sync_ams: true, sync_filament: true });
+  } catch (error) {
+    log33.warn(`Printer snapshot for heartbeat failed: ${error.message}`);
+  }
   return client.sendHeartbeat({
     status,
     agent_version: process.env.npm_package_version || "0.1.0",
@@ -84405,8 +84799,10 @@ async function sendHeartbeat(client, status = "online", resultOutbox = null) {
       command_polling: true,
       printer_lan_control: true,
       network_interface_count: networkInterfaces.length,
-      pending_result_count: resultOutbox?.size?.() || 0
-    }
+      pending_result_count: resultOutbox?.size?.() || 0,
+      printer_count: printers.length
+    },
+    printers
   });
 }
 function parseEnvInt(name, fallback) {
@@ -84437,10 +84833,26 @@ async function main() {
   SystemEvents_default.on("printer.alert", (alert) => {
     client.sendEvents([{
       event_type: alert?.kind === "auto_canceled" ? "printer.auto_canceled" : "printer.alert",
-      printer_id: alert?.printer_id,
       payload: alert
     }]).catch((error) => log33.warn(`Cloud alert forward failed: ${error.message}`));
   });
+  const forwardJobLifecycle = (eventType) => ({ job, printer_id, reason } = {}) => {
+    const cloudJobId = job?.metadata?.cloud_job_id;
+    if (!cloudJobId) return;
+    client.sendEvents([{
+      event_type: eventType,
+      command_id: job?.metadata?.cloud_command_id || null,
+      payload: {
+        print_job_id: cloudJobId,
+        local_job_id: job.job_id,
+        local_printer_id: printer_id || job.printer_id || null,
+        reason: reason || null
+      }
+    }]).catch((error) => log33.warn(`Cloud job status forward failed (${eventType}): ${error.message}`));
+  };
+  SystemEvents_default.on("job.started", forwardJobLifecycle("print_job.started"));
+  SystemEvents_default.on("job.completed", forwardJobLifecycle("print_job.completed"));
+  SystemEvents_default.on("job.failed", forwardJobLifecycle("print_job.failed"));
   try {
     await sendHeartbeat(client, "online", resultOutbox);
   } catch (error) {
