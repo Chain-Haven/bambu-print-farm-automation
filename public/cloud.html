@@ -150,6 +150,102 @@
       <div class="operations-stack">
         <section class="panel">
           <div class="panel-heading">
+            <h2>Farm Autopilot</h2>
+            <span>Queue, filament, ejection</span>
+          </div>
+          <div class="automation-grid">
+            <form id="farm-automation-form" class="subpanel">
+              <div class="panel-heading">
+                <h2>Automation Policy</h2>
+                <span>AutoFarm v1</span>
+              </div>
+              <label class="switch-row">
+                <input id="smart-queue-enabled" type="checkbox">
+                <span>Smart material queue</span>
+              </label>
+              <label class="switch-row">
+                <input id="auto-eject-enabled" type="checkbox">
+                <span>Auto eject after print</span>
+              </label>
+              <label class="switch-row">
+                <input id="failure-detection-enabled" type="checkbox">
+                <span>Camera failure hooks</span>
+              </label>
+              <div class="split">
+                <label>
+                  <span>Release temp C</span>
+                  <input id="release-temperature-c" type="number" min="20" max="60" step="0.5" value="27">
+                </label>
+                <label>
+                  <span>Eject attempts</span>
+                  <input id="max-eject-attempts" type="number" min="1" max="10" value="3">
+                </label>
+              </div>
+              <label>
+                <span>Bed clear verification</span>
+                <select id="bed-clear-verification">
+                  <option value="camera_or_operator">Camera or operator</option>
+                  <option value="camera_required">Camera required</option>
+                  <option value="operator_required">Operator required</option>
+                  <option value="assume_clear_after_eject">Assume clear after eject</option>
+                </select>
+              </label>
+              <button type="submit">Save Policy</button>
+            </form>
+
+            <form id="filament-inventory-form" class="subpanel">
+              <div class="panel-heading">
+                <h2>Filament Inventory</h2>
+                <span>Spools and AMS</span>
+              </div>
+              <label>
+                <span>Inventory JSON</span>
+                <textarea id="filament-inventory-json" rows="10">{
+  "spools": []
+}</textarea>
+              </label>
+              <button type="submit">Save Inventory</button>
+            </form>
+
+            <form id="integrations-form" class="subpanel">
+              <div class="panel-heading">
+                <h2>Integrations</h2>
+                <span>Alerts, ecommerce, vision</span>
+              </div>
+              <label>
+                <span>Integrations JSON</span>
+                <textarea id="integrations-json" rows="10">{
+  "alerts": [],
+  "ecommerce": [],
+  "vision": [],
+  "shipping": [],
+  "remote_access": []
+}</textarea>
+              </label>
+              <button type="submit">Save Integrations</button>
+            </form>
+          </div>
+        </section>
+
+        <section class="table-grid" aria-label="Farm automation plan">
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Automation Plan</h2>
+              <span id="automation-plan-count">0</span>
+            </div>
+            <div id="farm-automation-plan"></div>
+          </div>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Automation Alerts</h2>
+              <span id="automation-alert-count">0</span>
+            </div>
+            <div id="automation-alerts-table"></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
             <h2>Merchant Operations</h2>
             <span>Approvals, keys, usage</span>
           </div>

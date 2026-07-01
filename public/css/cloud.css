@@ -233,6 +233,10 @@ h2 {
   border-top-color: #2b6c8f;
 }
 
+.metric:nth-child(7) {
+  border-top-color: var(--danger);
+}
+
 .metric strong {
   display: block;
   margin-top: 10px;
@@ -263,6 +267,17 @@ h2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(240px, 1fr));
   gap: 12px;
+}
+
+.automation-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) repeat(2, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.alert-list {
+  display: grid;
+  gap: 8px;
 }
 
 .panel,
@@ -501,9 +516,28 @@ th {
 
 .status.rejected,
 .status.suspended,
-.status.cancelled {
+.status.cancelled,
+.status.critical {
   background: #fff0ef;
   color: var(--danger);
+}
+
+.status.warning,
+.status.auto_eject,
+.status.manual_clear_required {
+  background: #fff4df;
+  color: var(--warn);
+}
+
+.status.enabled,
+.status.available {
+  background: #dff4eb;
+  color: var(--accent-strong);
+}
+
+.status.off {
+  background: #eef2ef;
+  color: var(--muted);
 }
 
 .row-actions {
@@ -569,6 +603,7 @@ th {
   .work-grid,
   .metrics,
   .merchant-grid,
+  .automation-grid,
   .table-grid,
   .setup-grid,
   .setup-checks {

@@ -21,6 +21,11 @@ describe('cloud dashboard assets', () => {
         const css = fs.readFileSync('public/css/cloud.css', 'utf8');
 
         for (const id of [
+            'farm-automation-form',
+            'filament-inventory-form',
+            'integrations-form',
+            'farm-automation-plan',
+            'automation-alerts-table',
             'merchant-settings-form',
             'merchant-list-form',
             'merchant-action-form',
@@ -35,6 +40,7 @@ describe('cloud dashboard assets', () => {
         }
 
         for (const endpoint of [
+            '/api/cloud/farm-automation',
             '/api/cloud/merchant-settings',
             '/api/cloud/merchants',
             '/api/cloud/merchant-setup-token',
@@ -48,6 +54,11 @@ describe('cloud dashboard assets', () => {
         }
 
         for (const functionName of [
+            'refreshFarmAutomation',
+            'handleFarmAutomationSubmit',
+            'handleFilamentInventorySubmit',
+            'handleIntegrationsSubmit',
+            'renderFarmAutomation',
             'refreshMerchantSettings',
             'refreshMerchants',
             'handleMerchantAction',
@@ -60,6 +71,8 @@ describe('cloud dashboard assets', () => {
         }
 
         expect(css).toContain('.admin-layout');
+        expect(css).toContain('.automation-grid');
+        expect(css).toContain('.alert-list');
         expect(css).toContain('.detail-drawer');
         expect(css).toContain('.toolbar');
     });

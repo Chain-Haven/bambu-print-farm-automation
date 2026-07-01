@@ -13,6 +13,21 @@ const state = {
   },
   setup: null,
   merchantSettings: { full_auto_merchant_mode: { enabled: false } },
+  farmAutomation: {
+    settings: {
+      policy: {},
+      inventory: { spools: [] },
+      integrations: { alerts: [], ecommerce: [], vision: [], shipping: [], remote_access: [] },
+    },
+    plan: {
+      summary: {},
+      feature_map: {},
+      printers: [],
+      job_recommendations: [],
+      ejection_queue: [],
+      alerts: [],
+    },
+  },
   merchants: [],
   merchantApiKeys: [],
   merchantJobs: [],
@@ -63,6 +78,17 @@ const elements = {
   setupStatusBody: $('#setup-status-body'),
   metrics: $('#metrics'),
   merchantSettingsForm: $('#merchant-settings-form'),
+  farmAutomationForm: $('#farm-automation-form'),
+  smartQueueEnabled: $('#smart-queue-enabled'),
+  autoEjectEnabled: $('#auto-eject-enabled'),
+  failureDetectionEnabled: $('#failure-detection-enabled'),
+  releaseTemperatureC: $('#release-temperature-c'),
+  maxEjectAttempts: $('#max-eject-attempts'),
+  bedClearVerification: $('#bed-clear-verification'),
+  filamentInventoryForm: $('#filament-inventory-form'),
+  filamentInventoryJson: $('#filament-inventory-json'),
+  integrationsForm: $('#integrations-form'),
+  integrationsJson: $('#integrations-json'),
   fullAutoMode: $('#full-auto-mode'),
   merchantModeState: $('#merchant-mode-state'),
   refreshMerchantSettings: $('#refresh-merchant-settings'),
@@ -322,6 +348,7 @@ function renderMetrics() {
   const onlineNodes = overview.nodes.filter((node) => node.status === 'online').length;
   const onlinePrinters = overview.printers.filter((printer) => printer.status === 'online').length;
   const usageQuantity = state.merchantUsage.reduce((sum, event) => sum + (Number(event.quantity) || 0), 0);
+  const automationAlerts = state.farmAutomation.plan?.alerts?.length || 0;
   const metrics = [
     ['Nodes Online', `${onlineNodes}/${overview.nodes.length}`],
     ['Printers Online', `${onlinePrinters}/${overview.printers.length}`],
@@ -329,6 +356,7 @@ function renderMetrics() {
     ['Pending Commands', pendingCommands],
     ['Merchants', state.merchants.length],
     ['Usage Units', formatNumber(usageQuantity)],
+    ['Auto Alerts', automationAlerts],
   ];
 
   elements.metrics.replaceChildren(...metrics.map(([label, count]) => {
@@ -407,6 +435,8 @@ function updateCounts() {
   setText('#merchant-key-count', state.merchantApiKeys.length);
   setText('#merchant-job-count', state.merchantJobs.length);
   setText('#merchant-usage-count', state.merchantUsage.length);
+  setText('#automation-plan-count', state.farmAutomation.plan?.job_recommendations?.length || 0);
+  setText('#automation-alert-count', state.farmAutomation.plan?.alerts?.length || 0);
 }
 
 function renderCommandNodeOptions(nodes) {
@@ -514,6 +544,63 @@ function renderMerchantOperationalTables() {
   ], state.merchantUsage, 'No usage loaded.');
 }
 
+function renderFarmAutomation(automation) {
+  if (automation) state.farmAutomation = automation;
+  const settings = state.farmAutomation.settings || {};
+  const policy = settings.policy || {};
+  const inventory = settings.inventory || { spools: [] };
+  const integrations = settings.integrations || { alerts: [], ecommerce: [], vision: [], shipping: [], remote_access: [] };
+  const plan = state.farmAutomation.plan || { job_recommendations: [], ejection_queue: [], alerts: [], printers: [], feature_map: {}, summary: {} };
+
+  elements.smartQueueEnabled.checked = policy.smart_queue_enabled !== false;
+  elements.autoEjectEnabled.checked = policy.auto_eject_enabled !== false;
+  elements.failureDetectionEnabled.checked = policy.failure_detection_enabled !== false;
+  elements.releaseTemperatureC.value = policy.release_temperature_c || 27;
+  elements.maxEjectAttempts.value = policy.max_eject_attempts || 3;
+  elements.bedClearVerification.value = policy.bed_clear_verification || 'camera_or_operator';
+  elements.filamentInventoryJson.value = JSON.stringify(inventory, null, 2);
+  elements.integrationsJson.value = JSON.stringify(integrations, null, 2);
+
+  const planRows = [
+    ...Object.entries(plan.feature_map || {}).map(([key, enabled]) => ({
+      type: 'feature',
+      item: key.replace(/_/g, ' '),
+      status: enabled ? 'enabled' : 'off',
+      detail: enabled ? 'ready' : 'disabled',
+    })),
+    ...(plan.job_recommendations || []).map((row) => ({
+      type: 'job',
+      item: row.job_name || shortId(row.job_id),
+      status: row.status,
+      detail: row.selected_printer_id ? `printer ${shortId(row.selected_printer_id)}` : 'waiting',
+      raw: row,
+    })),
+    ...(plan.ejection_queue || []).map((row) => ({
+      type: 'eject',
+      item: shortId(row.printer_id),
+      status: row.action,
+      detail: row.reason || row.verification || `${row.release_temperature_c || '-'} C`,
+      raw: row,
+    })),
+  ];
+
+  renderTable('#farm-automation-plan', [
+    { label: 'Type', value: (row) => row.type },
+    { label: 'Item', value: (row) => row.item },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    { label: 'Detail', value: (row) => row.detail || '-' },
+    { label: 'Open', value: (row) => makeDetailButton('Open', `Automation ${row.type}`, row.raw || row) },
+  ], planRows, 'No automation recommendations yet.');
+
+  renderTable('#automation-alerts-table', [
+    { label: 'Severity', value: (row) => makeStatus(row.severity) },
+    { label: 'Type', value: (row) => row.type || '-' },
+    { label: 'Message', value: (row) => row.message || '-' },
+    { label: 'Target', value: (row) => row.spool_id || row.printer_id || row.job_id || '-' },
+    { label: 'Open', value: (row) => makeDetailButton('Open', `Alert ${row.type || ''}`.trim(), row) },
+  ], plan.alerts || [], 'No automation alerts.');
+}
+
 function renderOverview() {
   const overview = state.overview;
   updateCounts();
@@ -574,6 +661,7 @@ function renderOverview() {
 
   renderMerchants();
   renderMerchantOperationalTables();
+  renderFarmAutomation();
   updateCounts();
   renderMetrics();
 }
@@ -603,6 +691,18 @@ async function refreshMerchantSettings() {
   const payload = await apiRequest('/api/cloud/merchant-settings');
   renderMerchantSettings(payload.settings);
   return payload.settings;
+}
+
+async function refreshFarmAutomation() {
+  const params = new URLSearchParams();
+  const orgId = getOrgId();
+  if (orgId) params.set('org_id', orgId);
+  params.set('limit', String(getRowLimit()));
+  const payload = await apiRequest(`/api/cloud/farm-automation?${params.toString()}`);
+  renderFarmAutomation(payload.automation);
+  updateCounts();
+  renderMetrics();
+  return payload.automation;
 }
 
 async function refreshMerchants() {
@@ -676,6 +776,7 @@ async function refreshDashboard() {
   await Promise.all([
     refreshOverview(),
     refreshMerchantSettings(),
+    refreshFarmAutomation(),
     refreshMerchants(),
   ]);
   setApiState('Connected', 'online');
@@ -809,6 +910,46 @@ async function handleMerchantSettingsSubmit(event) {
   showToast('Merchant mode saved');
 }
 
+async function handleFarmAutomationSubmit(event) {
+  event.preventDefault();
+  const policy = {
+    smart_queue_enabled: elements.smartQueueEnabled.checked,
+    auto_eject_enabled: elements.autoEjectEnabled.checked,
+    failure_detection_enabled: elements.failureDetectionEnabled.checked,
+    release_temperature_c: Number(elements.releaseTemperatureC.value) || 27,
+    max_eject_attempts: Number.parseInt(elements.maxEjectAttempts.value, 10) || 3,
+    bed_clear_verification: elements.bedClearVerification.value,
+  };
+  const payload = await apiRequest('/api/cloud/farm-automation', {
+    method: 'PATCH',
+    body: { policy },
+  });
+  renderFarmAutomation(payload.automation);
+  showToast('Farm automation policy saved');
+}
+
+async function handleFilamentInventorySubmit(event) {
+  event.preventDefault();
+  const inventory = parseJsonField(elements.filamentInventoryJson.value, { spools: [] });
+  const payload = await apiRequest('/api/cloud/farm-automation', {
+    method: 'PATCH',
+    body: { inventory },
+  });
+  renderFarmAutomation(payload.automation);
+  showToast('Filament inventory saved');
+}
+
+async function handleIntegrationsSubmit(event) {
+  event.preventDefault();
+  const integrations = parseJsonField(elements.integrationsJson.value, {});
+  const payload = await apiRequest('/api/cloud/farm-automation', {
+    method: 'PATCH',
+    body: { integrations },
+  });
+  renderFarmAutomation(payload.automation);
+  showToast('Farm integrations saved');
+}
+
 async function handleMerchantAction(event) {
   event.preventDefault();
   const merchantId = elements.merchantActionId.value.trim();
@@ -919,6 +1060,24 @@ function bindEvents() {
   elements.merchantId.addEventListener('input', () => syncMerchantFields(elements.merchantId.value.trim()));
   elements.merchantSettingsForm.addEventListener('submit', (event) => {
     handleMerchantSettingsSubmit(event).catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.farmAutomationForm.addEventListener('submit', (event) => {
+    handleFarmAutomationSubmit(event).catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.filamentInventoryForm.addEventListener('submit', (event) => {
+    handleFilamentInventorySubmit(event).catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.integrationsForm.addEventListener('submit', (event) => {
+    handleIntegrationsSubmit(event).catch((error) => {
       setApiState('Error', 'error');
       showToast(error.message);
     });

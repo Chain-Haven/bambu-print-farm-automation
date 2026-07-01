@@ -7,8 +7,12 @@ import {
     generateMerchantSetupToken,
 } from './merchantAuth.js';
 import { buildWindowsNodePackage, getNodePackageFileName } from './nodePackage.js';
+import { buildFarmAutomationPlan, normalizeFarmAutomationSettings } from './farmAutomation.js';
 
 const MERCHANT_SETUP_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const FARM_AUTOMATION_POLICY_KEY = 'farm_automation_policy';
+const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
+const FARM_INTEGRATIONS_KEY = 'farm_integrations';
 
 function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -477,6 +481,85 @@ export function createCloudNodePackageHandler({
             return sendJson(res, 400, {
                 ok: false,
                 error: 'node_package_failed',
+                message: error.message,
+            });
+        }
+    };
+}
+
+export function createCloudFarmAutomationHandler({
+    store,
+    adminToken = process.env.CLOUD_ADMIN_TOKEN,
+}) {
+    if (!store) throw new Error('store is required');
+
+    async function loadAutomation({ orgId = null, limit = 50 } = {}) {
+        const [policy, inventory, integrations, overview] = await Promise.all([
+            store.getPlatformSetting(FARM_AUTOMATION_POLICY_KEY, {}),
+            store.getPlatformSetting(FARM_FILAMENT_INVENTORY_KEY, { spools: [] }),
+            store.getPlatformSetting(FARM_INTEGRATIONS_KEY, {}),
+            store.getCloudOverview({ orgId, limit }),
+        ]);
+        const settings = normalizeFarmAutomationSettings({ policy, inventory, integrations });
+        const plan = buildFarmAutomationPlan({ overview, settings });
+
+        return { settings, plan, overview };
+    }
+
+    return async function cloudFarmAutomationHandler(req, res) {
+        if (req.method === 'GET') {
+            try {
+                if (!(await authenticateAdmin(req, res, adminToken))) return null;
+                const automation = await loadAutomation({
+                    orgId: normalizeOptionalString((req.query || {}).org_id),
+                    limit: parseLimit(req.query || {}),
+                });
+                return sendJson(res, 200, { ok: true, automation });
+            } catch (error) {
+                return sendJson(res, 500, {
+                    ok: false,
+                    error: 'farm_automation_failed',
+                    message: error.message,
+                });
+            }
+        }
+
+        if (req.method && req.method !== 'PATCH') {
+            return methodNotAllowed(res, 'GET, PATCH');
+        }
+
+        try {
+            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            const body = parseJsonBody(req.body);
+            const current = await loadAutomation({
+                orgId: normalizeOptionalString((req.query || {}).org_id),
+                limit: parseLimit(req.query || {}),
+            });
+            const nextSettings = normalizeFarmAutomationSettings({
+                policy: isPlainObject(body.policy) ? { ...current.settings.policy, ...body.policy } : current.settings.policy,
+                inventory: isPlainObject(body.inventory) ? body.inventory : current.settings.inventory,
+                integrations: isPlainObject(body.integrations) ? body.integrations : current.settings.integrations,
+            });
+
+            if (isPlainObject(body.policy)) {
+                await store.upsertPlatformSetting(FARM_AUTOMATION_POLICY_KEY, nextSettings.policy);
+            }
+            if (isPlainObject(body.inventory)) {
+                await store.upsertPlatformSetting(FARM_FILAMENT_INVENTORY_KEY, nextSettings.inventory);
+            }
+            if (isPlainObject(body.integrations)) {
+                await store.upsertPlatformSetting(FARM_INTEGRATIONS_KEY, nextSettings.integrations);
+            }
+
+            const automation = await loadAutomation({
+                orgId: normalizeOptionalString((req.query || {}).org_id),
+                limit: parseLimit(req.query || {}),
+            });
+            return sendJson(res, 200, { ok: true, automation });
+        } catch (error) {
+            return sendJson(res, 400, {
+                ok: false,
+                error: 'update_farm_automation_failed',
                 message: error.message,
             });
         }

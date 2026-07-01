@@ -26,6 +26,8 @@ POST /api/cloud/organizations
 POST /api/cloud/nodes
 POST /api/cloud/node-package
 POST /api/cloud/commands
+GET  /api/cloud/farm-automation
+PATCH /api/cloud/farm-automation
 GET  /api/cloud/merchant-settings
 PATCH /api/cloud/merchant-settings
 GET  /api/cloud/merchants?status=<status>&limit=50
@@ -104,6 +106,11 @@ The migration creates:
 Open `/cloud`, enter `CLOUD_ADMIN_TOKEN`, and optionally set an organization ID filter. The dashboard can:
 
 - verify Vercel/Supabase setup readiness before operators touch workflows
+- manage the farm autopilot policy for smart material queueing, auto-eject cooldown, bed-clear verification, and failure-detection hooks
+- store filament spool inventory with material, color, remaining grams, dry status, storage location, assigned printer, AMS unit, and tray
+- configure alert, ecommerce, vision, shipping, and remote-access integration hooks
+- show an automation plan with 3DQue-style feature coverage: central dashboard, smart queue, auto ejection, AMS/filament mapping, failure hooks, ecommerce hooks, remote access hooks, alerting hooks, and material batching
+- surface low-spool, printer-offline, dry-filament, and manual bed-clear alerts before the queue stalls
 - toggle full-auto merchant signup while keeping approve-only as the default mode
 - list merchants by status, approve/activate/reject/suspend merchants, and issue one-time setup tokens
 - issue, list, and revoke merchant `pkx_live_...` API keys from the admin console
@@ -187,3 +194,5 @@ Supported cloud command types in this slice:
 `cloud.print.ready` is the merchant API fulfillment command. The local Windows node downloads the signed private artifact from Vercel/Supabase storage, wraps raw `.gcode` into `.gcode.3mf` when needed, uploads the file to the selected Bambu printer over LAN FTPS, starts the print over MQTT, and reports the command result back to Vercel.
 
 For the operator-facing setup path, see `docs/windows-local-node.md` or `/windows-node-guide.html`.
+
+For the farm-manager automation target list, including the 3DQue/AutoFarm3D feature review, see `docs/farm-automation-feature-review.md`.

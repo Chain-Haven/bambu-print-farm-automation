@@ -15,6 +15,7 @@ describe('merchant API docs', () => {
             '/api/public/api-keys',
             '/api/public/print-jobs',
             '/api/public/print-jobs/status',
+            '/api/cloud/farm-automation',
             '/api/cloud/merchants',
             '/api/cloud/merchant-settings',
             '/api/cloud/merchant-api-keys',

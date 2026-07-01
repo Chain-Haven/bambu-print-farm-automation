@@ -214,6 +214,57 @@
         }
       }
     },
+    "/api/cloud/farm-automation": {
+      "get": {
+        "summary": "Admin read farm automation policy, filament inventory, integrations, and planner output",
+        "security": [
+          {
+            "CloudAdminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "org_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Farm automation settings and current operations plan"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Admin update farm automation policy, filament inventory, or integrations",
+        "security": [
+          {
+            "CloudAdminToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FarmAutomationUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Farm automation settings updated"
+          }
+        }
+      }
+    },
     "/api/cloud/merchant-settings": {
       "get": {
         "summary": "Admin read merchant settings",
@@ -582,6 +633,40 @@
           },
           "key_id": {
             "type": "string"
+          }
+        }
+      },
+      "FarmAutomationUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "policy": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "smart_queue_enabled": { "type": "boolean" },
+              "auto_eject_enabled": { "type": "boolean" },
+              "failure_detection_enabled": { "type": "boolean" },
+              "release_temperature_c": { "type": "number" },
+              "max_eject_attempts": { "type": "integer" },
+              "bed_clear_verification": { "type": "string" }
+            }
+          },
+          "inventory": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "spools": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "integrations": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       }

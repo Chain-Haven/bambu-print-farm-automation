@@ -12,6 +12,8 @@ The Merchant API lets approved merchants submit print files into PrintKinetix fo
 
 Full-auto merchant signup is available through the admin setting `full_auto_merchant_mode`, but it defaults to disabled.
 
+Farm automation settings live behind `GET/PATCH /api/cloud/farm-automation`. The Vercel admin console uses that endpoint to manage smart material queueing, auto-eject policy, filament/AMS spool inventory, low-spool alerts, camera failure hooks, ecommerce hooks, shipping hooks, and remote-access integration metadata.
+
 ## Authentication
 
 Merchant endpoints use:
