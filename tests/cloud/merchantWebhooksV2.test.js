@@ -4,7 +4,7 @@ import { signWebhookPayload } from '../../src/cloud/webhooks.js';
 
 const now = () => new Date('2026-07-01T12:00:00.000Z');
 
-function createMockStore() {
+function createMockStore(overrides = {}) {
     const endpoints = new Map();
     const deliveries = [];
 
@@ -27,6 +27,7 @@ function createMockStore() {
             endpoints.set(row.webhook_id, row);
             return row;
         }),
+        getMerchantWebhookEndpoint: vi.fn().mockImplementation(async ({ webhookId }) => endpoints.get(webhookId) || null),
         listMerchantWebhookEndpoints: vi.fn().mockImplementation(async () => [...endpoints.values()]),
         updateMerchantWebhookEndpoint: vi.fn().mockImplementation(async ({ webhookId, fields }) => {
             const current = endpoints.get(webhookId);
@@ -70,11 +71,15 @@ function createMockStore() {
             return row;
         }),
         listMerchantWebhookDeliveries: vi.fn().mockImplementation(async () => deliveries),
+        ...overrides,
     };
 }
 
-function createHandlers() {
-    const store = createMockStore();
+function createHandlers({
+    store: providedStore = null,
+    handlerOptions = {},
+} = {}) {
+    const store = providedStore || createMockStore();
     const authenticateMerchant = vi.fn().mockResolvedValue({
         merchant: {
             org_id: 'org-1',
@@ -94,6 +99,7 @@ function createHandlers() {
             signingSecretEncryptionKey: 'test-webhook-signing-secret-key',
             encryptionIvGenerator: () => Buffer.alloc(12, 7),
             idGenerator: () => '11111111-1111-4111-8111-111111111111',
+            ...handlerOptions,
         }),
     };
 }
@@ -234,6 +240,96 @@ describe('merchant webhooks v2 public handlers', () => {
                 timestamp: '1782907200',
             }),
         }));
+    });
+
+    it('fails closed when the signing secret encryption key is missing', async () => {
+        const originalKey = process.env.MERCHANT_WEBHOOK_SIGNING_SECRET_KEY;
+        delete process.env.MERCHANT_WEBHOOK_SIGNING_SECRET_KEY;
+        try {
+            const { createEndpoint, store } = createHandlers({
+                handlerOptions: {
+                    signingSecretEncryptionKey: undefined,
+                    secretPepper: 'api-pepper-must-not-be-used-for-encryption',
+                },
+            });
+
+            await expect(createEndpoint({
+                url: 'https://merchant.example/webhooks/printkinetix',
+            })).rejects.toMatchObject({
+                statusCode: 500,
+                code: 'webhook_signing_secret_key_missing',
+            });
+            expect(store.createMerchantWebhookEndpoint).not.toHaveBeenCalled();
+        } finally {
+            if (originalKey === undefined) delete process.env.MERCHANT_WEBHOOK_SIGNING_SECRET_KEY;
+            else process.env.MERCHANT_WEBHOOK_SIGNING_SECRET_KEY = originalKey;
+        }
+    });
+
+    it('uses direct endpoint lookup for item reads, updates, deletes, and tests beyond the first list page', async () => {
+        const store = createMockStore();
+        const handlers = createHandlers({ store });
+        const created = await handlers.createEndpoint({
+            url: 'https://merchant.example/webhooks/printkinetix',
+            events: ['job.created'],
+        });
+        store.listMerchantWebhookEndpoints.mockClear();
+        store.listMerchantWebhookEndpoints.mockResolvedValue([]);
+
+        await expect(handlers.getEndpoint({ webhook_id: created.webhook_id })).resolves.toMatchObject({
+            ok: true,
+            webhook_id: created.webhook_id,
+        });
+        await expect(handlers.updateEndpoint({
+            webhook_id: created.webhook_id,
+            description: 'Updated endpoint',
+        })).resolves.toMatchObject({
+            ok: true,
+            description: 'Updated endpoint',
+        });
+        await expect(handlers.testEndpoint({ webhook_id: created.webhook_id })).resolves.toMatchObject({
+            ok: true,
+            status: 'mock_recorded',
+        });
+        await expect(handlers.deleteEndpoint({ webhook_id: created.webhook_id })).resolves.toMatchObject({
+            ok: true,
+            status: 'disabled',
+        });
+
+        expect(store.getMerchantWebhookEndpoint).toHaveBeenCalledTimes(4);
+        expect(store.getMerchantWebhookEndpoint).toHaveBeenCalledWith({
+            merchantId: 'merchant-1',
+            webhookId: created.webhook_id,
+        });
+        expect(store.listMerchantWebhookEndpoints).not.toHaveBeenCalled();
+    });
+
+    it('rejects disabled test deliveries and malformed encrypted signing metadata safely', async () => {
+        const store = createMockStore();
+        const handlers = createHandlers({ store });
+        const created = await handlers.createEndpoint({
+            url: 'https://merchant.example/webhooks/printkinetix',
+            events: ['job.created'],
+        });
+
+        await handlers.deleteEndpoint({ webhook_id: created.webhook_id });
+        await expect(handlers.testEndpoint({ webhook_id: created.webhook_id })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'webhook_disabled',
+        });
+
+        await store.updateMerchantWebhookEndpoint({
+            merchantId: 'merchant-1',
+            webhookId: created.webhook_id,
+            fields: {
+                status: 'active',
+                metadata: { webhook_signing_secret: { alg: 'aes-256-gcm' } },
+            },
+        });
+        await expect(handlers.testEndpoint({ webhook_id: created.webhook_id })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'webhook_secret_unavailable',
+        });
     });
 
     it('throws a public 404 when an endpoint is not found', async () => {

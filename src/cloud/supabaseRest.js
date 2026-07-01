@@ -1478,6 +1478,14 @@ export function createSupabaseRestClient({
             return createMerchantV2Row('merchant_webhook_endpoints', endpoint);
         },
 
+        async getMerchantWebhookEndpoint({ merchantId, webhookId }) {
+            return getMerchantV2Row('merchant_webhook_endpoints', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_webhook_endpoints,
+                id: webhookId,
+            });
+        },
+
         async listMerchantWebhookEndpoints({ merchantId, limit = 50 }) {
             return listMerchantV2Rows('merchant_webhook_endpoints', { merchantId, limit });
         },

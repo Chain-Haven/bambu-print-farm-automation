@@ -34,6 +34,18 @@ function hashSecret(secret, pepper = '') {
     return crypto.createHash('sha256').update(input, 'utf8').digest('hex');
 }
 
+function requireSigningSecretEncryptionKey(keyMaterial) {
+    const key = optionalString(keyMaterial);
+    if (!key) {
+        throw createHttpError(
+            500,
+            'webhook_signing_secret_key_missing',
+            'Webhook signing secret encryption key is not configured',
+        );
+    }
+    return key;
+}
+
 function encryptionKey(keyMaterial = '') {
     return crypto.createHash('sha256').update(String(keyMaterial), 'utf8').digest();
 }
@@ -42,8 +54,9 @@ function encryptSigningSecret(secret, {
     keyMaterial,
     ivGenerator,
 }) {
+    const key = requireSigningSecretEncryptionKey(keyMaterial);
     const iv = Buffer.from(ivGenerator());
-    const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey(keyMaterial), iv);
+    const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey(key), iv);
     const ciphertext = Buffer.concat([
         cipher.update(secret, 'utf8'),
         cipher.final(),
@@ -57,13 +70,14 @@ function encryptSigningSecret(secret, {
 }
 
 function decryptSigningSecret(encrypted = {}, keyMaterial = '') {
+    const key = requireSigningSecretEncryptionKey(keyMaterial);
     if (encrypted.alg !== 'aes-256-gcm' || !encrypted.iv || !encrypted.ciphertext || !encrypted.tag) {
         throw createHttpError(409, 'webhook_secret_unavailable', 'Webhook signing secret is unavailable');
     }
     try {
         const decipher = crypto.createDecipheriv(
             'aes-256-gcm',
-            encryptionKey(keyMaterial),
+            encryptionKey(key),
             Buffer.from(encrypted.iv, 'base64'),
         );
         decipher.setAuthTag(Buffer.from(encrypted.tag, 'base64'));
@@ -174,11 +188,13 @@ function publicDelivery(delivery) {
 }
 
 async function getEndpointForMerchant(store, merchant, webhookId) {
-    const endpoints = await store.listMerchantWebhookEndpoints({
+    if (typeof store.getMerchantWebhookEndpoint !== 'function') {
+        throw new Error('store.getMerchantWebhookEndpoint is required');
+    }
+    return store.getMerchantWebhookEndpoint({
         merchantId: merchant.merchant_id,
-        limit: 100,
+        webhookId,
     });
-    return endpoints.find((endpoint) => endpoint.webhook_id === webhookId) || null;
 }
 
 export function createMerchantWebhooksV2Handlers({
@@ -191,9 +207,7 @@ export function createMerchantWebhooksV2Handlers({
         || process.env.MERCHANT_API_KEY_PEPPER
         || process.env.NODE_TOKEN_PEPPER
         || '',
-    signingSecretEncryptionKey = process.env.MERCHANT_WEBHOOK_SIGNING_SECRET_KEY
-        || secretPepper
-        || '',
+    signingSecretEncryptionKey = process.env.MERCHANT_WEBHOOK_SIGNING_SECRET_KEY,
     encryptionIvGenerator = () => crypto.randomBytes(12),
 } = {}) {
     if (!store) throw new Error('store is required');

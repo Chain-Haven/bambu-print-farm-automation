@@ -59,6 +59,7 @@ const requiredMethods = [
     'createMerchantInvoiceLine',
     'listMerchantInvoiceLines',
     'createMerchantWebhookEndpoint',
+    'getMerchantWebhookEndpoint',
     'listMerchantWebhookEndpoints',
     'updateMerchantWebhookEndpoint',
     'deleteMerchantWebhookEndpoint',
@@ -381,6 +382,20 @@ describe('merchant API v2 store surface', () => {
         expect(tokensUrl.searchParams.get('expires_at')).toMatch(/^gt\./);
         expect(tokensUrl.searchParams.get('select')).not.toContain('token_hash');
         expect(tokensUrl.searchParams.get('limit')).toBe('7');
+    });
+
+    it('gets merchant webhook endpoints by merchant and webhook id without list pagination', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([{ webhook_id: 'w1', merchant_id: 'm1' }]));
+        const store = await createStore(fetchImpl);
+
+        await store.getMerchantWebhookEndpoint({ merchantId: 'm1', webhookId: 'w1' });
+
+        const requestUrl = new URL(fetchImpl.mock.calls[0][0]);
+        expect(requestUrl.pathname).toBe('/rest/v1/merchant_webhook_endpoints');
+        expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(requestUrl.searchParams.get('webhook_id')).toBe('eq.w1');
+        expect(requestUrl.searchParams.get('select')).toBe('*');
+        expect(requestUrl.searchParams.get('limit')).toBe('1');
     });
 
     it('updates claimed shipping labels through a merchant-scoped PATCH', async () => {
