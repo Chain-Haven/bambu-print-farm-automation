@@ -221,8 +221,23 @@ function eqFilter(value, name) {
     return `eq.${encodeURIComponent(requireValue(value, name))}`;
 }
 
-function ltFilter(value, name) {
-    return `lt.${encodeURIComponent(requireValue(value, name))}`;
+function statusInFilter(values) {
+    const statuses = (Array.isArray(values) ? values : [])
+        .map((status) => String(status || '').trim())
+        .filter(Boolean)
+        .map(encodeURIComponent)
+        .join(',');
+    if (!statuses) throw new Error('allowed statuses are required');
+    return `in.(${statuses})`;
+}
+
+function stableCursorFilter({ cursor, timestampColumn, idColumn }) {
+    if (!cursor) return null;
+    const ts = typeof cursor === 'string' ? cursor : cursor.ts;
+    const id = typeof cursor === 'object' && cursor !== null ? cursor.id : null;
+    const encodedTs = encodeURIComponent(requireValue(ts, 'cursor'));
+    if (!id) return `${timestampColumn}=lt.${encodedTs}`;
+    return `or=(${timestampColumn}.lt.${encodedTs},and(${timestampColumn}.eq.${encodedTs},${idColumn}.lt.${encodeURIComponent(requireValue(id, 'cursor id'))}))`;
 }
 
 export function createSupabaseRestClient({
@@ -992,12 +1007,17 @@ export function createSupabaseRestClient({
             reservationId,
             releasedAt = new Date().toISOString(),
         }) {
-            return updateMerchantV2Row('merchant_material_reservations', {
+            const rows = await request(merchantV2ConditionalResourcePath('merchant_material_reservations', {
                 merchantId,
                 idColumn: MERCHANT_V2_IDS.merchant_material_reservations,
                 id: reservationId,
+                filters: ['status=eq.reserved'],
+            }), {
+                method: 'PATCH',
+                headers: { Prefer: 'return=representation' },
                 body: { status: 'released', released_at: releasedAt },
             });
+            return firstRow(rows);
         },
 
         async createMerchantBatch(batch) {
@@ -1019,6 +1039,25 @@ export function createSupabaseRestClient({
                 id: batchId,
                 body: fields,
             });
+        },
+
+        async updateMerchantBatchIfStatus({
+            merchantId,
+            batchId,
+            allowedStatuses = [],
+            fields = {},
+        }) {
+            const rows = await request(merchantV2ConditionalResourcePath('merchant_batches', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_batches,
+                id: batchId,
+                filters: [`status=${statusInFilter(allowedStatuses)}`],
+            }), {
+                method: 'PATCH',
+                headers: { Prefer: 'return=representation' },
+                body: fields,
+            });
+            return firstRow(rows);
         },
 
         async createMerchantBatchItem(batchItem) {
@@ -1056,11 +1095,16 @@ export function createSupabaseRestClient({
             if (fileId) filters.push(`file_id=${eqFilter(fileId, 'file_id')}`);
             if (sliceId) filters.push(`slice_job_id=${eqFilter(sliceId, 'slice_job_id')}`);
             if (eventType) filters.push(`event_type=${eqFilter(eventType, 'event_type')}`);
-            if (cursor) filters.push(`occurred_at=${ltFilter(cursor, 'cursor')}`);
+            const cursorFilter = stableCursorFilter({
+                cursor,
+                timestampColumn: 'occurred_at',
+                idColumn: 'event_id',
+            });
+            if (cursorFilter) filters.push(cursorFilter);
             return listMerchantV2Rows('merchant_job_events', {
                 merchantId,
                 filters,
-                order: 'occurred_at.desc',
+                order: 'occurred_at.desc,event_id.desc',
                 limit,
             });
         },
@@ -1081,11 +1125,16 @@ export function createSupabaseRestClient({
             if (jobId) filters.push(`job_id=${eqFilter(jobId, 'job_id')}`);
             if (fileId) filters.push(`file_id=${eqFilter(fileId, 'file_id')}`);
             if (artifactType) filters.push(`artifact_type=${eqFilter(artifactType, 'artifact_type')}`);
-            if (cursor) filters.push(`created_at=${ltFilter(cursor, 'cursor')}`);
+            const cursorFilter = stableCursorFilter({
+                cursor,
+                timestampColumn: 'created_at',
+                idColumn: 'artifact_id',
+            });
+            if (cursorFilter) filters.push(cursorFilter);
             return listMerchantV2Rows('merchant_job_artifacts', {
                 merchantId,
                 filters,
-                order: 'created_at.desc',
+                order: 'created_at.desc,artifact_id.desc',
                 limit,
             });
         },

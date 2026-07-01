@@ -21,7 +21,9 @@ const requiredMethods = [
     'createMerchantBatch',
     'getMerchantBatch',
     'updateMerchantBatch',
+    'updateMerchantBatchIfStatus',
     'createMerchantBatchItem',
+    'listMerchantBatchItems',
     'recordMerchantJobEvent',
     'listMerchantJobEvents',
     'createMerchantJobArtifact',
@@ -156,7 +158,7 @@ describe('merchant API v2 store surface', () => {
         expect(requestUrl.pathname).toBe('/rest/v1/merchant_job_events');
         expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.m1');
         expect(requestUrl.searchParams.get('job_id')).toBe('eq.j1');
-        expect(requestUrl.searchParams.get('order')).toBe('occurred_at.desc');
+        expect(requestUrl.searchParams.get('order')).toBe('occurred_at.desc,event_id.desc');
     });
 
     it('finds merchant orders by idempotency key or external order id', async () => {
@@ -227,6 +229,7 @@ describe('merchant API v2 store surface', () => {
         expect(requestUrl.pathname).toBe('/rest/v1/merchant_material_reservations');
         expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.m1');
         expect(requestUrl.searchParams.get('reservation_id')).toBe('eq.r1');
+        expect(requestUrl.searchParams.get('status')).toBe('eq.reserved');
         expect(init).toMatchObject({
             method: 'PATCH',
             body: JSON.stringify({

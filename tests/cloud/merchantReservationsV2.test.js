@@ -30,6 +30,22 @@ function createMockStore(overrides = {}) {
                     job_id: 'job-1',
                     metadata: {
                         note: 'merchant visible',
+                        status: 'safe public status',
+                        message: 'safe public message',
+                        node: 'node-secret',
+                        printer: 'printer-secret',
+                        spool: 'spool-secret',
+                        storage: 'internal-storage',
+                        storagePath: 'internal/camel/path',
+                        signed_url: 'https://signed.example/secret',
+                        signedUrl: 'https://signed.example/camel',
+                        secret: 'secret-value',
+                        api_key: 'api-key-secret',
+                        apiKey: 'api-key-camel',
+                        authorization: 'Bearer secret',
+                        password: 'password-secret',
+                        token: 'token-secret',
+                        tokenHash: 'token-hash-secret',
                         spool_id: 'spool-secret',
                         storage_path: 'internal/reservation/path',
                     },
@@ -49,6 +65,7 @@ function createMockStore(overrides = {}) {
                     released_at: releasedAt,
                     metadata: {
                         note: 'released safely',
+                        signedUrl: 'https://signed.example/release',
                         spool_id: 'spool-secret',
                     },
                 }
@@ -168,6 +185,22 @@ describe('merchant material reservations v2 handlers', () => {
             expires_at: '2026-07-02T12:00:00.000Z',
             metadata: {
                 note: 'merchant visible',
+                status: 'safe public status',
+                message: 'safe public message',
+                node: 'node-secret',
+                printer: 'printer-secret',
+                spool: 'spool-secret',
+                storage: 'internal-storage',
+                storagePath: 'internal/camel/path',
+                signed_url: 'https://signed.example/secret',
+                signedUrl: 'https://signed.example/camel',
+                secret: 'secret-value',
+                api_key: 'api-key-secret',
+                apiKey: 'api-key-camel',
+                authorization: 'Bearer secret',
+                password: 'password-secret',
+                token: 'token-secret',
+                tokenHash: 'token-hash-secret',
                 spool_id: 'spool-secret',
                 storage_path: 'internal/reservation/path',
             },
@@ -186,7 +219,11 @@ describe('merchant material reservations v2 handlers', () => {
             batch_id: 'body-batch',
             file_id: 'body-file',
             job_id: 'body-job',
-            metadata: { note: 'merchant visible' },
+            metadata: {
+                note: 'merchant visible',
+                status: 'safe public status',
+                message: 'safe public message',
+            },
         });
         expect(fetched).toMatchObject({
             ok: true,
@@ -203,7 +240,19 @@ describe('merchant material reservations v2 handlers', () => {
         });
         expect(JSON.stringify({ created, fetched, released })).not.toContain('org-1');
         expect(JSON.stringify({ created, fetched, released })).not.toContain('merchant-1');
+        expect(JSON.stringify({ created, fetched, released })).not.toContain('node-secret');
+        expect(JSON.stringify({ created, fetched, released })).not.toContain('printer-secret');
         expect(JSON.stringify({ created, fetched, released })).not.toContain('spool-secret');
+        expect(JSON.stringify({ created, fetched, released })).not.toContain('internal-storage');
+        expect(JSON.stringify({ created, fetched, released })).not.toContain('internal/camel/path');
+        expect(JSON.stringify({ created, fetched, released })).not.toContain('signed.example');
+        expect(JSON.stringify({ created, fetched, released })).not.toContain('secret-value');
+        expect(JSON.stringify({ created, fetched, released })).not.toContain('api-key-secret');
+        expect(JSON.stringify({ created, fetched, released })).not.toContain('api-key-camel');
+        expect(JSON.stringify({ created, fetched, released })).not.toContain('Bearer secret');
+        expect(JSON.stringify({ created, fetched, released })).not.toContain('password-secret');
+        expect(JSON.stringify({ created, fetched, released })).not.toContain('token-secret');
+        expect(JSON.stringify({ created, fetched, released })).not.toContain('token-hash-secret');
         expect(JSON.stringify({ created, fetched, released })).not.toContain('storage_path');
         expect(JSON.stringify({ created, fetched, released })).not.toContain('internal/reservation/path');
 
@@ -222,6 +271,42 @@ describe('merchant material reservations v2 handlers', () => {
             merchantId: 'merchant-1',
             reservationId: created.reservation_id,
             releasedAt: '2026-07-01T12:00:00.000Z',
+        });
+    });
+
+    it('releases only reserved reservations and reports stale transitions as conflicts', async () => {
+        const { releaseReservation } = createHandlers({
+            store: {
+                getMerchantMaterialReservation: vi.fn().mockImplementation(async ({ reservationId }) => {
+                    if (reservationId === 'consumed-reservation') {
+                        return {
+                            reservation_id: reservationId,
+                            status: 'consumed',
+                            material: 'PLA',
+                            grams: 10,
+                        };
+                    }
+                    if (reservationId === 'stale-reservation') {
+                        return {
+                            reservation_id: reservationId,
+                            status: 'reserved',
+                            material: 'PLA',
+                            grams: 10,
+                        };
+                    }
+                    return null;
+                }),
+                releaseMerchantMaterialReservation: vi.fn().mockResolvedValue(null),
+            },
+        });
+
+        await expect(releaseReservation({ reservation_id: 'consumed-reservation' })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'reservation_transition_invalid',
+        });
+        await expect(releaseReservation({ reservation_id: 'stale-reservation' })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'reservation_transition_invalid',
         });
     });
 

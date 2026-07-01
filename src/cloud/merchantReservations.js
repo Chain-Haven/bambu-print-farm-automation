@@ -93,12 +93,30 @@ export function createReservationHandlers({
         const merchant = await getAuthenticatedMerchant(authenticateMerchant, request);
         const reservationId = requiredReservationId(safeObject(body).reservation_id);
         const releasedAt = now().toISOString();
+        const current = await store.getMerchantMaterialReservation({
+            merchantId: merchant.merchant_id,
+            reservationId,
+        });
+        if (!current) throw createHttpError(404, 'reservation_not_found', 'Reservation not found');
+        if (String(current.status || '').toLowerCase() !== 'reserved') {
+            throw createHttpError(
+                409,
+                'reservation_transition_invalid',
+                'Reservation cannot transition from its current status',
+            );
+        }
         const reservation = await store.releaseMerchantMaterialReservation({
             merchantId: merchant.merchant_id,
             reservationId,
             releasedAt,
         });
-        if (!reservation) throw createHttpError(404, 'reservation_not_found', 'Reservation not found');
+        if (!reservation) {
+            throw createHttpError(
+                409,
+                'reservation_transition_invalid',
+                'Reservation cannot transition from its current status',
+            );
+        }
         return publicOk(publicReservation(reservation), requestId);
     }
 

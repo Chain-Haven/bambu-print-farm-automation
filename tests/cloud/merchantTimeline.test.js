@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { createTimelineHandlers } from '../../src/cloud/merchantTimeline.js';
 import { createSupabaseRestClient } from '../../src/cloud/supabaseRest.js';
 
+function decodeCursor(cursor) {
+    return JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+}
+
 function createMockStore(overrides = {}) {
     return {
         getMerchantPrintJob: vi.fn().mockImplementation(async ({ jobId }) => (
@@ -31,6 +35,22 @@ function createMockStore(overrides = {}) {
                 message: 'Job routed',
                 payload: {
                     public_status: 'queued',
+                    status: 'safe public status',
+                    message: 'safe public message',
+                    node: 'node-secret',
+                    printer: 'printer-secret',
+                    spool: 'spool-secret',
+                    storage: 'internal-storage',
+                    storagePath: 'internal/camel/path',
+                    signed_url: 'https://signed.example/secret',
+                    signedUrl: 'https://signed.example/camel',
+                    secret: 'secret-value',
+                    api_key: 'api-key-secret',
+                    apiKey: 'api-key-camel',
+                    authorization: 'Bearer secret',
+                    password: 'password-secret',
+                    token: 'token-secret',
+                    tokenHash: 'token-hash-secret',
                     storage_path: 'internal/event/path',
                     node_id: 'node-secret',
                     printer_id: 'printer-secret',
@@ -39,6 +59,7 @@ function createMockStore(overrides = {}) {
                 },
                 metadata: {
                     note: 'merchant visible',
+                    signedUrl: 'https://signed.example/meta',
                     command_id: 'command-secret',
                     local_printer_id: 'local-secret',
                 },
@@ -58,6 +79,8 @@ function createMockStore(overrides = {}) {
                 provider: 'internal',
                 payload: {
                     original_name: 'part.gcode.3mf',
+                    signedUrl: 'https://signed.example/artifact',
+                    apiKey: 'artifact-api-key',
                     storage_path: 'internal/payload/path',
                     printer_id: 'printer-secret',
                 },
@@ -152,11 +175,19 @@ describe('merchant print job timeline handlers', () => {
                     file_id: 'file-1',
                     slice_id: 'slice-1',
                     event_type: 'job.routed',
-                    payload: { public_status: 'queued' },
+                    payload: {
+                        public_status: 'queued',
+                        status: 'safe public status',
+                        message: 'safe public message',
+                    },
                     metadata: { note: 'merchant visible' },
                 },
             ],
-            next_cursor: '2026-07-01T12:05:00.000Z',
+            next_cursor: expect.any(String),
+        });
+        expect(decodeCursor(result.next_cursor)).toEqual({
+            ts: '2026-07-01T12:05:00.000Z',
+            id: 'event-2',
         });
         expect(store.getMerchantPrintJob).toHaveBeenCalledWith({
             merchantId: 'merchant-1',
@@ -170,7 +201,10 @@ describe('merchant print job timeline handlers', () => {
             fileId: 'file-1',
             sliceId: 'slice-1',
             eventType: 'job.routed',
-            cursor: '2026-07-01T12:10:00.000Z',
+            cursor: {
+                ts: '2026-07-01T12:10:00.000Z',
+                id: null,
+            },
             limit: 1,
         });
         expect(JSON.stringify(result)).not.toContain('org-1');
@@ -180,6 +214,16 @@ describe('merchant print job timeline handlers', () => {
         expect(JSON.stringify(result)).not.toContain('spool-secret');
         expect(JSON.stringify(result)).not.toContain('command-secret');
         expect(JSON.stringify(result)).not.toContain('storage_path');
+        expect(JSON.stringify(result)).not.toContain('internal-storage');
+        expect(JSON.stringify(result)).not.toContain('internal/camel/path');
+        expect(JSON.stringify(result)).not.toContain('signed.example');
+        expect(JSON.stringify(result)).not.toContain('secret-value');
+        expect(JSON.stringify(result)).not.toContain('api-key-secret');
+        expect(JSON.stringify(result)).not.toContain('api-key-camel');
+        expect(JSON.stringify(result)).not.toContain('Bearer secret');
+        expect(JSON.stringify(result)).not.toContain('password-secret');
+        expect(JSON.stringify(result)).not.toContain('token-secret');
+        expect(JSON.stringify(result)).not.toContain('token-hash-secret');
         expect(JSON.stringify(result)).not.toContain('internal/event/path');
     });
 
@@ -214,7 +258,10 @@ describe('merchant print job timeline handlers', () => {
             jobId: 'job-1',
             fileId: 'file-1',
             artifactType: 'print_file',
-            cursor: '2026-07-01T12:10:00.000Z',
+            cursor: {
+                ts: '2026-07-01T12:10:00.000Z',
+                id: null,
+            },
             limit: 25,
         });
         expect(JSON.stringify(result)).not.toContain('storage_path');
@@ -222,6 +269,50 @@ describe('merchant print job timeline handlers', () => {
         expect(JSON.stringify(result)).not.toContain('internal/payload/path');
         expect(JSON.stringify(result)).not.toContain('printer-secret');
         expect(JSON.stringify(result)).not.toContain('spool-secret');
+        expect(JSON.stringify(result)).not.toContain('signed.example');
+        expect(JSON.stringify(result)).not.toContain('artifact-api-key');
+    });
+
+    it('returns stable cursors that preserve same-timestamp page boundaries', async () => {
+        const { listJobEvents, store } = createHandlers({
+            store: {
+                listMerchantJobEvents: vi.fn()
+                    .mockResolvedValueOnce([
+                        {
+                            event_id: 'event-b',
+                            job_id: 'job-1',
+                            event_type: 'job.progress',
+                            occurred_at: '2026-07-01T12:05:00.000Z',
+                        },
+                    ])
+                    .mockResolvedValueOnce([
+                        {
+                            event_id: 'event-a',
+                            job_id: 'job-1',
+                            event_type: 'job.progress',
+                            occurred_at: '2026-07-01T12:05:00.000Z',
+                        },
+                    ]),
+            },
+        });
+
+        const first = await listJobEvents({ job_id: 'job-1', limit: 1 });
+        const second = await listJobEvents({ job_id: 'job-1', limit: 1, cursor: first.next_cursor });
+
+        expect(decodeCursor(first.next_cursor)).toEqual({
+            ts: '2026-07-01T12:05:00.000Z',
+            id: 'event-b',
+        });
+        expect(second.events[0]).toMatchObject({
+            event_id: 'event-a',
+            occurred_at: '2026-07-01T12:05:00.000Z',
+        });
+        expect(store.listMerchantJobEvents.mock.calls[1][0]).toMatchObject({
+            cursor: {
+                ts: '2026-07-01T12:05:00.000Z',
+                id: 'event-b',
+            },
+        });
     });
 
     it('requires the print job to belong to the authenticated merchant before listing children', async () => {
@@ -261,7 +352,10 @@ describe('merchant timeline store helpers', () => {
             fileId: 'file-1',
             sliceId: 'slice-1',
             eventType: 'job.routed',
-            cursor: '2026-07-01T12:10:00.000Z',
+            cursor: {
+                ts: '2026-07-01T12:10:00.000Z',
+                id: 'event-9',
+            },
             limit: 250,
         });
 
@@ -275,8 +369,10 @@ describe('merchant timeline store helpers', () => {
         expect(requestUrl.searchParams.get('file_id')).toBe('eq.file-1');
         expect(requestUrl.searchParams.get('slice_job_id')).toBe('eq.slice-1');
         expect(requestUrl.searchParams.get('event_type')).toBe('eq.job.routed');
-        expect(requestUrl.searchParams.get('occurred_at')).toBe('lt.2026-07-01T12:10:00.000Z');
-        expect(requestUrl.searchParams.get('order')).toBe('occurred_at.desc');
+        expect(requestUrl.searchParams.get('or')).toBe(
+            '(occurred_at.lt.2026-07-01T12:10:00.000Z,and(occurred_at.eq.2026-07-01T12:10:00.000Z,event_id.lt.event-9))',
+        );
+        expect(requestUrl.searchParams.get('order')).toBe('occurred_at.desc,event_id.desc');
         expect(requestUrl.searchParams.get('limit')).toBe('100');
     });
 
@@ -297,7 +393,10 @@ describe('merchant timeline store helpers', () => {
             jobId: 'job-1',
             fileId: 'file-1',
             artifactType: 'print_file',
-            cursor: '2026-07-01T12:10:00.000Z',
+            cursor: {
+                ts: '2026-07-01T12:10:00.000Z',
+                id: 'artifact-9',
+            },
             limit: 250,
         });
 
@@ -308,7 +407,10 @@ describe('merchant timeline store helpers', () => {
         expect(requestUrl.searchParams.get('job_id')).toBe('eq.job-1');
         expect(requestUrl.searchParams.get('file_id')).toBe('eq.file-1');
         expect(requestUrl.searchParams.get('artifact_type')).toBe('eq.print_file');
-        expect(requestUrl.searchParams.get('created_at')).toBe('lt.2026-07-01T12:10:00.000Z');
+        expect(requestUrl.searchParams.get('or')).toBe(
+            '(created_at.lt.2026-07-01T12:10:00.000Z,and(created_at.eq.2026-07-01T12:10:00.000Z,artifact_id.lt.artifact-9))',
+        );
+        expect(requestUrl.searchParams.get('order')).toBe('created_at.desc,artifact_id.desc');
         expect(requestUrl.searchParams.get('limit')).toBe('100');
     });
 });

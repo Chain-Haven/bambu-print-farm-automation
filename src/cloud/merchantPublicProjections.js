@@ -1,21 +1,51 @@
 import { createHttpError } from './merchantApiV2.js';
 
-const INTERNAL_PUBLIC_KEYS = new Set([
-    'org_id',
-    'merchant_id',
-    'node_id',
-    'printer_id',
-    'selected_node_id',
-    'selected_printer_id',
-    'spool_id',
-    'storage_path',
-    'local_printer_id',
-    'command_id',
-    'access_code',
+const INTERNAL_EXACT_KEYS = new Set([
+    'accesscode',
+    'apikey',
+    'authorization',
+    'commandid',
+    'keyhash',
+    'localprinterid',
+    'merchantid',
+    'node',
+    'nodeid',
+    'orgid',
+    'password',
+    'printer',
+    'printerid',
+    'secret',
+    'selectednodeid',
+    'selectedprinterid',
+    'signedurl',
+    'spool',
+    'spoolid',
+    'storage',
+    'storagepath',
     'token',
-    'token_hash',
-    'key_hash',
+    'tokenhash',
 ]);
+
+const INTERNAL_KEY_PATTERNS = [
+    'accesscode',
+    'apikey',
+    'authorization',
+    'commandtoken',
+    'keyhash',
+    'localprinter',
+    'merchantsecret',
+    'nodeid',
+    'password',
+    'printerid',
+    'secret',
+    'selectednode',
+    'selectedprinter',
+    'signedurl',
+    'spoolid',
+    'storagepath',
+    'storageurl',
+    'token',
+];
 
 export function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -50,13 +80,23 @@ export function normalizeOptionalTimestamp(value, name) {
     return value.trim();
 }
 
+function normalizedKey(key) {
+    return String(key || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function isInternalPublicKey(key) {
+    const normalized = normalizedKey(key);
+    if (INTERNAL_EXACT_KEYS.has(normalized)) return true;
+    return INTERNAL_KEY_PATTERNS.some((pattern) => normalized.includes(pattern));
+}
+
 export function redactPublicValue(value) {
     if (Array.isArray(value)) return value.map((item) => redactPublicValue(item));
     if (!isPlainObject(value)) return value;
 
     const output = {};
     for (const [key, child] of Object.entries(value)) {
-        if (INTERNAL_PUBLIC_KEYS.has(key)) continue;
+        if (isInternalPublicKey(key)) continue;
         const redacted = redactPublicValue(child);
         if (redacted !== undefined) output[key] = redacted;
     }

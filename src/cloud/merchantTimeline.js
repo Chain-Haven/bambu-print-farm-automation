@@ -12,6 +12,31 @@ function requiredJobId(value) {
     return requiredString(value, 'job_id');
 }
 
+function encodeTimelineCursor(ts, id) {
+    if (!ts || !id) return null;
+    return Buffer.from(JSON.stringify({ ts, id }), 'utf8').toString('base64url');
+}
+
+function decodeTimelineCursor(value) {
+    const cursor = optionalString(value);
+    if (!cursor) return null;
+    try {
+        const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+        if (parsed?.ts && parsed?.id) {
+            return {
+                ts: String(parsed.ts),
+                id: String(parsed.id),
+            };
+        }
+    } catch {
+        // Raw timestamp cursors from the initial API are still accepted below.
+    }
+    return {
+        ts: cursor,
+        id: null,
+    };
+}
+
 function publicEvent(event) {
     const response = {
         event_id: event.event_id,
@@ -54,7 +79,7 @@ function queryOptions(body = {}) {
         sliceId: optionalString(source.slice_id) || optionalString(source.slice_job_id),
         eventType: optionalString(source.event_type),
         artifactType: optionalString(source.artifact_type),
-        cursor: optionalString(source.cursor),
+        cursor: decodeTimelineCursor(source.cursor),
         limit: normalizeLimit(source.limit, 50, 100),
     };
 }
@@ -71,7 +96,8 @@ async function requireMerchantPrintJob(store, merchant, jobId) {
 function nextCursor(rows, limit, key) {
     if (!Array.isArray(rows) || rows.length < limit) return null;
     const last = rows[rows.length - 1];
-    return last?.[key] || null;
+    const id = last?.event_id || last?.artifact_id || null;
+    return encodeTimelineCursor(last?.[key], id);
 }
 
 export function createTimelineHandlers({

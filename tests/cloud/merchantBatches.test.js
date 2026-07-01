@@ -36,6 +36,15 @@ function createMockStore(overrides = {}) {
             strategy: 'batch_by_material',
             status: 'canceled',
         },
+        'large-batch': {
+            batch_id: 'large-batch',
+            org_id: 'org-1',
+            merchant_id: 'merchant-1',
+            name: 'Large batch',
+            strategy: 'batch_by_material',
+            status: 'queued',
+            metadata: { item_count: 250 },
+        },
     }));
     const batchItems = new Map([
         ['batch-1', [
@@ -67,6 +76,18 @@ function createMockStore(overrides = {}) {
         updateMerchantBatch: vi.fn().mockImplementation(async ({ batchId, fields }) => {
             const current = batches.get(batchId);
             if (!current) return null;
+            const updated = { ...current, ...fields };
+            batches.set(batchId, updated);
+            return updated;
+        }),
+        updateMerchantBatchIfStatus: vi.fn().mockImplementation(async ({
+            batchId,
+            fields,
+            allowedStatuses,
+        }) => {
+            const current = batches.get(batchId);
+            if (!current) return null;
+            if (!allowedStatuses.includes(current.status)) return null;
             const updated = { ...current, ...fields };
             batches.set(batchId, updated);
             return updated;
@@ -168,9 +189,29 @@ describe('merchant batch handlers', () => {
             name: 'PLA queue',
             strategy: 'batch_by_material',
             status: 'queued',
-            settings: { max_jobs: 10 },
+            settings: {
+                max_jobs: 10,
+                storagePath: 'internal/settings/path',
+                apiKey: 'settings-api-key',
+            },
             metadata: {
                 note: 'merchant visible',
+                status: 'safe public status',
+                message: 'safe public message',
+                node: 'node-secret',
+                printer: 'printer-secret',
+                spool: 'spool-secret',
+                storage: 'internal-storage',
+                storagePath: 'internal/camel/path',
+                signed_url: 'https://signed.example/secret',
+                signedUrl: 'https://signed.example/camel',
+                secret: 'secret-value',
+                api_key: 'api-key-secret',
+                apiKey: 'api-key-camel',
+                authorization: 'Bearer secret',
+                password: 'password-secret',
+                token: 'token-secret',
+                tokenHash: 'token-hash-secret',
                 node_id: 'node-secret',
                 printer_id: 'printer-secret',
                 spool_id: 'spool-secret',
@@ -197,7 +238,12 @@ describe('merchant batch handlers', () => {
             strategy: 'batch_by_material',
             status: 'queued',
             item_count: 2,
-            metadata: { note: 'merchant visible' },
+            metadata: {
+                note: 'merchant visible',
+                status: 'safe public status',
+                message: 'safe public message',
+                item_count: 2,
+            },
         });
         expect(fetched).toMatchObject({
             ok: true,
@@ -209,6 +255,18 @@ describe('merchant batch handlers', () => {
         expect(JSON.stringify({ created, fetched })).not.toContain('node-secret');
         expect(JSON.stringify({ created, fetched })).not.toContain('printer-secret');
         expect(JSON.stringify({ created, fetched })).not.toContain('spool-secret');
+        expect(JSON.stringify({ created, fetched })).not.toContain('internal-storage');
+        expect(JSON.stringify({ created, fetched })).not.toContain('internal/camel/path');
+        expect(JSON.stringify({ created, fetched })).not.toContain('internal/settings/path');
+        expect(JSON.stringify({ created, fetched })).not.toContain('signed.example');
+        expect(JSON.stringify({ created, fetched })).not.toContain('secret-value');
+        expect(JSON.stringify({ created, fetched })).not.toContain('api-key-secret');
+        expect(JSON.stringify({ created, fetched })).not.toContain('api-key-camel');
+        expect(JSON.stringify({ created, fetched })).not.toContain('settings-api-key');
+        expect(JSON.stringify({ created, fetched })).not.toContain('Bearer secret');
+        expect(JSON.stringify({ created, fetched })).not.toContain('password-secret');
+        expect(JSON.stringify({ created, fetched })).not.toContain('token-secret');
+        expect(JSON.stringify({ created, fetched })).not.toContain('token-hash-secret');
         expect(JSON.stringify({ created, fetched })).not.toContain('storage_path');
 
         expect(store.createMerchantBatch).toHaveBeenCalledWith(expect.objectContaining({
@@ -259,14 +317,82 @@ describe('merchant batch handlers', () => {
             status: 'canceled',
             canceled_at: '2026-07-01T12:00:00.000Z',
         });
-        expect(store.updateMerchantBatch.mock.calls.map(([call]) => call.fields.status)).toEqual([
+        expect(store.updateMerchantBatchIfStatus.mock.calls.map(([call]) => call.fields.status)).toEqual([
             'paused',
             'running',
             'canceled',
         ]);
+        expect(store.updateMerchantBatchIfStatus.mock.calls.map(([call]) => call.allowedStatuses)).toEqual([
+            ['queued', 'running'],
+            ['paused'],
+            ['queued', 'running', 'paused'],
+        ]);
         expect(store.createNodeCommand).not.toHaveBeenCalled();
         expect(store.cancelNodeCommand).not.toHaveBeenCalled();
         expect(store.sendPrinterCommand).not.toHaveBeenCalled();
+    });
+
+    it('marks the batch failed when item creation partially fails', async () => {
+        const { createBatch, store } = createHandlers({
+            store: {
+                createMerchantBatchItem: vi.fn()
+                    .mockImplementationOnce(async (item) => item)
+                    .mockRejectedValueOnce(new Error('item insert failed')),
+            },
+        });
+
+        await expect(createBatch({
+            name: 'Partial failure',
+            items: [
+                { file_id: 'file-1', quantity: 1 },
+                { file_id: 'file-2', quantity: 1 },
+            ],
+        })).rejects.toMatchObject({
+            statusCode: 500,
+            code: 'batch_creation_failed',
+        });
+        expect(store.updateMerchantBatch).toHaveBeenCalledWith(expect.objectContaining({
+            merchantId: 'merchant-1',
+            batchId: expect.any(String),
+            fields: expect.objectContaining({
+                status: 'failed',
+                metadata: expect.objectContaining({
+                    failure_code: 'batch_creation_failed',
+                    failure_stage: 'create_items',
+                    failed_at: '2026-07-01T12:00:00.000Z',
+                }),
+            }),
+        }));
+    });
+
+    it('reports stale conditional batch transitions as conflicts', async () => {
+        const { pauseBatch, store } = createHandlers({
+            store: {
+                updateMerchantBatchIfStatus: vi.fn().mockResolvedValue(null),
+            },
+        });
+
+        await expect(pauseBatch({ batch_id: 'batch-1' })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'batch_transition_invalid',
+        });
+        expect(store.updateMerchantBatchIfStatus).toHaveBeenCalledWith(expect.objectContaining({
+            merchantId: 'merchant-1',
+            batchId: 'batch-1',
+            allowedStatuses: ['queued', 'running'],
+        }));
+    });
+
+    it('uses stored item counts instead of capped item lists for public batch totals', async () => {
+        const { getBatch, store } = createHandlers();
+
+        const batch = await getBatch({ batch_id: 'large-batch' });
+
+        expect(batch).toMatchObject({
+            batch_id: 'large-batch',
+            item_count: 250,
+        });
+        expect(store.listMerchantBatchItems).not.toHaveBeenCalled();
     });
 
     it('rejects invalid item quantities and terminal batch transitions', async () => {
@@ -319,6 +445,43 @@ describe('merchant batch store helpers', () => {
         expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.merchant-1');
         expect(requestUrl.searchParams.get('batch_id')).toBe('eq.batch-1');
         expect(requestUrl.searchParams.get('limit')).toBe('100');
+    });
+
+    it('conditionally updates batches through merchant, id, and allowed status filters', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify([{ batch_id: 'batch-1', status: 'paused' }]),
+        });
+        const store = createSupabaseRestClient({
+            supabaseUrl: 'https://example.supabase.co',
+            serviceRoleKey: 'service_role',
+            fetchImpl,
+        });
+
+        await store.updateMerchantBatchIfStatus({
+            merchantId: 'merchant-1',
+            batchId: 'batch-1',
+            allowedStatuses: ['queued', 'running'],
+            fields: {
+                status: 'paused',
+                paused_at: '2026-07-01T12:00:00.000Z',
+            },
+        });
+
+        const [url, init] = fetchImpl.mock.calls[0];
+        const requestUrl = new URL(url);
+        expect(requestUrl.pathname).toBe('/rest/v1/merchant_batches');
+        expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.merchant-1');
+        expect(requestUrl.searchParams.get('batch_id')).toBe('eq.batch-1');
+        expect(requestUrl.searchParams.get('status')).toBe('in.(queued,running)');
+        expect(init).toMatchObject({
+            method: 'PATCH',
+            body: JSON.stringify({
+                status: 'paused',
+                paused_at: '2026-07-01T12:00:00.000Z',
+            }),
+        });
     });
 });
 

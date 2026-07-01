@@ -9,8 +9,6 @@ import {
 } from './merchantPublicProjections.js';
 
 const CREATE_STATUSES = new Set(['queued', 'running', 'paused', 'canceled']);
-const TERMINAL_STATUSES = new Set(['completed', 'canceled', 'failed']);
-
 function requiredBatchId(value) {
     return requiredString(value, 'batch_id');
 }
@@ -81,10 +79,51 @@ function transitionRejected() {
     throw createHttpError(409, 'batch_transition_invalid', 'Batch cannot transition from its current status');
 }
 
-async function countBatchItems(store, merchantId, batchId, fallback = 0) {
-    if (typeof store.listMerchantBatchItems !== 'function') return fallback;
-    const items = await store.listMerchantBatchItems({ merchantId, batchId, limit: 100 });
-    return Array.isArray(items) ? items.length : fallback;
+async function markBatchCreationFailed({
+    store,
+    merchant,
+    batch,
+    metadata,
+    failedAt,
+}) {
+    try {
+        await store.updateMerchantBatch({
+            merchantId: merchant.merchant_id,
+            batchId: batch.batch_id,
+            fields: {
+                status: 'failed',
+                metadata: {
+                    ...metadata,
+                    failure_code: 'batch_creation_failed',
+                    failure_stage: 'create_items',
+                    failed_at: failedAt,
+                },
+            },
+        });
+    } catch {
+        // The caller receives a safe failure even if compensation cannot be persisted.
+    }
+}
+
+async function updateBatchIfStatus({
+    store,
+    merchant,
+    batchId,
+    allowedStatuses,
+    fields,
+}) {
+    const current = await store.getMerchantBatch({ merchantId: merchant.merchant_id, batchId });
+    if (!current) throw createHttpError(404, 'batch_not_found', 'Batch not found');
+    const status = String(current.status || '').toLowerCase();
+    if (!allowedStatuses.includes(status)) transitionRejected();
+    const batch = await store.updateMerchantBatchIfStatus({
+        merchantId: merchant.merchant_id,
+        batchId,
+        allowedStatuses,
+        fields,
+    });
+    if (!batch) transitionRejected();
+    return batch;
 }
 
 export function createBatchHandlers({
@@ -100,6 +139,10 @@ export function createBatchHandlers({
         const items = normalizeItems(source.items);
         const batchId = crypto.randomUUID();
         const timestamp = now().toISOString();
+        const metadata = {
+            ...safeObject(source.metadata),
+            item_count: items.length,
+        };
         const batch = await store.createMerchantBatch({
             ...merchantScope(merchant),
             batch_id: batchId,
@@ -107,28 +150,36 @@ export function createBatchHandlers({
             strategy: optionalString(source.strategy) || 'batch_by_material',
             status: normalizeStatus(source.status),
             settings: safeObject(source.settings),
-            metadata: {
-                ...safeObject(source.metadata),
-                item_count: items.length,
-            },
+            metadata,
             created_at: timestamp,
         });
 
-        for (const [index, item] of items.entries()) {
-            await store.createMerchantBatchItem({
-                ...merchantScope(merchant),
-                batch_item_id: crypto.randomUUID(),
-                batch_id: batch.batch_id,
-                order_id: item.order_id,
-                order_item_id: item.order_item_id,
-                file_id: item.file_id,
-                job_id: item.job_id,
-                quantity: item.quantity,
-                metadata: {
-                    ...item.metadata,
-                    item_index: index,
-                },
+        try {
+            for (const [index, item] of items.entries()) {
+                await store.createMerchantBatchItem({
+                    ...merchantScope(merchant),
+                    batch_item_id: crypto.randomUUID(),
+                    batch_id: batch.batch_id,
+                    order_id: item.order_id,
+                    order_item_id: item.order_item_id,
+                    file_id: item.file_id,
+                    job_id: item.job_id,
+                    quantity: item.quantity,
+                    metadata: {
+                        ...item.metadata,
+                        item_index: index,
+                    },
+                });
+            }
+        } catch {
+            await markBatchCreationFailed({
+                store,
+                merchant,
+                batch,
+                metadata,
+                failedAt: timestamp,
             });
+            throw createHttpError(500, 'batch_creation_failed', 'Batch could not be created');
         }
 
         return publicOk(publicBatch(batch, items.length), requestId);
@@ -142,33 +193,23 @@ export function createBatchHandlers({
             batchId,
         });
         if (!batch) throw createHttpError(404, 'batch_not_found', 'Batch not found');
-        const itemCount = await countBatchItems(
-            store,
-            merchant.merchant_id,
-            batchId,
-            Number(batch.metadata?.item_count ?? 0),
-        );
-        return publicOk(publicBatch(batch, itemCount), requestId);
+        return publicOk(publicBatch(batch), requestId);
     }
 
     async function pauseBatch(body = {}, request = null, requestId = undefined) {
         const merchant = await getAuthenticatedMerchant(authenticateMerchant, request);
         const batchId = requiredBatchId(safeObject(body).batch_id);
-        const current = await store.getMerchantBatch({ merchantId: merchant.merchant_id, batchId });
-        if (!current) throw createHttpError(404, 'batch_not_found', 'Batch not found');
-        const status = String(current.status || '').toLowerCase();
-        if (!['queued', 'running'].includes(status)) transitionRejected();
-        const batch = await store.updateMerchantBatch({
-            merchantId: merchant.merchant_id,
+        const batch = await updateBatchIfStatus({
+            store,
+            merchant,
             batchId,
+            allowedStatuses: ['queued', 'running'],
             fields: {
                 status: 'paused',
                 paused_at: now().toISOString(),
             },
         });
-        if (!batch) throw createHttpError(404, 'batch_not_found', 'Batch not found');
-        const itemCount = await countBatchItems(store, merchant.merchant_id, batchId, Number(current.metadata?.item_count ?? 0));
-        return publicOk(publicBatch(batch, itemCount), requestId);
+        return publicOk(publicBatch(batch), requestId);
     }
 
     async function resumeBatch(body = {}, request = null, requestId = undefined) {
@@ -178,38 +219,34 @@ export function createBatchHandlers({
         if (!current) throw createHttpError(404, 'batch_not_found', 'Batch not found');
         const status = String(current.status || '').toLowerCase();
         if (status !== 'paused') transitionRejected();
-        const batch = await store.updateMerchantBatch({
+        const batch = await store.updateMerchantBatchIfStatus({
             merchantId: merchant.merchant_id,
             batchId,
+            allowedStatuses: ['paused'],
             fields: {
                 status: 'running',
                 started_at: current.started_at || now().toISOString(),
                 paused_at: null,
             },
         });
-        if (!batch) throw createHttpError(404, 'batch_not_found', 'Batch not found');
-        const itemCount = await countBatchItems(store, merchant.merchant_id, batchId, Number(current.metadata?.item_count ?? 0));
-        return publicOk(publicBatch(batch, itemCount), requestId);
+        if (!batch) transitionRejected();
+        return publicOk(publicBatch(batch), requestId);
     }
 
     async function cancelBatch(body = {}, request = null, requestId = undefined) {
         const merchant = await getAuthenticatedMerchant(authenticateMerchant, request);
         const batchId = requiredBatchId(safeObject(body).batch_id);
-        const current = await store.getMerchantBatch({ merchantId: merchant.merchant_id, batchId });
-        if (!current) throw createHttpError(404, 'batch_not_found', 'Batch not found');
-        const status = String(current.status || '').toLowerCase();
-        if (!['queued', 'running', 'paused'].includes(status)) transitionRejected();
-        const batch = await store.updateMerchantBatch({
-            merchantId: merchant.merchant_id,
+        const batch = await updateBatchIfStatus({
+            store,
+            merchant,
             batchId,
+            allowedStatuses: ['queued', 'running', 'paused'],
             fields: {
                 status: 'canceled',
                 canceled_at: now().toISOString(),
             },
         });
-        if (!batch) throw createHttpError(404, 'batch_not_found', 'Batch not found');
-        const itemCount = await countBatchItems(store, merchant.merchant_id, batchId, Number(current.metadata?.item_count ?? 0));
-        return publicOk(publicBatch(batch, itemCount), requestId);
+        return publicOk(publicBatch(batch), requestId);
     }
 
     return {
