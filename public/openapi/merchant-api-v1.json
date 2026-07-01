@@ -290,6 +290,80 @@
         }
       }
     },
+    "/api/cloud/merchant-api-keys": {
+      "get": {
+        "summary": "Admin list live API keys for a merchant",
+        "security": [
+          {
+            "CloudAdminToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "merchant_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Merchant API key list without raw secrets or hashes"
+          }
+        }
+      },
+      "post": {
+        "summary": "Admin issue a live API key for an active merchant",
+        "security": [
+          {
+            "CloudAdminToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminMerchantApiKeyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created live key. The raw key is returned once as api_key_secret."
+          }
+        }
+      },
+      "delete": {
+        "summary": "Admin revoke a merchant API key",
+        "security": [
+          {
+            "CloudAdminToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminMerchantApiKeyRevokeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "API key revoked"
+          },
+          "404": {
+            "description": "API key not found"
+          }
+        }
+      }
+    },
     "/api/cloud/merchant-jobs": {
       "get": {
         "summary": "Admin list jobs for a merchant",
@@ -483,6 +557,31 @@
           "issue_setup_token": {
             "type": "boolean",
             "default": false
+          }
+        }
+      },
+      "AdminMerchantApiKeyRequest": {
+        "type": "object",
+        "required": ["merchant_id"],
+        "properties": {
+          "merchant_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "default": "Production"
+          }
+        }
+      },
+      "AdminMerchantApiKeyRevokeRequest": {
+        "type": "object",
+        "required": ["merchant_id", "key_id"],
+        "properties": {
+          "merchant_id": {
+            "type": "string"
+          },
+          "key_id": {
+            "type": "string"
           }
         }
       }

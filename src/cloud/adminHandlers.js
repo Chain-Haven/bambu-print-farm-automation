@@ -1,6 +1,11 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { hashNodeToken, parseJsonBody } from './agentProtocol.js';
-import { buildMerchantSetupTokenRecord, generateMerchantSetupToken } from './merchantAuth.js';
+import {
+    buildMerchantApiKeyRecord,
+    buildMerchantSetupTokenRecord,
+    generateMerchantApiKey,
+    generateMerchantSetupToken,
+} from './merchantAuth.js';
 import { buildWindowsNodePackage, getNodePackageFileName } from './nodePackage.js';
 
 const MERCHANT_SETUP_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -150,6 +155,33 @@ async function issueMerchantSetupToken({
     };
 }
 
+async function issueMerchantApiKey({
+    store,
+    merchant,
+    name,
+    merchantPepper,
+    liveKeyFactory,
+}) {
+    if (!merchantPepper) throw new Error('merchant api key pepper is required');
+    if (!merchant || merchant.status !== 'active') {
+        throw new Error('merchant must be active before issuing live API keys');
+    }
+
+    const rawKey = liveKeyFactory();
+    const apiKey = buildMerchantApiKeyRecord({
+        merchant,
+        name,
+        rawKey,
+        pepper: merchantPepper,
+    });
+    const record = await store.createMerchantApiKey(apiKey.record);
+
+    return {
+        secret: apiKey.secret,
+        record,
+    };
+}
+
 function normalizeMerchantAction(body) {
     const source = isPlainObject(body) ? body : {};
     const merchantId = normalizeRequiredString(source.merchant_id, 'merchant_id');
@@ -166,6 +198,41 @@ function normalizeMerchantAction(body) {
         issueSetupToken,
         metadata: isPlainObject(source.metadata) ? source.metadata : null,
     };
+}
+
+function normalizeMerchantKeyRequest(body, query = {}) {
+    const source = isPlainObject(body) ? body : {};
+
+    return {
+        merchantId: normalizeRequiredString(source.merchant_id || query.merchant_id, 'merchant_id'),
+        keyId: normalizeOptionalString(source.key_id || query.key_id),
+        name: normalizeOptionalString(source.name) || 'Production',
+    };
+}
+
+function redactMerchantApiKey(apiKey) {
+    if (!apiKey) return null;
+    const {
+        key_id,
+        merchant_id,
+        org_id,
+        name,
+        key_prefix,
+        last_used_at,
+        revoked_at,
+        created_at,
+    } = apiKey;
+
+    return Object.fromEntries(Object.entries({
+        key_id,
+        merchant_id,
+        org_id,
+        name,
+        key_prefix,
+        last_used_at,
+        revoked_at,
+        created_at,
+    }).filter(([, value]) => value !== undefined));
 }
 
 function hasEnvValue(env, key) {
@@ -540,6 +607,93 @@ export function createCloudMerchantSetupTokenHandler({
                 message: error.message,
             });
         }
+    };
+}
+
+export function createCloudMerchantApiKeysHandler({
+    store,
+    adminToken = process.env.CLOUD_ADMIN_TOKEN,
+    merchantPepper = process.env.MERCHANT_API_KEY_PEPPER || process.env.NODE_TOKEN_PEPPER,
+    liveKeyFactory = generateMerchantApiKey,
+    now = () => new Date(),
+}) {
+    if (!store) throw new Error('store is required');
+
+    return async function cloudMerchantApiKeysHandler(req, res) {
+        if (req.method === 'GET') {
+            try {
+                if (!(await authenticateAdmin(req, res, adminToken))) return null;
+                const merchantId = normalizeRequiredString((req.query || {}).merchant_id, 'merchant_id');
+                const apiKeys = await store.listMerchantApiKeys(merchantId);
+                return sendJson(res, 200, {
+                    ok: true,
+                    api_keys: apiKeys.map(redactMerchantApiKey),
+                });
+            } catch (error) {
+                return sendJson(res, 400, {
+                    ok: false,
+                    error: 'list_merchant_api_keys_failed',
+                    message: error.message,
+                });
+            }
+        }
+
+        if (req.method === 'POST') {
+            try {
+                if (!(await authenticateAdmin(req, res, adminToken))) return null;
+                const request = normalizeMerchantKeyRequest(parseJsonBody(req.body), req.query || {});
+                const merchant = await store.findMerchantById(request.merchantId);
+                const apiKey = await issueMerchantApiKey({
+                    store,
+                    merchant,
+                    name: request.name,
+                    merchantPepper,
+                    liveKeyFactory,
+                });
+
+                return sendJson(res, 201, {
+                    ok: true,
+                    api_key: redactMerchantApiKey(apiKey.record),
+                    api_key_secret: apiKey.secret,
+                });
+            } catch (error) {
+                return sendJson(res, 400, {
+                    ok: false,
+                    error: 'create_merchant_api_key_failed',
+                    message: error.message,
+                });
+            }
+        }
+
+        if (req.method === 'DELETE') {
+            try {
+                if (!(await authenticateAdmin(req, res, adminToken))) return null;
+                const request = normalizeMerchantKeyRequest(parseJsonBody(req.body), req.query || {});
+                if (!request.keyId) throw new Error('key_id is required');
+                const revoked = await store.revokeMerchantApiKey({
+                    merchantId: request.merchantId,
+                    keyId: request.keyId,
+                    revokedAt: now().toISOString(),
+                });
+
+                if (!revoked) {
+                    return sendJson(res, 404, { ok: false, error: 'api_key_not_found' });
+                }
+
+                return sendJson(res, 200, {
+                    ok: true,
+                    api_key: redactMerchantApiKey(revoked),
+                });
+            } catch (error) {
+                return sendJson(res, 400, {
+                    ok: false,
+                    error: 'revoke_merchant_api_key_failed',
+                    message: error.message,
+                });
+            }
+        }
+
+        return methodNotAllowed(res, 'GET, POST, DELETE');
     };
 }
 

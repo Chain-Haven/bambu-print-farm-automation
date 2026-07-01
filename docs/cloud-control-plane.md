@@ -26,6 +26,16 @@ POST /api/cloud/organizations
 POST /api/cloud/nodes
 POST /api/cloud/node-package
 POST /api/cloud/commands
+GET  /api/cloud/merchant-settings
+PATCH /api/cloud/merchant-settings
+GET  /api/cloud/merchants?status=<status>&limit=50
+POST /api/cloud/merchants
+POST /api/cloud/merchant-setup-token
+GET  /api/cloud/merchant-api-keys?merchant_id=<merchant_id>
+POST /api/cloud/merchant-api-keys
+DELETE /api/cloud/merchant-api-keys
+GET  /api/cloud/merchant-jobs?merchant_id=<merchant_id>&limit=50
+GET  /api/cloud/merchant-usage?merchant_id=<merchant_id>&limit=50
 Authorization: Bearer <CLOUD_ADMIN_TOKEN>
 Content-Type: application/json
 ```
@@ -93,11 +103,17 @@ The migration creates:
 
 Open `/cloud`, enter `CLOUD_ADMIN_TOKEN`, and optionally set an organization ID filter. The dashboard can:
 
+- verify Vercel/Supabase setup readiness before operators touch workflows
+- toggle full-auto merchant signup while keeping approve-only as the default mode
+- list merchants by status, approve/activate/reject/suspend merchants, and issue one-time setup tokens
+- issue, list, and revoke merchant `pkx_live_...` API keys from the admin console
+- inspect merchant print jobs and usage events for tracked API consumption
 - show recent nodes, printers, jobs, commands, and events
 - create a bootstrap organization and copy its `org_id`
 - create a farm node row and return the raw `LOCAL_NODE_TOKEN` once
 - download a Windows-node ZIP with the local runtime and prefilled `.env`
-- enqueue local-node commands such as `printer.status`, `printer.gcode`, and `job.start`
+- enqueue local-node commands such as `printer.status`, `printer.pause`, `printer.resume`, `printer.stop`, `printer.gcode`, `job.start`, and `cloud.print.ready`
+- inspect full row details for nodes, printers, jobs, commands, events, merchants, keys, and usage without exposing Supabase service-role credentials
 
 Provisioned node rows store only:
 

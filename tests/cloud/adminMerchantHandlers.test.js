@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { hashMerchantApiKey } from '../../src/cloud/merchantAuth.js';
 import {
+    createCloudMerchantApiKeysHandler,
     createCloudMerchantJobsHandler,
     createCloudMerchantSettingsHandler,
     createCloudMerchantSetupTokenHandler,
@@ -170,6 +171,152 @@ describe('cloud merchant setup token handler', () => {
             merchant_id: 'merchant-1',
             merchant_setup_token: 'pkx_setup_secret',
             setup_token_expires_at: '2026-07-08T12:00:00.000Z',
+        });
+    });
+});
+
+describe('cloud merchant API key admin handler', () => {
+    it('lists merchant API keys without exposing hashes or raw secrets', async () => {
+        const store = {
+            listMerchantApiKeys: vi.fn().mockResolvedValue([
+                {
+                    key_id: 'key-1',
+                    merchant_id: 'merchant-1',
+                    org_id: 'org-1',
+                    name: 'Production',
+                    key_prefix: 'pkx_live_redacted',
+                    key_hash: 'secret-hash',
+                    created_at: '2026-07-01T12:00:00.000Z',
+                },
+            ]),
+        };
+        const handler = createCloudMerchantApiKeysHandler({ store, adminToken: 'admin-secret' });
+        const res = createMockResponse();
+
+        await handler({
+            method: 'GET',
+            headers: { authorization: 'Bearer admin-secret' },
+            query: { merchant_id: 'merchant-1' },
+        }, res);
+
+        expect(store.listMerchantApiKeys).toHaveBeenCalledWith('merchant-1');
+        expect(res.statusCode).toBe(200);
+        expect(res.body).toEqual({
+            ok: true,
+            api_keys: [
+                {
+                    key_id: 'key-1',
+                    merchant_id: 'merchant-1',
+                    org_id: 'org-1',
+                    name: 'Production',
+                    key_prefix: 'pkx_live_redacted',
+                    created_at: '2026-07-01T12:00:00.000Z',
+                },
+            ],
+        });
+    });
+
+    it('issues a live merchant API key for an active merchant from the admin console', async () => {
+        const merchant = {
+            merchant_id: 'merchant-1',
+            org_id: 'org-1',
+            status: 'active',
+        };
+        const store = {
+            findMerchantById: vi.fn().mockResolvedValue(merchant),
+            createMerchantApiKey: vi.fn().mockResolvedValue({
+                key_id: 'key-1',
+                merchant_id: 'merchant-1',
+                org_id: 'org-1',
+                name: 'Fulfillment API',
+                key_prefix: 'pkx_live_secret'.slice(0, 18),
+                key_hash: 'stored-hash',
+                created_at: '2026-07-01T12:00:00.000Z',
+            }),
+        };
+        const handler = createCloudMerchantApiKeysHandler({
+            store,
+            adminToken: 'admin-secret',
+            merchantPepper: 'pepper',
+            liveKeyFactory: () => 'pkx_live_secret',
+        });
+        const res = createMockResponse();
+
+        await handler({
+            method: 'POST',
+            headers: { authorization: 'Bearer admin-secret' },
+            body: {
+                merchant_id: 'merchant-1',
+                name: ' Fulfillment API ',
+            },
+        }, res);
+
+        expect(store.findMerchantById).toHaveBeenCalledWith('merchant-1');
+        expect(store.createMerchantApiKey).toHaveBeenCalledWith({
+            merchant_id: 'merchant-1',
+            org_id: 'org-1',
+            name: 'Fulfillment API',
+            key_prefix: 'pkx_live_secret'.slice(0, 18),
+            key_hash: hashMerchantApiKey('pkx_live_secret', 'pepper'),
+        });
+        expect(res.statusCode).toBe(201);
+        expect(res.body).toEqual({
+            ok: true,
+            api_key: {
+                key_id: 'key-1',
+                merchant_id: 'merchant-1',
+                org_id: 'org-1',
+                name: 'Fulfillment API',
+                key_prefix: 'pkx_live_secret'.slice(0, 18),
+                created_at: '2026-07-01T12:00:00.000Z',
+            },
+            api_key_secret: 'pkx_live_secret',
+        });
+    });
+
+    it('revokes a merchant API key by merchant id and key id', async () => {
+        const store = {
+            revokeMerchantApiKey: vi.fn().mockResolvedValue({
+                key_id: 'key-1',
+                merchant_id: 'merchant-1',
+                org_id: 'org-1',
+                name: 'Production',
+                key_prefix: 'pkx_live_redacted',
+                revoked_at: '2026-07-01T12:00:00.000Z',
+            }),
+        };
+        const handler = createCloudMerchantApiKeysHandler({
+            store,
+            adminToken: 'admin-secret',
+            now,
+        });
+        const res = createMockResponse();
+
+        await handler({
+            method: 'DELETE',
+            headers: { authorization: 'Bearer admin-secret' },
+            body: {
+                merchant_id: 'merchant-1',
+                key_id: 'key-1',
+            },
+        }, res);
+
+        expect(store.revokeMerchantApiKey).toHaveBeenCalledWith({
+            merchantId: 'merchant-1',
+            keyId: 'key-1',
+            revokedAt: '2026-07-01T12:00:00.000Z',
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.body).toEqual({
+            ok: true,
+            api_key: {
+                key_id: 'key-1',
+                merchant_id: 'merchant-1',
+                org_id: 'org-1',
+                name: 'Production',
+                key_prefix: 'pkx_live_redacted',
+                revoked_at: '2026-07-01T12:00:00.000Z',
+            },
         });
     });
 });

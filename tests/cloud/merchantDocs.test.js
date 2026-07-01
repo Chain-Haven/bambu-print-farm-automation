@@ -17,6 +17,7 @@ describe('merchant API docs', () => {
             '/api/public/print-jobs/status',
             '/api/cloud/merchants',
             '/api/cloud/merchant-settings',
+            '/api/cloud/merchant-api-keys',
         ]));
         expect(spec.components.securitySchemes.MerchantApiKey.scheme).toBe('bearer');
     });

@@ -8,7 +8,7 @@ The Merchant API lets approved merchants submit print files into PrintKinetix fo
 2. Signup is approval-required by default. The merchant is created with `status: pending` and no credentials are issued.
 3. An admin approves the merchant with `POST /api/cloud/merchants`.
 4. The admin can issue a one-time `pkx_setup_...` setup token during approval or later with `POST /api/cloud/merchant-setup-token`.
-5. The merchant exchanges the setup token for a live `pkx_live_...` API key with `POST /api/public/api-keys`.
+5. The merchant exchanges the setup token for a live `pkx_live_...` API key with `POST /api/public/api-keys`, or an admin issues a live key directly with `POST /api/cloud/merchant-api-keys`.
 
 Full-auto merchant signup is available through the admin setting `full_auto_merchant_mode`, but it defaults to disabled.
 

@@ -12,7 +12,42 @@ const state = {
     events: [],
   },
   setup: null,
+  merchantSettings: { full_auto_merchant_mode: { enabled: false } },
+  merchants: [],
+  merchantApiKeys: [],
+  merchantJobs: [],
+  merchantUsage: [],
   provisionedNode: null,
+};
+
+const commandTemplates = {
+  status: {
+    commandType: 'printer.status',
+    payload: { local_printer_id: 'printer-1' },
+  },
+  pause: {
+    commandType: 'printer.pause',
+    payload: { local_printer_id: 'printer-1' },
+  },
+  resume: {
+    commandType: 'printer.resume',
+    payload: { local_printer_id: 'printer-1' },
+  },
+  stop: {
+    commandType: 'printer.stop',
+    payload: { local_printer_id: 'printer-1' },
+  },
+  printReady: {
+    commandType: 'cloud.print.ready',
+    payload: {
+      local_printer_id: 'printer-1',
+      artifact: {
+        signed_url: 'https://example.com/private-print-file.gcode.3mf',
+        original_name: 'part.gcode.3mf',
+        content_type: 'application/octet-stream',
+      },
+    },
+  },
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -27,6 +62,10 @@ const elements = {
   setupStatus: $('#setup-status'),
   setupStatusBody: $('#setup-status-body'),
   metrics: $('#metrics'),
+  merchantSettingsForm: $('#merchant-settings-form'),
+  fullAutoMode: $('#full-auto-mode'),
+  merchantModeState: $('#merchant-mode-state'),
+  refreshMerchantSettings: $('#refresh-merchant-settings'),
   organizationForm: $('#organization-form'),
   organizationName: $('#organization-name'),
   organizationOutput: $('#organization-output'),
@@ -42,6 +81,29 @@ const elements = {
   commandPrinter: $('#command-printer'),
   commandJob: $('#command-job'),
   commandPayload: $('#command-payload'),
+  merchantListForm: $('#merchant-list-form'),
+  merchantStatusFilter: $('#merchant-status-filter'),
+  merchantId: $('#merchant-id'),
+  merchantActionForm: $('#merchant-action-form'),
+  merchantActionId: $('#merchant-action-id'),
+  merchantAction: $('#merchant-action'),
+  merchantIssueSetupToken: $('#merchant-issue-setup-token'),
+  merchantActionMetadata: $('#merchant-action-metadata'),
+  issueSetupToken: $('#issue-setup-token'),
+  merchantActionOutput: $('#merchant-action-output'),
+  merchantKeyForm: $('#merchant-key-form'),
+  merchantKeyMerchantId: $('#merchant-key-merchant-id'),
+  merchantKeyName: $('#merchant-key-name'),
+  merchantKeyId: $('#merchant-key-id'),
+  listMerchantKeys: $('#list-merchant-keys'),
+  revokeMerchantKey: $('#revoke-merchant-key'),
+  merchantKeyOutput: $('#merchant-key-output'),
+  merchantLookupForm: $('#merchant-lookup-form'),
+  merchantLookupId: $('#merchant-lookup-id'),
+  selectedDetail: $('#selected-detail'),
+  detailTitle: $('#detail-title'),
+  detailBody: $('#detail-body'),
+  closeDetail: $('#close-detail'),
   toast: $('#toast'),
 };
 
@@ -56,7 +118,7 @@ function showToast(message) {
   window.clearTimeout(showToast.timeoutId);
   showToast.timeoutId = window.setTimeout(() => {
     elements.toast.hidden = true;
-  }, 4000);
+  }, 4500);
 }
 
 function getAdminToken() {
@@ -65,6 +127,12 @@ function getAdminToken() {
 
 function getOrgId() {
   return elements.orgId.value.trim();
+}
+
+function getRowLimit() {
+  const parsed = Number.parseInt(elements.rowLimit.value, 10);
+  if (!Number.isFinite(parsed)) return 50;
+  return Math.max(1, Math.min(parsed, 100));
 }
 
 function parseJsonField(value, fallback = {}) {
@@ -147,17 +215,40 @@ function shortId(value) {
   return String(value).slice(0, 8);
 }
 
-function jsonSummary(value) {
+function jsonSummary(value, length = 110) {
   if (!value || typeof value !== 'object') return '-';
   const text = JSON.stringify(value);
-  return text.length > 90 ? `${text.slice(0, 87)}...` : text;
+  return text.length > length ? `${text.slice(0, length - 3)}...` : text;
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat().format(Number(value) || 0);
 }
 
 function makeStatus(value) {
   const span = document.createElement('span');
-  span.className = `status ${String(value || 'unknown')}`;
+  span.className = `status ${String(value || 'unknown').toLowerCase()}`;
   span.textContent = value || 'unknown';
   return span;
+}
+
+function makeButton(label, onClick, className = 'ghost-button') {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = className;
+  button.textContent = label;
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function showDetail(title, value) {
+  elements.detailTitle.textContent = title;
+  elements.detailBody.textContent = JSON.stringify(value, null, 2);
+  elements.selectedDetail.hidden = false;
+}
+
+function makeDetailButton(label, title, value) {
+  return makeButton(label, () => showDetail(title, value), 'ghost-button small-button');
 }
 
 function makeSetupItem(label, ok, detail) {
@@ -225,13 +316,19 @@ async function refreshSetupStatus() {
   return payload.setup;
 }
 
-function renderMetrics(overview) {
+function renderMetrics() {
+  const overview = state.overview;
+  const pendingCommands = overview.commands.filter((command) => ['queued', 'claimed', 'running'].includes(command.status)).length;
+  const onlineNodes = overview.nodes.filter((node) => node.status === 'online').length;
+  const onlinePrinters = overview.printers.filter((printer) => printer.status === 'online').length;
+  const usageQuantity = state.merchantUsage.reduce((sum, event) => sum + (Number(event.quantity) || 0), 0);
   const metrics = [
-    ['Nodes', overview.nodes.length],
-    ['Printers', overview.printers.length],
-    ['Jobs', overview.jobs.length],
-    ['Commands', overview.commands.length],
-    ['Events', overview.events.length],
+    ['Nodes Online', `${onlineNodes}/${overview.nodes.length}`],
+    ['Printers Online', `${onlinePrinters}/${overview.printers.length}`],
+    ['Print Jobs', overview.jobs.length],
+    ['Pending Commands', pendingCommands],
+    ['Merchants', state.merchants.length],
+    ['Usage Units', formatNumber(usageQuantity)],
   ];
 
   elements.metrics.replaceChildren(...metrics.map(([label, count]) => {
@@ -294,12 +391,22 @@ function renderTable(target, columns, rows, emptyText) {
   container.replaceChildren(shell);
 }
 
-function updateCounts(overview) {
-  $('#node-count').textContent = String(overview.nodes.length);
-  $('#printer-count').textContent = String(overview.printers.length);
-  $('#job-count').textContent = String(overview.jobs.length);
-  $('#command-count').textContent = String(overview.commands.length);
-  $('#event-count').textContent = String(overview.events.length);
+function setText(selector, value) {
+  const element = $(selector);
+  if (element) element.textContent = String(value);
+}
+
+function updateCounts() {
+  const overview = state.overview;
+  setText('#node-count', overview.nodes.length);
+  setText('#printer-count', overview.printers.length);
+  setText('#job-count', overview.jobs.length);
+  setText('#command-count', overview.commands.length);
+  setText('#event-count', overview.events.length);
+  setText('#merchant-count', state.merchants.length);
+  setText('#merchant-key-count', state.merchantApiKeys.length);
+  setText('#merchant-job-count', state.merchantJobs.length);
+  setText('#merchant-usage-count', state.merchantUsage.length);
 }
 
 function renderCommandNodeOptions(nodes) {
@@ -325,10 +432,92 @@ function renderCommandNodeOptions(nodes) {
   }
 }
 
+function selectMerchant(merchant) {
+  const merchantId = merchant?.merchant_id || '';
+  elements.merchantId.value = merchantId;
+  elements.merchantActionId.value = merchantId;
+  elements.merchantKeyMerchantId.value = merchantId;
+  elements.merchantLookupId.value = merchantId;
+  if (merchant?.org_id) {
+    elements.orgId.value = merchant.org_id;
+    elements.nodeOrgId.value = merchant.org_id;
+    window.localStorage.setItem(storageKeys.orgId, merchant.org_id);
+  }
+  if (merchantId) {
+    refreshMerchantOperationalData(merchantId).catch((error) => showToast(error.message));
+  }
+}
+
+function renderMerchants() {
+  renderTable('#merchants-table', [
+    { label: 'Company', value: (row) => row.company_name || '-' },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    { label: 'Mode', value: (row) => row.approval_mode || '-' },
+    { label: 'Email', value: (row) => row.contact_email || '-' },
+    { label: 'Created', value: (row) => formatDate(row.created_at) },
+    {
+      label: 'Actions',
+      value: (row) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'row-actions';
+        wrap.append(
+          makeButton('Select', () => selectMerchant(row), 'ghost-button small-button'),
+          makeDetailButton('Detail', `Merchant ${shortId(row.merchant_id)}`, row),
+        );
+        return wrap;
+      },
+    },
+  ], state.merchants, 'No merchants found.');
+}
+
+function renderMerchantOperationalTables() {
+  renderTable('#merchant-api-keys-table', [
+    { label: 'Name', value: (row) => row.name || '-' },
+    { label: 'Prefix', value: (row) => row.key_prefix || '-' },
+    { label: 'Last Used', value: (row) => formatDate(row.last_used_at) },
+    { label: 'Revoked', value: (row) => formatDate(row.revoked_at) },
+    { label: 'Key ID', value: (row) => shortId(row.key_id) },
+    {
+      label: 'Actions',
+      value: (row) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'row-actions';
+        wrap.append(
+          makeButton('Use ID', () => {
+            elements.merchantKeyId.value = row.key_id;
+          }, 'ghost-button small-button'),
+          makeDetailButton('Detail', `API Key ${shortId(row.key_id)}`, row),
+        );
+        return wrap;
+      },
+    },
+  ], state.merchantApiKeys, 'No API keys loaded.');
+
+  renderTable('#merchant-jobs-table', [
+    { label: 'Job', value: (row) => row.name || shortId(row.job_id) },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    { label: 'Node', value: (row) => shortId(row.node_id) },
+    { label: 'Printer', value: (row) => shortId(row.printer_id) },
+    { label: 'Created', value: (row) => formatDate(row.created_at) },
+    { label: 'Routing', value: (row) => jsonSummary(row.routing_summary) },
+    { label: 'Detail', value: (row) => makeDetailButton('Open', `Merchant Job ${shortId(row.job_id)}`, row) },
+  ], state.merchantJobs, 'No merchant jobs loaded.');
+
+  renderTable('#merchant-usage-table', [
+    { label: 'Event', value: (row) => row.event_type || shortId(row.usage_event_id) },
+    { label: 'Quantity', value: (row) => formatNumber(row.quantity) },
+    { label: 'Job', value: (row) => shortId(row.job_id) },
+    { label: 'File', value: (row) => shortId(row.file_id) },
+    { label: 'Created', value: (row) => formatDate(row.created_at) },
+    { label: 'Metrics', value: (row) => jsonSummary(row.metrics) },
+    { label: 'Detail', value: (row) => makeDetailButton('Open', `Usage ${shortId(row.usage_event_id)}`, row) },
+  ], state.merchantUsage, 'No usage loaded.');
+}
+
 function renderOverview() {
   const overview = state.overview;
-  renderMetrics(overview);
-  updateCounts(overview);
+  updateCounts();
+  renderMetrics();
   renderCommandNodeOptions(overview.nodes);
 
   renderTable('#nodes-table', [
@@ -336,17 +525,21 @@ function renderOverview() {
     { label: 'Status', value: (row) => makeStatus(row.status) },
     { label: 'Version', value: (row) => row.agent_version || '-' },
     { label: 'Host', value: (row) => row.host_info?.hostname || '-' },
+    { label: 'NICs', value: (row) => row.capabilities?.network_interface_count ?? '-' },
+    { label: 'Pending Results', value: (row) => row.capabilities?.pending_result_count ?? '-' },
     { label: 'Last seen', value: (row) => formatDate(row.last_seen_at) },
-    { label: 'Node ID', value: (row) => shortId(row.node_id) },
+    { label: 'Detail', value: (row) => makeDetailButton('Open', `Node ${shortId(row.node_id)}`, row) },
   ], overview.nodes, 'No nodes found.');
 
   renderTable('#printers-table', [
     { label: 'Printer', value: (row) => row.name || row.local_printer_id || '-' },
     { label: 'Status', value: (row) => makeStatus(row.status) },
     { label: 'Model', value: (row) => row.model || '-' },
+    { label: 'Node', value: (row) => shortId(row.node_id) },
     { label: 'Local ID', value: (row) => row.local_printer_id || '-' },
     { label: 'Last seen', value: (row) => formatDate(row.last_seen_at) },
     { label: 'Snapshot', value: (row) => jsonSummary(row.status_snapshot) },
+    { label: 'Detail', value: (row) => makeDetailButton('Open', `Printer ${shortId(row.printer_id)}`, row) },
   ], overview.printers, 'No printers found.');
 
   renderTable('#jobs-table', [
@@ -356,6 +549,7 @@ function renderOverview() {
     { label: 'Printer', value: (row) => shortId(row.printer_id) },
     { label: 'Created', value: (row) => formatDate(row.created_at) },
     { label: 'Options', value: (row) => jsonSummary(row.options) },
+    { label: 'Detail', value: (row) => makeDetailButton('Open', `Job ${shortId(row.job_id)}`, row) },
   ], overview.jobs, 'No jobs found.');
 
   renderTable('#commands-table', [
@@ -364,7 +558,8 @@ function renderOverview() {
     { label: 'Node', value: (row) => shortId(row.node_id) },
     { label: 'Created', value: (row) => formatDate(row.created_at) },
     { label: 'Finished', value: (row) => formatDate(row.finished_at) },
-    { label: 'Payload', value: (row) => jsonSummary(row.payload) },
+    { label: 'Error', value: (row) => row.error || '-' },
+    { label: 'Detail', value: (row) => makeDetailButton('Open', `Command ${shortId(row.command_id)}`, row) },
   ], overview.commands, 'No commands found.');
 
   renderTable('#events-table', [
@@ -374,15 +569,20 @@ function renderOverview() {
     { label: 'Command', value: (row) => shortId(row.command_id) },
     { label: 'Created', value: (row) => formatDate(row.created_at) },
     { label: 'Payload', value: (row) => jsonSummary(row.payload) },
+    { label: 'Detail', value: (row) => makeDetailButton('Open', `Event ${shortId(row.event_id)}`, row) },
   ], overview.events, 'No events found.');
+
+  renderMerchants();
+  renderMerchantOperationalTables();
+  updateCounts();
+  renderMetrics();
 }
 
 async function refreshOverview() {
   const params = new URLSearchParams();
   const orgId = getOrgId();
-  const limit = elements.rowLimit.value || '50';
   if (orgId) params.set('org_id', orgId);
-  params.set('limit', limit);
+  params.set('limit', String(getRowLimit()));
 
   setApiState('Loading');
   const payload = await apiRequest(`/api/cloud/overview?${params.toString()}`);
@@ -391,14 +591,94 @@ async function refreshOverview() {
   setApiState('Connected', 'online');
 }
 
+function renderMerchantSettings(settings) {
+  state.merchantSettings = settings || { full_auto_merchant_mode: { enabled: false } };
+  const enabled = state.merchantSettings.full_auto_merchant_mode?.enabled === true;
+  elements.fullAutoMode.checked = enabled;
+  elements.merchantModeState.textContent = enabled ? 'Full auto on' : 'Approve only';
+  elements.merchantModeState.className = enabled ? 'ready-label' : 'missing-label';
+}
+
+async function refreshMerchantSettings() {
+  const payload = await apiRequest('/api/cloud/merchant-settings');
+  renderMerchantSettings(payload.settings);
+  return payload.settings;
+}
+
+async function refreshMerchants() {
+  const params = new URLSearchParams();
+  const status = elements.merchantStatusFilter.value;
+  if (status) params.set('status', status);
+  params.set('limit', String(getRowLimit()));
+  const payload = await apiRequest(`/api/cloud/merchants?${params.toString()}`);
+  state.merchants = payload.merchants || [];
+  renderOverview();
+  return state.merchants;
+}
+
+async function refreshMerchantApiKeys(merchantId) {
+  const id = merchantId || elements.merchantKeyMerchantId.value.trim() || elements.merchantLookupId.value.trim();
+  if (!id) throw new Error('Merchant ID is required');
+  const params = new URLSearchParams({ merchant_id: id });
+  const payload = await apiRequest(`/api/cloud/merchant-api-keys?${params.toString()}`);
+  state.merchantApiKeys = payload.api_keys || [];
+  renderOverview();
+  return state.merchantApiKeys;
+}
+
+async function refreshMerchantJobs(merchantId) {
+  const id = merchantId || elements.merchantLookupId.value.trim();
+  if (!id) throw new Error('Merchant ID is required');
+  const params = new URLSearchParams({
+    merchant_id: id,
+    limit: String(getRowLimit()),
+  });
+  const payload = await apiRequest(`/api/cloud/merchant-jobs?${params.toString()}`);
+  state.merchantJobs = payload.jobs || [];
+  renderOverview();
+  return state.merchantJobs;
+}
+
+async function refreshMerchantUsage(merchantId) {
+  const id = merchantId || elements.merchantLookupId.value.trim();
+  if (!id) throw new Error('Merchant ID is required');
+  const params = new URLSearchParams({
+    merchant_id: id,
+    limit: String(getRowLimit()),
+  });
+  const payload = await apiRequest(`/api/cloud/merchant-usage?${params.toString()}`);
+  state.merchantUsage = payload.usage || [];
+  renderOverview();
+  return state.merchantUsage;
+}
+
+async function refreshMerchantOperationalData(merchantId) {
+  const id = merchantId || elements.merchantLookupId.value.trim();
+  if (!id) throw new Error('Merchant ID is required');
+  elements.merchantKeyMerchantId.value = id;
+  elements.merchantLookupId.value = id;
+  await Promise.all([
+    refreshMerchantApiKeys(id),
+    refreshMerchantJobs(id),
+    refreshMerchantUsage(id),
+  ]);
+  showToast('Merchant data loaded');
+}
+
 async function refreshDashboard() {
   setApiState('Loading');
   const setup = await refreshSetupStatus();
   if (!setup.ready) {
     setApiState('Setup needed', 'error');
+    renderOverview();
     return;
   }
-  await refreshOverview();
+  await Promise.all([
+    refreshOverview(),
+    refreshMerchantSettings(),
+    refreshMerchants(),
+  ]);
+  setApiState('Connected', 'online');
 }
 
 function syncOrgFields() {
@@ -406,6 +686,14 @@ function syncOrgFields() {
   if (orgId && !elements.nodeOrgId.value.trim()) {
     elements.nodeOrgId.value = orgId;
   }
+}
+
+function syncMerchantFields(id) {
+  if (!id) return;
+  elements.merchantId.value = id;
+  elements.merchantActionId.value = id;
+  elements.merchantKeyMerchantId.value = id;
+  elements.merchantLookupId.value = id;
 }
 
 async function handleCreateOrganization(event) {
@@ -482,6 +770,13 @@ async function handleDownloadNodePackage() {
   showToast('Windows ZIP downloaded');
 }
 
+function applyCommandTemplate(name) {
+  const template = commandTemplates[name];
+  if (!template) return;
+  elements.commandType.value = template.commandType;
+  elements.commandPayload.value = JSON.stringify(template.payload, null, 2);
+}
+
 async function handleQueueCommand(event) {
   event.preventDefault();
   const selected = elements.commandNode.selectedOptions[0];
@@ -502,6 +797,93 @@ async function handleQueueCommand(event) {
 
   showToast('Command queued');
   await refreshOverview();
+}
+
+async function handleMerchantSettingsSubmit(event) {
+  event.preventDefault();
+  const payload = await apiRequest('/api/cloud/merchant-settings', {
+    method: 'PATCH',
+    body: { full_auto_merchant_mode: elements.fullAutoMode.checked },
+  });
+  renderMerchantSettings(payload.settings);
+  showToast('Merchant mode saved');
+}
+
+async function handleMerchantAction(event) {
+  event.preventDefault();
+  const merchantId = elements.merchantActionId.value.trim();
+  const metadata = parseJsonField(elements.merchantActionMetadata.value, {});
+  const result = await apiRequest('/api/cloud/merchants', {
+    method: 'POST',
+    body: {
+      merchant_id: merchantId,
+      action: elements.merchantAction.value,
+      issue_setup_token: elements.merchantIssueSetupToken.checked,
+      metadata,
+    },
+  });
+
+  elements.merchantActionOutput.hidden = false;
+  elements.merchantActionOutput.textContent = [
+    `MERCHANT_ID=${result.merchant?.merchant_id || merchantId}`,
+    `STATUS=${result.merchant?.status || '-'}`,
+    result.merchant_setup_token ? `MERCHANT_SETUP_TOKEN=${result.merchant_setup_token}` : '',
+    result.setup_token_expires_at ? `SETUP_TOKEN_EXPIRES_AT=${result.setup_token_expires_at}` : '',
+  ].filter(Boolean).join('\n');
+  syncMerchantFields(merchantId);
+  showToast('Merchant action applied');
+  await refreshMerchants();
+}
+
+async function handleIssueSetupToken() {
+  const merchantId = elements.merchantActionId.value.trim();
+  if (!merchantId) throw new Error('Merchant ID is required');
+  const result = await apiRequest('/api/cloud/merchant-setup-token', {
+    method: 'POST',
+    body: { merchant_id: merchantId },
+  });
+  elements.merchantActionOutput.hidden = false;
+  elements.merchantActionOutput.textContent = [
+    `MERCHANT_ID=${result.merchant_id}`,
+    `MERCHANT_SETUP_TOKEN=${result.merchant_setup_token}`,
+    `SETUP_TOKEN_EXPIRES_AT=${result.setup_token_expires_at}`,
+  ].join('\n');
+  showToast('Setup token issued');
+}
+
+async function handleMerchantKeySubmit(event) {
+  event.preventDefault();
+  const merchantId = elements.merchantKeyMerchantId.value.trim();
+  const result = await apiRequest('/api/cloud/merchant-api-keys', {
+    method: 'POST',
+    body: {
+      merchant_id: merchantId,
+      name: elements.merchantKeyName.value.trim() || 'Production',
+    },
+  });
+  elements.merchantKeyOutput.hidden = false;
+  elements.merchantKeyOutput.textContent = [
+    `MERCHANT_ID=${merchantId}`,
+    `API_KEY_ID=${result.api_key?.key_id || '-'}`,
+    `API_KEY_SECRET=${result.api_key_secret}`,
+  ].join('\n');
+  showToast('Live API key issued');
+  await refreshMerchantApiKeys(merchantId);
+}
+
+async function handleRevokeMerchantKey() {
+  const merchantId = elements.merchantKeyMerchantId.value.trim();
+  const keyId = elements.merchantKeyId.value.trim();
+  if (!merchantId || !keyId) throw new Error('Merchant ID and Key ID are required');
+  await apiRequest('/api/cloud/merchant-api-keys', {
+    method: 'DELETE',
+    body: {
+      merchant_id: merchantId,
+      key_id: keyId,
+    },
+  });
+  showToast('API key revoked');
+  await refreshMerchantApiKeys(merchantId);
 }
 
 function restoreSettings() {
@@ -525,7 +907,28 @@ function bindEvents() {
     });
   });
 
+  elements.closeDetail.addEventListener('click', () => {
+    elements.selectedDetail.hidden = true;
+  });
+
+  document.querySelectorAll('[data-command-template]').forEach((button) => {
+    button.addEventListener('click', () => applyCommandTemplate(button.dataset.commandTemplate));
+  });
+
   elements.orgId.addEventListener('input', syncOrgFields);
+  elements.merchantId.addEventListener('input', () => syncMerchantFields(elements.merchantId.value.trim()));
+  elements.merchantSettingsForm.addEventListener('submit', (event) => {
+    handleMerchantSettingsSubmit(event).catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.refreshMerchantSettings.addEventListener('click', () => {
+    refreshMerchantSettings().catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
   elements.organizationForm.addEventListener('submit', (event) => {
     handleCreateOrganization(event).catch((error) => {
       setApiState('Error', 'error');
@@ -550,11 +953,56 @@ function bindEvents() {
       showToast(error.message);
     });
   });
+  elements.merchantListForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    refreshMerchants().catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.merchantActionForm.addEventListener('submit', (event) => {
+    handleMerchantAction(event).catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.issueSetupToken.addEventListener('click', () => {
+    handleIssueSetupToken().catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.merchantKeyForm.addEventListener('submit', (event) => {
+    handleMerchantKeySubmit(event).catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.listMerchantKeys.addEventListener('click', () => {
+    refreshMerchantApiKeys().catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.revokeMerchantKey.addEventListener('click', () => {
+    handleRevokeMerchantKey().catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.merchantLookupForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    refreshMerchantOperationalData(elements.merchantLookupId.value.trim()).catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
 }
 
 restoreSettings();
 bindEvents();
 renderOverview();
+renderMerchantSettings(state.merchantSettings);
 
 if (getAdminToken()) {
   refreshDashboard().catch((error) => {
