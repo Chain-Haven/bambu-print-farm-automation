@@ -48,6 +48,7 @@ const requiredMethods = [
     'updateMerchantShipmentStatus',
     'createMerchantShippingLabel',
     'updateMerchantShippingLabel',
+    'updateMerchantShippingLabelIfClaimStatus',
     'listMerchantShippingLabels',
     'getMerchantShippingLabelByShipment',
     'getMerchantRateCard',
@@ -407,6 +408,34 @@ describe('merchant API v2 store surface', () => {
                 label_url: 'mock://label',
                 tracking_number: 'track-1',
                 metadata: { label_claim_status: 'completed' },
+            }),
+        });
+    });
+
+    it('conditionally reclaims failed shipping labels by metadata claim status', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([{ label_id: 'l1', metadata: { label_claim_status: 'pending' } }]));
+        const store = await createStore(fetchImpl);
+
+        await store.updateMerchantShippingLabelIfClaimStatus({
+            merchantId: 'm1',
+            labelId: 'l1',
+            allowedStatuses: ['failed'],
+            fields: {
+                metadata: { label_claim_status: 'pending' },
+            },
+        });
+
+        const [url, init] = fetchImpl.mock.calls[0];
+        const requestUrl = new URL(url);
+        expect(requestUrl.pathname).toBe('/rest/v1/merchant_shipping_labels');
+        expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(requestUrl.searchParams.get('label_id')).toBe('eq.l1');
+        expect(requestUrl.searchParams.get('metadata->>label_claim_status')).toBe('in.(failed)');
+        expect(init).toMatchObject({
+            method: 'PATCH',
+            headers: expect.objectContaining({ Prefer: 'return=representation' }),
+            body: JSON.stringify({
+                metadata: { label_claim_status: 'pending' },
             }),
         });
     });

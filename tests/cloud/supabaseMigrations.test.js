@@ -203,4 +203,27 @@ describe('Supabase migrations', () => {
             expect(sql).toContain(statusCheck);
         }
     });
+
+    it('adds forward-safe merchant shipping claim schema for already-applied databases', () => {
+        const migrationPath = 'supabase/migrations/20260701153253_merchant_shipping_claims.sql';
+        expect(fs.existsSync(migrationPath)).toBe(true);
+        const sql = fs.readFileSync(migrationPath, 'utf8');
+        const compact = compactSql(sql).toLowerCase();
+
+        expect(compact).toContain(
+            'alter table public.merchant_shipments add column if not exists idempotency_key text',
+        );
+        expect(compact).toContain(
+            "if not exists ( select 1 from pg_constraint where conname = 'merchant_shipments_org_merchant_idempotency_key_unique'",
+        );
+        expect(compact).toContain(
+            'alter table public.merchant_shipments add constraint merchant_shipments_org_merchant_idempotency_key_unique unique (org_id, merchant_id, idempotency_key)',
+        );
+        expect(compact).toContain(
+            "if not exists ( select 1 from pg_constraint where conname = 'merchant_shipping_labels_org_merchant_shipment_id_unique'",
+        );
+        expect(compact).toContain(
+            'alter table public.merchant_shipping_labels add constraint merchant_shipping_labels_org_merchant_shipment_id_unique unique (org_id, merchant_id, shipment_id)',
+        );
+    });
 });

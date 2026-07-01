@@ -56,8 +56,8 @@ function labelRow(overrides = {}) {
         merchant_id: 'merchant-1',
         shipment_id: overrides.shipment_id || 'shipment-1',
         provider: 'mock',
-        label_url: overrides.label_url || 'mock://shipments/shipment-1/label.pdf',
-        tracking_number: overrides.tracking_number || 'track-1',
+        label_url: overrides.label_url ?? 'mock://shipments/shipment-1/label.pdf',
+        tracking_number: overrides.tracking_number ?? 'track-1',
         label_payload: overrides.label_payload || {
             token: 'provider-secret',
             signed_url: 'https://signed.example/secret',
@@ -197,6 +197,10 @@ function createMockStore(overrides = {}) {
         )),
         createMerchantShippingLabel: vi.fn().mockImplementation(async (label) => labelRow(label)),
         updateMerchantShippingLabel: vi.fn().mockImplementation(async ({ labelId, fields }) => labelRow({
+            label_id: labelId,
+            ...fields,
+        })),
+        updateMerchantShippingLabelIfClaimStatus: vi.fn().mockImplementation(async ({ labelId, fields }) => labelRow({
             label_id: labelId,
             ...fields,
         })),
@@ -719,6 +723,239 @@ describe('merchant shipping public handlers', () => {
             metadata: expect.objectContaining({ label_claim_status: 'pending' }),
         }));
         expect(adapters.shipping.createShipment).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects fresh pending label claims without replaying placeholders as labels', async () => {
+        const pendingLabel = labelRow({
+            label_id: 'label-pending',
+            label_url: null,
+            tracking_number: null,
+            metadata: {
+                label_claim_status: 'pending',
+                adapter_failure: { message: 'internal provider detail' },
+            },
+        });
+        const {
+            createLabel,
+            store,
+            adapters,
+        } = createHandlers(createShippingHandlers, {
+            store: {
+                getMerchantShippingLabelByShipment: vi.fn().mockResolvedValue(pendingLabel),
+            },
+        });
+
+        await expect(createLabel({ shipment_id: 'shipment-1' })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'label_claim_in_progress',
+        });
+        expect(adapters.shipping.createShipment).not.toHaveBeenCalled();
+        expect(store.createMerchantShippingLabel).not.toHaveBeenCalled();
+        expect(store.updateMerchantShippingLabelIfClaimStatus).not.toHaveBeenCalled();
+    });
+
+    it('marks label claims failed when the adapter throws without storing provider details', async () => {
+        const placeholder = labelRow({
+            label_id: 'label-adapter-failed',
+            label_url: null,
+            tracking_number: null,
+            metadata: { label_claim_status: 'pending' },
+        });
+        const {
+            createLabel,
+            store,
+        } = createHandlers(createShippingHandlers, {
+            store: {
+                createMerchantShippingLabel: vi.fn().mockResolvedValue(placeholder),
+                updateMerchantShippingLabel: vi.fn().mockImplementation(async ({ labelId, fields }) => labelRow({
+                    label_id: labelId,
+                    label_url: null,
+                    tracking_number: null,
+                    ...fields,
+                })),
+            },
+            adapters: {
+                shipping: {
+                    createShipment: vi.fn().mockRejectedValue(new Error('provider secret exploded')),
+                },
+            },
+        });
+
+        await expect(createLabel({ shipment_id: 'shipment-1' })).rejects.toMatchObject({
+            statusCode: 502,
+            code: 'label_provider_failed',
+        });
+        expect(store.updateMerchantShippingLabel).toHaveBeenCalledWith(expect.objectContaining({
+            merchantId: 'merchant-1',
+            labelId: 'label-adapter-failed',
+            fields: expect.objectContaining({
+                metadata: expect.objectContaining({
+                    label_claim_status: 'failed',
+                    adapter_failure: expect.objectContaining({
+                        stage: 'adapter',
+                        message: 'Shipping label adapter failed',
+                    }),
+                }),
+            }),
+        }));
+        expect(JSON.stringify(store.updateMerchantShippingLabel.mock.calls)).not.toContain('provider secret exploded');
+    });
+
+    it('reclaims failed adapter label claims through the same row before retrying the adapter', async () => {
+        const operations = [];
+        const failedLabel = labelRow({
+            label_id: 'label-retry',
+            label_url: null,
+            tracking_number: null,
+            metadata: {
+                label_claim_status: 'failed',
+                adapter_failure: { stage: 'adapter', message: 'Shipping label adapter failed' },
+            },
+        });
+        const {
+            createLabel,
+            store,
+            adapters,
+        } = createHandlers(createShippingHandlers, {
+            store: {
+                getMerchantShippingLabelByShipment: vi.fn().mockResolvedValue(failedLabel),
+                createMerchantShippingLabel: vi.fn(),
+                updateMerchantShippingLabelIfClaimStatus: vi.fn().mockImplementation(async ({ allowedStatuses, fields }) => {
+                    operations.push(`reclaim:${allowedStatuses.join(',')}:${fields.metadata.label_claim_status}`);
+                    return labelRow({
+                        ...failedLabel,
+                        label_url: null,
+                        tracking_number: null,
+                        metadata: fields.metadata,
+                    });
+                }),
+                updateMerchantShippingLabel: vi.fn().mockImplementation(async ({ labelId, fields }) => {
+                    operations.push('finalize');
+                    return labelRow({
+                        label_id: labelId,
+                        ...fields,
+                    });
+                }),
+            },
+            adapters: {
+                shipping: {
+                    createShipment: vi.fn().mockImplementation(async () => {
+                        operations.push('adapter');
+                        return {
+                            provider: 'mock',
+                            tracking_number: 'retry-track',
+                            label: {
+                                provider: 'mock',
+                                label_url: 'mock://shipments/shipment-1/retry.pdf',
+                                tracking_number: 'retry-track',
+                                format: 'pdf',
+                            },
+                        };
+                    }),
+                },
+            },
+        });
+
+        const result = await createLabel({ shipment_id: 'shipment-1' });
+
+        expect(operations).toEqual(['reclaim:failed:pending', 'adapter', 'finalize']);
+        expect(result).toMatchObject({
+            ok: true,
+            label: {
+                label_id: 'label-retry',
+                shipment_id: 'shipment-1',
+                label_url: 'mock://shipments/shipment-1/retry.pdf',
+                tracking_number: 'retry-track',
+            },
+        });
+        expect(store.createMerchantShippingLabel).not.toHaveBeenCalled();
+        expect(adapters.shipping.createShipment).toHaveBeenCalledTimes(1);
+        expect(JSON.stringify(result)).not.toContain('adapter_failure');
+        expect(JSON.stringify(result)).not.toContain('label_claim_status');
+    });
+
+    it('does not return placeholder success when label finalization fails', async () => {
+        const placeholder = labelRow({
+            label_id: 'label-finalize-failed',
+            label_url: null,
+            tracking_number: null,
+            metadata: { label_claim_status: 'pending' },
+        });
+        const {
+            createLabel,
+            store,
+        } = createHandlers(createShippingHandlers, {
+            store: {
+                createMerchantShippingLabel: vi.fn().mockResolvedValue(placeholder),
+                updateMerchantShippingLabel: vi.fn()
+                    .mockRejectedValueOnce(new Error('patch secret failure'))
+                    .mockImplementationOnce(async ({ labelId, fields }) => labelRow({
+                        label_id: labelId,
+                        label_url: null,
+                        tracking_number: null,
+                        ...fields,
+                    })),
+            },
+            adapters: {
+                shipping: {
+                    createShipment: vi.fn().mockResolvedValue({
+                        provider: 'mock',
+                        tracking_number: 'track-finalize',
+                        label: {
+                            provider: 'mock',
+                            label_url: 'mock://shipments/shipment-1/finalize.pdf',
+                            tracking_number: 'track-finalize',
+                            format: 'pdf',
+                        },
+                    }),
+                },
+            },
+        });
+
+        await expect(createLabel({ shipment_id: 'shipment-1' })).rejects.toMatchObject({
+            statusCode: 502,
+            code: 'label_finalization_failed',
+        });
+        expect(store.updateMerchantShippingLabel).toHaveBeenCalledTimes(2);
+        expect(store.updateMerchantShippingLabel).toHaveBeenLastCalledWith(expect.objectContaining({
+            labelId: 'label-finalize-failed',
+            fields: expect.objectContaining({
+                metadata: expect.objectContaining({
+                    label_claim_status: 'failed',
+                    adapter_failure: expect.objectContaining({
+                        stage: 'finalize',
+                        message: 'Shipping label finalization failed',
+                    }),
+                }),
+            }),
+        }));
+        expect(JSON.stringify(store.updateMerchantShippingLabel.mock.calls)).not.toContain('patch secret failure');
+    });
+
+    it('returns a clear conflict for failed non-retryable label claims', async () => {
+        const failedFinalizationLabel = labelRow({
+            label_id: 'label-finalize-failed',
+            label_url: null,
+            tracking_number: null,
+            metadata: {
+                label_claim_status: 'failed',
+                adapter_failure: { stage: 'finalize', message: 'Shipping label finalization failed' },
+            },
+        });
+        const {
+            createLabel,
+            adapters,
+        } = createHandlers(createShippingHandlers, {
+            store: {
+                getMerchantShippingLabelByShipment: vi.fn().mockResolvedValue(failedFinalizationLabel),
+            },
+        });
+
+        await expect(createLabel({ shipment_id: 'shipment-1' })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'label_claim_failed',
+        });
+        expect(adapters.shipping.createShipment).not.toHaveBeenCalled();
     });
 });
 

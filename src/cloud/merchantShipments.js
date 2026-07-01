@@ -366,6 +366,50 @@ function labelPayload(adapterLabel = {}) {
     return safeObject(adapterLabel);
 }
 
+function labelClaimStatus(label) {
+    return optionalString(safeObject(label?.metadata).label_claim_status);
+}
+
+function labelFailureStage(label) {
+    return optionalString(safeObject(safeObject(label?.metadata).adapter_failure).stage);
+}
+
+function isUsableLabel(label) {
+    return Boolean(safePublicLabelUrl(label?.label_url) || optionalString(label?.tracking_number));
+}
+
+function canReplayLabel(label) {
+    return labelClaimStatus(label) === 'completed' || isUsableLabel(label);
+}
+
+function labelClaimInProgressError() {
+    throw createHttpError(409, 'label_claim_in_progress', 'Shipping label claim is still in progress');
+}
+
+function labelClaimFailedError() {
+    throw createHttpError(409, 'label_claim_failed', 'Shipping label claim could not be completed');
+}
+
+function pendingLabelMetadata(label) {
+    const metadata = { ...safeObject(label?.metadata), label_claim_status: 'pending' };
+    delete metadata.adapter_failure;
+    return metadata;
+}
+
+function failedLabelMetadata(label, { stage, timestamp }) {
+    return {
+        ...safeObject(label?.metadata),
+        label_claim_status: 'failed',
+        adapter_failure: {
+            stage,
+            message: stage === 'finalize'
+                ? 'Shipping label finalization failed'
+                : 'Shipping label adapter failed',
+            failed_at: timestamp,
+        },
+    };
+}
+
 async function persistAdapterLabel({
     store,
     merchant,
@@ -397,9 +441,42 @@ async function persistAdapterLabel({
     }
 }
 
+async function reclaimFailedShipmentLabel({ store, merchant, label, timestamp }) {
+    if (labelFailureStage(label) && labelFailureStage(label) !== 'adapter') {
+        labelClaimFailedError();
+    }
+    if (typeof store.updateMerchantShippingLabelIfClaimStatus !== 'function') {
+        labelClaimFailedError();
+    }
+    const claimedLabel = await store.updateMerchantShippingLabelIfClaimStatus({
+        merchantId: merchant.merchant_id,
+        labelId: label.label_id,
+        allowedStatuses: ['failed'],
+        fields: {
+            metadata: pendingLabelMetadata(label),
+        },
+    });
+    if (!claimedLabel) labelClaimInProgressError();
+    return claimedLabel;
+}
+
 async function claimShipmentLabel({ store, merchant, shipment, timestamp }) {
     const existingLabel = await getExistingShipmentLabel(store, merchant, shipment.shipment_id);
-    if (existingLabel) return { label: null, existingLabel };
+    if (existingLabel) {
+        if (canReplayLabel(existingLabel)) return { label: null, existingLabel };
+        if (labelClaimStatus(existingLabel) === 'failed') {
+            return {
+                label: await reclaimFailedShipmentLabel({
+                    store,
+                    merchant,
+                    label: existingLabel,
+                    timestamp,
+                }),
+                existingLabel: null,
+            };
+        }
+        labelClaimInProgressError();
+    }
     try {
         return {
             label: await store.createMerchantShippingLabel({
@@ -419,8 +496,43 @@ async function claimShipmentLabel({ store, merchant, shipment, timestamp }) {
         };
     } catch (error) {
         const racedLabel = await getExistingShipmentLabel(store, merchant, shipment.shipment_id);
-        if (racedLabel) return { label: null, existingLabel: racedLabel };
+        if (racedLabel) {
+            if (canReplayLabel(racedLabel)) return { label: null, existingLabel: racedLabel };
+            if (labelClaimStatus(racedLabel) === 'failed') {
+                return {
+                    label: await reclaimFailedShipmentLabel({
+                        store,
+                        merchant,
+                        label: racedLabel,
+                        timestamp,
+                    }),
+                    existingLabel: null,
+                };
+            }
+            labelClaimInProgressError();
+        }
         throw error;
+    }
+}
+
+async function markClaimedLabelFailed({
+    store,
+    merchant,
+    label,
+    stage,
+    timestamp,
+}) {
+    if (!label || typeof store.updateMerchantShippingLabel !== 'function') return null;
+    try {
+        return await store.updateMerchantShippingLabel({
+            merchantId: merchant.merchant_id,
+            labelId: label.label_id,
+            fields: {
+                metadata: failedLabelMetadata(label, { stage, timestamp }),
+            },
+        });
+    } catch {
+        return null;
     }
 }
 
@@ -443,20 +555,19 @@ async function finalizeClaimedLabel({
             format: optionalString(adapterLabel.format),
         },
     };
-    try {
-        const updatedLabel = await store.updateMerchantShippingLabel({
-            merchantId: merchant.merchant_id,
-            labelId: claimedLabel.label_id,
-            fields,
-        });
-        return updatedLabel
-            ? { ...claimedLabel, ...updatedLabel, shipment_id: claimedLabel.shipment_id }
-            : { ...claimedLabel, ...fields };
-    } catch (error) {
-        const existingLabel = await getExistingShipmentLabel(store, merchant, claimedLabel.shipment_id);
-        if (existingLabel) return existingLabel;
-        throw error;
+    const updatedLabel = await store.updateMerchantShippingLabel({
+        merchantId: merchant.merchant_id,
+        labelId: claimedLabel.label_id,
+        fields,
+    });
+    if (!updatedLabel) {
+        throw createHttpError(502, 'label_finalization_failed', 'Shipping label could not be finalized');
     }
+    const mergedLabel = { ...claimedLabel, ...updatedLabel, shipment_id: claimedLabel.shipment_id };
+    if (!canReplayLabel(mergedLabel)) {
+        throw createHttpError(502, 'label_finalization_failed', 'Shipping label could not be finalized');
+    }
+    return mergedLabel;
 }
 
 export function createShippingHandlers({
@@ -602,19 +713,43 @@ export function createShippingHandlers({
         const order = shipment.order_id
             ? await store.getMerchantOrder({ merchantId: merchant.merchant_id, orderId: shipment.order_id })
             : null;
-        const adapterShipment = await adapters.shipping.createShipment({
-            merchant,
-            order: order || { order_id: shipment.order_id },
-            address: safeObject(shipment.ship_to),
-            packages: Array.isArray(shipment.packages) ? shipment.packages : [],
-        });
-        const label = await finalizeClaimedLabel({
-            store,
-            merchant,
-            claimedLabel: labelClaim.label,
-            adapterLabel: adapterShipment.label,
-            trackingNumber: optionalString(adapterShipment.tracking_number) || shipment.tracking_number,
-        });
+        let adapterShipment;
+        try {
+            adapterShipment = await adapters.shipping.createShipment({
+                merchant,
+                order: order || { order_id: shipment.order_id },
+                address: safeObject(shipment.ship_to),
+                packages: Array.isArray(shipment.packages) ? shipment.packages : [],
+            });
+        } catch {
+            await markClaimedLabelFailed({
+                store,
+                merchant,
+                label: labelClaim.label,
+                stage: 'adapter',
+                timestamp,
+            });
+            throw createHttpError(502, 'label_provider_failed', 'Shipping label provider failed');
+        }
+        let label;
+        try {
+            label = await finalizeClaimedLabel({
+                store,
+                merchant,
+                claimedLabel: labelClaim.label,
+                adapterLabel: adapterShipment.label,
+                trackingNumber: optionalString(adapterShipment.tracking_number) || shipment.tracking_number,
+            });
+        } catch {
+            await markClaimedLabelFailed({
+                store,
+                merchant,
+                label: labelClaim.label,
+                stage: 'finalize',
+                timestamp,
+            });
+            throw createHttpError(502, 'label_finalization_failed', 'Shipping label could not be finalized');
+        }
         if (!label) throw createHttpError(502, 'label_unavailable', 'Shipping label could not be created');
         const updatedShipment = typeof store.updateMerchantShipmentStatus === 'function'
             ? await store.updateMerchantShipmentStatus({
