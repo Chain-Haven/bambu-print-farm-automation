@@ -179,13 +179,20 @@ describe('merchant print jobs handler', () => {
             body: {
                 file: {
                     name: 'bracket.stl',
+                    content_type: 'model/stl',
                     base64: fileBytes.toString('base64'),
                 },
             },
         }, res);
 
+        expect(store.uploadPrintArtifact).toHaveBeenCalledWith(
+            expect.stringMatching(/^org-1\/merchant-1\/20260701T120000000Z-[a-f0-9]{12}-bracket\.stl$/),
+            fileBytes,
+            'application/octet-stream',
+        );
         expect(store.createJobFile).toHaveBeenCalledWith(expect.objectContaining({
             original_name: 'bracket.stl',
+            content_type: 'application/octet-stream',
             file_mode: 'source_model',
         }));
         expect(store.createPrintJob).toHaveBeenCalledWith(expect.objectContaining({

@@ -71,6 +71,18 @@ function classifyFile(fileName) {
     throw new Error('file.name must end in .gcode, .3mf, .gcode.3mf, .stl, .obj, .step, or .stp');
 }
 
+function normalizeStorageContentType(value, fileMode) {
+    const raw = typeof value === 'string' && value.trim() ? value.trim() : 'application/octet-stream';
+    const lower = raw.toLowerCase();
+
+    if (fileMode === 'source_model') return 'application/octet-stream';
+    if (lower.startsWith('model/')) return 'application/octet-stream';
+    if (!/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+(?:[a-z0-9!#$&^_.+-]*)?(?:\s*;\s*[-a-z0-9_]+=[-a-z0-9_.+]+)*$/i.test(raw)) {
+        return 'application/octet-stream';
+    }
+    return raw;
+}
+
 function decodeBase64(value) {
     const source = requiredString(value, 'file.base64');
     const buffer = Buffer.from(source, 'base64');
@@ -87,9 +99,10 @@ function normalizeUpload(body) {
     const originalName = safeFileName(file.name || file.filename);
     const buffer = decodeBase64(file.base64 || file.content_base64);
     const fileMode = classifyFile(originalName);
-    const contentType = typeof file.content_type === 'string' && file.content_type.trim()
+    const rawContentType = typeof file.content_type === 'string' && file.content_type.trim()
         ? file.content_type.trim()
         : (typeof file.contentType === 'string' && file.contentType.trim() ? file.contentType.trim() : 'application/octet-stream');
+    const contentType = normalizeStorageContentType(rawContentType, fileMode);
 
     return {
         name: typeof source.name === 'string' && source.name.trim() ? source.name.trim() : originalName,
