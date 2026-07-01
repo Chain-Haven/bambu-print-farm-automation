@@ -421,7 +421,7 @@ export class PrinterWorker {
             this.connected = true;
             return;
         }
-        const live = !!(this.mqttClient && this.mqttClient.isConnected);
+        const live = !!(this.mqttClient && this.mqttClient.connected);
         if (!live && this.connected !== false) {
             // Just went offline — update state and notify the UI so the dashboard
             // reflects the disconnection without waiting for a manual refresh.

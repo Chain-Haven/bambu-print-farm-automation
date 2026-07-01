@@ -288,7 +288,7 @@ router.post('/:id/ams/sync', requireAdmin, asyncHandler(async (req, res) => {
     const { AmsService } = await import('../../services/AmsService.js');
     const supervisor = RuntimeSupervisor.getInstance();
     const worker = supervisor?.getWorker(req.params.id);
-    if (!worker?.mqttClient?.isConnected) {
+    if (!worker?.mqttClient?.connected) {
         return res.status(503).json({ error: 'Printer MQTT not connected' });
     }
 
@@ -302,7 +302,7 @@ router.post('/:id/control', requireAdmin, asyncHandler(async (req, res) => {
     const { RuntimeSupervisor } = await import('../../runtime/RuntimeSupervisor.js');
     const supervisor = RuntimeSupervisor.getInstance();
     const worker = supervisor?.getWorker(req.params.id);
-    if (!worker?.mqttClient?.isConnected) {
+    if (!worker?.mqttClient?.connected) {
         return res.status(503).json({ error: 'Printer MQTT not connected' });
     }
 
@@ -311,6 +311,9 @@ router.post('/:id/control', requireAdmin, asyncHandler(async (req, res) => {
     let ok = false;
 
     switch (action) {
+        case 'pause':     ok = mqtt.pausePrint(); break;
+        case 'resume':    ok = mqtt.resumePrint(); break;
+        case 'stop':      ok = mqtt.stopPrint(); break;
         case 'light_on':  ok = mqtt.setLight(true); break;
         case 'light_off': ok = mqtt.setLight(false); break;
         case 'set_fan':   ok = mqtt.setFan(req.body.fan || 1, req.body.speed ?? 128); break;

@@ -34,7 +34,9 @@ export class BambuMqttClient {
                 username: 'bblp',
                 password: this.accessCode,
                 rejectUnauthorized: false, // Bambu uses self-signed certs
-                reconnectPeriod: this.reconnectInterval,
+                // Jitter the reconnect so a fleet of hundreds of printers doesn't
+                // reconnect in lockstep after a network blip (thundering herd).
+                reconnectPeriod: this.reconnectInterval + Math.floor(Math.random() * 2000),
                 connectTimeout: 10000,
             });
 

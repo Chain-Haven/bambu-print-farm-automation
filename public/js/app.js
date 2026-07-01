@@ -505,6 +505,11 @@ route('/printers/:id', async (el, { id }) => {
           <!-- Quick Actions -->
           <div style="margin-bottom:1rem;">
             <div style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:0.5rem;">Quick Actions</div>
+            <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.5rem;">
+              <button class="btn btn-sm" onclick="pCtrl('${id}','pause')" title="Pause the current print">⏸ Pause</button>
+              <button class="btn btn-sm" onclick="pCtrl('${id}','resume')" title="Resume the current print">▶ Resume</button>
+              <button class="btn btn-sm btn-danger" onclick="if(confirm('Stop the current print? This cannot be undone.'))pCtrl('${id}','stop')" title="Stop the current print">⏹ Stop</button>
+            </div>
             <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;">
               <button class="btn btn-sm" id="ctrl-light-btn" onclick="toggleLight('${id}')" style="min-width:100px;">💡 Light On</button>
               <button class="btn btn-sm" onclick="pCtrl('${id}','home',{axes:'all'})">🏠 Home All</button>
