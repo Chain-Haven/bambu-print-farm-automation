@@ -20,8 +20,17 @@ export function getMerchantBearerToken(headers = {}) {
     return token.length > 0 ? token : null;
 }
 
+export function getMerchantSetupToken(headers = {}) {
+    const value = headers['x-merchant-setup-token'] || headers['X-Merchant-Setup-Token'];
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 export function generateMerchantApiKey({ randomBytes = defaultRandomBytes } = {}) {
     return `pkx_live_${randomBytes(32).toString('base64url')}`;
+}
+
+export function generateMerchantSetupToken({ randomBytes = defaultRandomBytes } = {}) {
+    return `pkx_setup_${randomBytes(32).toString('base64url')}`;
 }
 
 export function hashMerchantApiKey(token, pepper) {
@@ -65,6 +74,23 @@ export function buildMerchantApiKeyRecord({ merchant, name, rawKey, pepper }) {
     };
 }
 
+export function buildMerchantSetupTokenRecord({ merchant, rawToken, pepper, expiresAt }) {
+    if (!merchant?.merchant_id || !merchant?.org_id) {
+        throw new Error('active merchant is required');
+    }
+
+    return {
+        secret: rawToken,
+        record: {
+            merchant_id: merchant.merchant_id,
+            org_id: merchant.org_id,
+            token_prefix: rawToken.slice(0, 20),
+            token_hash: hashMerchantApiKey(rawToken, pepper),
+            expires_at: expiresAt,
+        },
+    };
+}
+
 export async function authenticateMerchantRequest(req, {
     store,
     pepper,
@@ -97,4 +123,40 @@ export async function authenticateMerchantRequest(req, {
     }
 
     return { merchant, apiKey };
+}
+
+export async function authenticateMerchantSetupToken(req, {
+    store,
+    pepper,
+    now = () => new Date(),
+} = {}) {
+    if (!store) throw new Error('store is required');
+    if (!pepper) throw new Error('merchant api key pepper is required');
+
+    const rawToken = getMerchantSetupToken(req.headers || {});
+    if (!rawToken) {
+        throw new MerchantAuthError(401, 'missing_setup_token');
+    }
+
+    const computedHash = hashMerchantApiKey(rawToken, pepper);
+    const setupToken = await store.findMerchantSetupTokenByHash(computedHash);
+    if (!setupToken || !merchantKeyHashesMatch(setupToken.token_hash, computedHash)) {
+        throw new MerchantAuthError(401, 'invalid_setup_token');
+    }
+    if (setupToken.used_at) {
+        throw new MerchantAuthError(401, 'setup_token_used');
+    }
+    if (setupToken.expires_at && new Date(setupToken.expires_at).getTime() <= now().getTime()) {
+        throw new MerchantAuthError(401, 'setup_token_expired');
+    }
+
+    const merchant = await store.findMerchantById(setupToken.merchant_id);
+    if (!merchant || merchant.status !== 'active') {
+        throw new MerchantAuthError(403, 'merchant_not_active');
+    }
+    if (merchant.org_id !== setupToken.org_id) {
+        throw new MerchantAuthError(403, 'merchant_setup_scope_mismatch');
+    }
+
+    return { merchant, setupToken };
 }

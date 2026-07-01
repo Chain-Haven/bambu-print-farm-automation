@@ -127,6 +127,46 @@ describe('merchant Supabase store methods', () => {
         expect(found).toEqual({ ...apiKey, key_hash: 'hash-only' });
     });
 
+    it('stores one-time setup tokens by hash and can mark them used', async () => {
+        const setupToken = {
+            setup_token_id: 'setup-1',
+            merchant_id: 'merchant-1',
+            org_id: 'org-1',
+            token_prefix: 'pkx_setup_abc',
+            token_hash: 'hash-only',
+            used_at: null,
+            expires_at: '2026-07-08T00:00:00.000Z',
+            created_at: '2026-07-01T00:00:00.000Z',
+        };
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse([setupToken], 201))
+            .mockResolvedValueOnce(jsonResponse([setupToken]))
+            .mockResolvedValueOnce(jsonResponse([{ ...setupToken, used_at: '2026-07-01T01:00:00.000Z' }]));
+        const client = createSupabaseRestClient({
+            url: 'https://example.supabase.co',
+            serviceKey: 'service-key',
+            fetchImpl,
+        });
+
+        const created = await client.createMerchantSetupToken({
+            merchant_id: 'merchant-1',
+            org_id: 'org-1',
+            token_prefix: 'pkx_setup_abc',
+            token_hash: 'hash-only',
+            expires_at: '2026-07-08T00:00:00.000Z',
+        });
+        const found = await client.findMerchantSetupTokenByHash('hash-only');
+        const used = await client.markMerchantSetupTokenUsed('setup-1', '2026-07-01T01:00:00.000Z');
+
+        expect(created).toEqual(setupToken);
+        expect(found).toEqual(setupToken);
+        expect(used.used_at).toBe('2026-07-01T01:00:00.000Z');
+        expect(fetchImpl.mock.calls[0][0]).toContain('/rest/v1/merchant_setup_tokens?select=');
+        expect(fetchImpl.mock.calls[1][0]).toContain('token_hash=eq.hash-only');
+        expect(fetchImpl.mock.calls[2][0]).toContain('setup_token_id=eq.setup-1');
+        expect(JSON.stringify(fetchImpl.mock.calls[0][1].body)).not.toContain('pkx_setup_secret');
+    });
+
     it('creates merchant-scoped files, jobs, routing decisions, commands, and usage events', async () => {
         const fetchImpl = vi.fn()
             .mockResolvedValueOnce(jsonResponse([{ file_id: 'file-1', merchant_id: 'merchant-1' }], 201))

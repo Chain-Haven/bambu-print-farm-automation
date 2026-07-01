@@ -22,6 +22,7 @@ const SETUP_CHECKS = [
     { name: 'platform_settings_table', path: '/rest/v1/platform_settings?select=key&limit=1' },
     { name: 'merchants_table', path: '/rest/v1/merchants?select=merchant_id&limit=1' },
     { name: 'merchant_api_keys_table', path: '/rest/v1/merchant_api_keys?select=key_id&limit=1' },
+    { name: 'merchant_setup_tokens_table', path: '/rest/v1/merchant_setup_tokens?select=setup_token_id&limit=1' },
     { name: 'farm_nodes_table', path: '/rest/v1/farm_nodes?select=node_id&limit=1' },
     { name: 'cloud_printers_table', path: '/rest/v1/cloud_printers?select=printer_id&limit=1' },
     { name: 'print_jobs_table', path: '/rest/v1/print_jobs?select=job_id&limit=1' },
@@ -66,6 +67,17 @@ const MERCHANT_API_KEY_SELECT = [
     'key_hash',
     'last_used_at',
     'revoked_at',
+    'created_at',
+].join(',');
+
+const MERCHANT_SETUP_TOKEN_SELECT = [
+    'setup_token_id',
+    'merchant_id',
+    'org_id',
+    'token_prefix',
+    'token_hash',
+    'used_at',
+    'expires_at',
     'created_at',
 ].join(',');
 
@@ -321,6 +333,37 @@ export function createSupabaseRestClient({
                     method: 'PATCH',
                     headers: { Prefer: 'return=representation' },
                     body: { revoked_at: revokedAt },
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async createMerchantSetupToken(setupToken) {
+            const rows = await request(
+                `/rest/v1/merchant_setup_tokens?select=${MERCHANT_SETUP_TOKEN_SELECT}`,
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'return=representation' },
+                    body: setupToken,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async findMerchantSetupTokenByHash(tokenHash) {
+            const rows = await request(
+                `/rest/v1/merchant_setup_tokens?token_hash=eq.${encodeURIComponent(tokenHash)}&select=${MERCHANT_SETUP_TOKEN_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async markMerchantSetupTokenUsed(setupTokenId, usedAt = new Date().toISOString()) {
+            const rows = await request(
+                `/rest/v1/merchant_setup_tokens?setup_token_id=eq.${encodeURIComponent(setupTokenId)}&select=${MERCHANT_SETUP_TOKEN_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: { used_at: usedAt },
                 },
             );
             return firstRow(rows);
