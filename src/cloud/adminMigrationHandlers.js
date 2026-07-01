@@ -8,6 +8,7 @@ export const ALLOWED_SUPABASE_MIGRATION_FILES = Object.freeze([
 ]);
 
 const DISALLOWED_SQL_BODY_KEYS = ['sql', 'query', 'statement', 'statements'];
+const SAFE_ERROR_DETAIL_MAX_LENGTH = 220;
 
 class PublicMigrationError extends Error {
     constructor(statusCode, code, payload = {}) {
@@ -44,6 +45,17 @@ function isPlainObject(value) {
 
 function hasStringValue(env, key) {
     return typeof env[key] === 'string' && env[key].trim() !== '';
+}
+
+function sanitizeOperationalError(error) {
+    return String(error?.message || error || 'unknown error')
+        .replace(/postgres(?:ql)?:\/\/[^\s'"<>]+/gi, 'postgres://[redacted]')
+        .replace(/\b(password|pass|pwd)=([^&\s]+)/gi, '$1=[redacted]')
+        .replace(/\b(apikey|authorization|bearer)\s*[:=]\s*[^\s,'"<>]+/gi, '$1=[redacted]')
+        .replace(/pkx_(?:live|setup|node|admin_reset|admin_session)_[A-Za-z0-9_-]+/g, 'pkx_[redacted]')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, SAFE_ERROR_DETAIL_MAX_LENGTH);
 }
 
 function migrationMeta(filename) {
@@ -146,11 +158,30 @@ export function resolvePostgresConnectionString(env = process.env) {
     throw new PublicMigrationError(500, 'postgres_not_configured');
 }
 
+export function normalizePostgresConnectionStringForPg(connectionString) {
+    try {
+        const parsed = new URL(connectionString);
+        if (
+            parsed.searchParams.get('sslmode') === 'require'
+            && !parsed.searchParams.has('uselibpqcompat')
+        ) {
+            parsed.searchParams.set('uselibpqcompat', 'true');
+            return parsed.toString();
+        }
+    } catch {
+        return connectionString;
+    }
+
+    return connectionString;
+}
+
 export function createDefaultPgClientFactory({ env = process.env } = {}) {
     return async function defaultPgClientFactory() {
         const connectionString = resolvePostgresConnectionString(env);
         const pg = await import('pg');
-        return new pg.default.Client({ connectionString });
+        return new pg.default.Client({
+            connectionString: normalizePostgresConnectionStringForPg(connectionString),
+        });
     };
 }
 
@@ -198,10 +229,27 @@ async function applyMigration(client, migration) {
 }
 
 async function runMigrations({ client, migrations, dryRun = false }) {
-    await client.connect();
     try {
-        await ensureSchemaMigrationsTable(client);
-        const appliedVersions = await listAppliedMigrationVersions(client);
+        await client.connect();
+    } catch (error) {
+        throw new PublicMigrationError(500, 'migration_database_unavailable', {
+            message: 'Migration database connection failed.',
+            detail: sanitizeOperationalError(error),
+        });
+    }
+
+    try {
+        let appliedVersions;
+        try {
+            await ensureSchemaMigrationsTable(client);
+            appliedVersions = await listAppliedMigrationVersions(client);
+        } catch (error) {
+            throw new PublicMigrationError(500, 'migration_metadata_unavailable', {
+                message: 'Migration metadata check failed.',
+                detail: sanitizeOperationalError(error),
+            });
+        }
+
         const results = [];
 
         for (const migration of migrations) {
@@ -221,7 +269,7 @@ async function runMigrations({ client, migrations, dryRun = false }) {
 
         return results;
     } finally {
-        await client.end();
+        await client.end().catch(() => {});
     }
 }
 
@@ -266,10 +314,27 @@ export function createCloudAdminMigrationHandler({
             });
 
             const body = req.method === 'POST' ? parsePostJsonObjectBody(req.body) : {};
-            const allowlistedMigrations = loadAllowlistedMigrations({ rootDir });
+            let allowlistedMigrations;
+            try {
+                allowlistedMigrations = loadAllowlistedMigrations({ rootDir });
+            } catch (error) {
+                throw new PublicMigrationError(500, 'migration_bundle_unavailable', {
+                    message: 'Bundled migration files are unavailable.',
+                    detail: sanitizeOperationalError(error),
+                });
+            }
             const migrations = normalizeRequestedMigrations(body, allowlistedMigrations);
             const dryRun = req.method === 'GET' || body.dry_run === true;
-            const client = await clientFactory();
+            let client;
+            try {
+                client = await clientFactory();
+            } catch (error) {
+                if (error instanceof PublicMigrationError) throw error;
+                throw new PublicMigrationError(500, 'migration_database_client_failed', {
+                    message: 'Migration database client failed to initialize.',
+                    detail: sanitizeOperationalError(error),
+                });
+            }
             const results = await runMigrations({ client, migrations, dryRun });
 
             return sendJson(res, 200, {

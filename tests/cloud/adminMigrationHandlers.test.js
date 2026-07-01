@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
     ALLOWED_SUPABASE_MIGRATION_FILES,
     createCloudAdminMigrationHandler,
+    normalizePostgresConnectionStringForPg,
     resolvePostgresConnectionString,
 } from '../../src/cloud/adminMigrationHandlers.js';
 
@@ -29,9 +30,15 @@ function createMockResponse() {
     };
 }
 
-function createMockPgClient({ appliedVersions = [], failOnMigration = false } = {}) {
+function createMockPgClient({ appliedVersions = [], failOnConnect = false, failOnMigration = false } = {}) {
     const client = {
-        connect: vi.fn().mockResolvedValue(undefined),
+        connect: vi.fn(async () => {
+            if (failOnConnect) {
+                throw new Error(
+                    'connect failed for postgres://deploy:secret@db.example.com:5432/postgres?password=secret',
+                );
+            }
+        }),
         end: vi.fn().mockResolvedValue(undefined),
         query: vi.fn(async (sql, params) => {
             if (typeof sql === 'string' && sql.toLowerCase().includes('select version')) {
@@ -267,6 +274,35 @@ describe('cloud admin migration database execution', () => {
         expect(responseText).not.toContain('internal.js');
         expect(responseText).not.toContain('stack');
     });
+
+    it('returns a redacted database connection failure without running SQL', async () => {
+        const client = createMockPgClient({ failOnConnect: true });
+        const handler = createCloudAdminMigrationHandler({
+            store: {},
+            adminToken: 'admin-secret',
+            clientFactory: vi.fn().mockResolvedValue(client),
+        });
+        const res = createMockResponse();
+
+        await handler({
+            method: 'GET',
+            headers: { authorization: 'Bearer admin-secret' },
+        }, res);
+
+        const responseText = JSON.stringify(res.body);
+        expect(client.connect).toHaveBeenCalledOnce();
+        expect(client.query).not.toHaveBeenCalled();
+        expect(client.end).not.toHaveBeenCalled();
+        expect(res.statusCode).toBe(500);
+        expect(res.body).toMatchObject({
+            ok: false,
+            error: 'migration_database_unavailable',
+            message: 'Migration database connection failed.',
+        });
+        expect(res.body.detail).toContain('connect failed for postgres://[redacted]');
+        expect(responseText).not.toContain('deploy:secret');
+        expect(responseText).not.toContain('password=secret');
+    });
 });
 
 describe('cloud admin migration connection config', () => {
@@ -293,6 +329,20 @@ describe('cloud admin migration connection config', () => {
             POSTGRES_PASSWORD: 'p@ss word',
             POSTGRES_DATABASE: 'postgres',
         })).toBe('postgres://postgres.user:p%40ss%20word@db.example.com:6543/postgres?sslmode=require');
+    });
+
+    it('adds pg libpq compatibility for sslmode=require without changing other URLs', () => {
+        expect(normalizePostgresConnectionStringForPg(
+            'postgres://user:pass@db.example.com:5432/postgres?sslmode=require',
+        )).toBe('postgres://user:pass@db.example.com:5432/postgres?sslmode=require&uselibpqcompat=true');
+
+        expect(normalizePostgresConnectionStringForPg(
+            'postgres://user:pass@db.example.com:5432/postgres?sslmode=require&uselibpqcompat=true',
+        )).toBe('postgres://user:pass@db.example.com:5432/postgres?sslmode=require&uselibpqcompat=true');
+
+        expect(normalizePostgresConnectionStringForPg(
+            'postgres://user:pass@db.example.com:5432/postgres',
+        )).toBe('postgres://user:pass@db.example.com:5432/postgres');
     });
 });
 
