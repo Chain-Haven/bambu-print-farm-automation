@@ -112,9 +112,9 @@ var require_package = __commonJS({
 // node_modules/dotenv/lib/main.js
 var require_main = __commonJS({
   "node_modules/dotenv/lib/main.js"(exports2, module2) {
-    var fs8 = require("fs");
+    var fs9 = require("fs");
     var path12 = require("path");
-    var os6 = require("os");
+    var os7 = require("os");
     var crypto5 = require("crypto");
     var packageJson = require_package();
     var version = packageJson.version;
@@ -221,7 +221,7 @@ var require_main = __commonJS({
       if (options && options.path && options.path.length > 0) {
         if (Array.isArray(options.path)) {
           for (const filepath of options.path) {
-            if (fs8.existsSync(filepath)) {
+            if (fs9.existsSync(filepath)) {
               possibleVaultPath = filepath.endsWith(".vault") ? filepath : `${filepath}.vault`;
             }
           }
@@ -231,13 +231,13 @@ var require_main = __commonJS({
       } else {
         possibleVaultPath = path12.resolve(process.cwd(), ".env.vault");
       }
-      if (fs8.existsSync(possibleVaultPath)) {
+      if (fs9.existsSync(possibleVaultPath)) {
         return possibleVaultPath;
       }
       return null;
     }
     function _resolveHome(envPath) {
-      return envPath[0] === "~" ? path12.join(os6.homedir(), envPath.slice(1)) : envPath;
+      return envPath[0] === "~" ? path12.join(os7.homedir(), envPath.slice(1)) : envPath;
     }
     function _configVault(options) {
       const debug = Boolean(options && options.debug);
@@ -280,7 +280,7 @@ var require_main = __commonJS({
       const parsedAll = {};
       for (const path13 of optionPaths) {
         try {
-          const parsed = DotenvModule.parse(fs8.readFileSync(path13, { encoding }));
+          const parsed = DotenvModule.parse(fs9.readFileSync(path13, { encoding }));
           DotenvModule.populate(parsedAll, parsed, options);
         } catch (e) {
           if (debug) {
@@ -1001,7 +1001,7 @@ var require_utils = __commonJS({
 var require_fattr = __commonJS({
   "node_modules/adm-zip/util/fattr.js"(exports2, module2) {
     var pth = require("path");
-    module2.exports = function(path12, { fs: fs8 }) {
+    module2.exports = function(path12, { fs: fs9 }) {
       var _path = path12 || "", _obj = newAttr(), _stat = null;
       function newAttr() {
         return {
@@ -1013,8 +1013,8 @@ var require_fattr = __commonJS({
           atime: 0
         };
       }
-      if (_path && fs8.existsSync(_path)) {
-        _stat = fs8.statSync(_path);
+      if (_path && fs9.existsSync(_path)) {
+        _stat = fs9.statSync(_path);
         _obj.directory = _stat.isDirectory();
         _obj.mtime = _stat.mtime;
         _obj.atime = _stat.atime;
@@ -3609,15 +3609,15 @@ var require_sql_wasm = __commonJS({
         "undefined" != typeof __filename ? ya = __filename : ba && (ya = self.location.href);
         var za = "", Aa, Ba;
         if (ca) {
-          var fs8 = require("node:fs");
+          var fs9 = require("node:fs");
           za = __dirname + "/";
           Ba = (a) => {
             a = Ca(a) ? new URL(a) : a;
-            return fs8.readFileSync(a);
+            return fs9.readFileSync(a);
           };
           Aa = async (a) => {
             a = Ca(a) ? new URL(a) : a;
-            return fs8.readFileSync(a, void 0);
+            return fs9.readFileSync(a, void 0);
           };
           1 < process.argv.length && (wa = process.argv[1].replace(/\\/g, "/"));
           process.argv.slice(2);
@@ -3899,7 +3899,7 @@ var require_sql_wasm = __commonJS({
               if (ca) {
                 var b = Buffer.alloc(256), c = 0, d = process.stdin.fd;
                 try {
-                  c = fs8.readSync(d, b, 0, 256);
+                  c = fs9.readSync(d, b, 0, 256);
                 } catch (e) {
                   if (e.toString().includes("EOF")) c = 0;
                   else throw e;
@@ -39579,16 +39579,16 @@ var require_src6 = __commonJS({
 // node_modules/node-gyp-build/node-gyp-build.js
 var require_node_gyp_build = __commonJS({
   "node_modules/node-gyp-build/node-gyp-build.js"(exports2, module2) {
-    var fs8 = require("fs");
+    var fs9 = require("fs");
     var path12 = require("path");
-    var os6 = require("os");
+    var os7 = require("os");
     var runtimeRequire = typeof __webpack_require__ === "function" ? __non_webpack_require__ : require;
     var vars = process.config && process.config.variables || {};
     var prebuildsOnly = !!process.env.PREBUILDS_ONLY;
     var abi = process.versions.modules;
     var runtime = isElectron() ? "electron" : isNwjs() ? "node-webkit" : "node";
-    var arch = process.env.npm_config_arch || os6.arch();
-    var platform = process.env.npm_config_platform || os6.platform();
+    var arch = process.env.npm_config_arch || os7.arch();
+    var platform = process.env.npm_config_platform || os7.platform();
     var libc = process.env.LIBC || (isAlpine(platform) ? "musl" : "glibc");
     var armv = process.env.ARM_VERSION || (arch === "arm64" ? "8" : vars.arm_version) || "";
     var uv = (process.versions.uv || "").split(".")[0];
@@ -39640,7 +39640,7 @@ var require_node_gyp_build = __commonJS({
     };
     function readdirSync(dir) {
       try {
-        return fs8.readdirSync(dir);
+        return fs9.readdirSync(dir);
       } catch (err) {
         return [];
       }
@@ -39734,7 +39734,7 @@ var require_node_gyp_build = __commonJS({
       return typeof window !== "undefined" && window.process && window.process.type === "renderer";
     }
     function isAlpine(platform2) {
-      return platform2 === "linux" && fs8.existsSync("/etc/alpine-release");
+      return platform2 === "linux" && fs9.existsSync("/etc/alpine-release");
     }
     load.parseTags = parseTags;
     load.matchTags = matchTags;
@@ -44725,8 +44725,8 @@ var require_node7 = __commonJS({
           }
           break;
         case "FILE":
-          var fs8 = require("fs");
-          stream2 = new fs8.SyncWriteStream(fd2, { autoClose: false });
+          var fs9 = require("fs");
+          stream2 = new fs9.SyncWriteStream(fd2, { autoClose: false });
           stream2._type = "fs";
           break;
         case "PIPE":
@@ -61836,7 +61836,7 @@ var require_view = __commonJS({
     "use strict";
     var debug = require_src7()("express:view");
     var path12 = require("path");
-    var fs8 = require("fs");
+    var fs9 = require("fs");
     var dirname = path12.dirname;
     var basename = path12.basename;
     var extname = path12.extname;
@@ -61902,7 +61902,7 @@ var require_view = __commonJS({
     function tryStat(path13) {
       debug('stat "%s"', path13);
       try {
-        return fs8.statSync(path13);
+        return fs9.statSync(path13);
       } catch (e) {
         return void 0;
       }
@@ -62199,7 +62199,7 @@ var require_types = __commonJS({
 var require_mime = __commonJS({
   "node_modules/mime/mime.js"(exports2, module2) {
     var path12 = require("path");
-    var fs8 = require("fs");
+    var fs9 = require("fs");
     function Mime() {
       this.types = /* @__PURE__ */ Object.create(null);
       this.extensions = /* @__PURE__ */ Object.create(null);
@@ -62220,7 +62220,7 @@ var require_mime = __commonJS({
     };
     Mime.prototype.load = function(file) {
       this._loading = file;
-      var map = {}, content = fs8.readFileSync(file, "ascii"), lines = content.split(/[\r\n]+/);
+      var map = {}, content = fs9.readFileSync(file, "ascii"), lines = content.split(/[\r\n]+/);
       lines.forEach(function(line) {
         var fields = line.replace(/\s*#.*|^\s*|\s*$/g, "").split(/\s+/);
         map[fields.shift()] = fields;
@@ -62458,7 +62458,7 @@ var require_send = __commonJS({
     var escapeHtml = require_escape_html();
     var etag = require_etag();
     var fresh = require_fresh();
-    var fs8 = require("fs");
+    var fs9 = require("fs");
     var mime = require_mime();
     var ms = require_ms8();
     var onFinished = require_on_finished();
@@ -62791,7 +62791,7 @@ var require_send = __commonJS({
       var i = 0;
       var self2 = this;
       debug('stat "%s"', path13);
-      fs8.stat(path13, function onstat(err, stat) {
+      fs9.stat(path13, function onstat(err, stat) {
         if (err && err.code === "ENOENT" && !extname(path13) && path13[path13.length - 1] !== sep) {
           return next(err);
         }
@@ -62806,7 +62806,7 @@ var require_send = __commonJS({
         }
         var p = path13 + "." + self2._extensions[i++];
         debug('stat "%s"', p);
-        fs8.stat(p, function(err2, stat) {
+        fs9.stat(p, function(err2, stat) {
           if (err2) return next(err2);
           if (stat.isDirectory()) return next();
           self2.emit("file", p, stat);
@@ -62824,7 +62824,7 @@ var require_send = __commonJS({
         }
         var p = join(path13, self2._index[i]);
         debug('stat "%s"', p);
-        fs8.stat(p, function(err2, stat) {
+        fs9.stat(p, function(err2, stat) {
           if (err2) return next(err2);
           if (stat.isDirectory()) return next();
           self2.emit("file", p, stat);
@@ -62836,7 +62836,7 @@ var require_send = __commonJS({
     SendStream.prototype.stream = function stream(path13, options) {
       var self2 = this;
       var res = this.res;
-      var stream2 = fs8.createReadStream(path13, options);
+      var stream2 = fs9.createReadStream(path13, options);
       this.emit("stream", stream2);
       stream2.pipe(res);
       function cleanup() {
@@ -78143,7 +78143,7 @@ var require_make_middleware = __commonJS({
 var require_mkdirp = __commonJS({
   "node_modules/mkdirp/index.js"(exports2, module2) {
     var path12 = require("path");
-    var fs8 = require("fs");
+    var fs9 = require("fs");
     var _0777 = parseInt("0777", 8);
     module2.exports = mkdirP.mkdirp = mkdirP.mkdirP = mkdirP;
     function mkdirP(p, opts, f, made) {
@@ -78154,7 +78154,7 @@ var require_mkdirp = __commonJS({
         opts = { mode: opts };
       }
       var mode = opts.mode;
-      var xfs = opts.fs || fs8;
+      var xfs = opts.fs || fs9;
       if (mode === void 0) {
         mode = _0777;
       }
@@ -78193,7 +78193,7 @@ var require_mkdirp = __commonJS({
         opts = { mode: opts };
       }
       var mode = opts.mode;
-      var xfs = opts.fs || fs8;
+      var xfs = opts.fs || fs9;
       if (mode === void 0) {
         mode = _0777;
       }
@@ -78230,8 +78230,8 @@ var require_mkdirp = __commonJS({
 // node_modules/multer/storage/disk.js
 var require_disk = __commonJS({
   "node_modules/multer/storage/disk.js"(exports2, module2) {
-    var fs8 = require("fs");
-    var os6 = require("os");
+    var fs9 = require("fs");
+    var os7 = require("os");
     var path12 = require("path");
     var crypto5 = require("crypto");
     var mkdirp = require_mkdirp();
@@ -78241,7 +78241,7 @@ var require_disk = __commonJS({
       });
     }
     function getDestination(req, file, cb) {
-      cb(null, os6.tmpdir());
+      cb(null, os7.tmpdir());
     }
     function DiskStorage(opts) {
       this.getFilename = opts.filename || getFilename;
@@ -78261,7 +78261,7 @@ var require_disk = __commonJS({
         that.getFilename(req, file, function(err2, filename) {
           if (err2) return cb(err2);
           var finalPath = path12.join(destination, filename);
-          var outStream = fs8.createWriteStream(finalPath);
+          var outStream = fs9.createWriteStream(finalPath);
           file.stream.pipe(outStream);
           outStream.on("error", cb);
           outStream.on("finish", function() {
@@ -78280,7 +78280,7 @@ var require_disk = __commonJS({
       delete file.destination;
       delete file.filename;
       delete file.path;
-      fs8.unlink(path13, cb);
+      fs9.unlink(path13, cb);
     };
     module2.exports = function(opts) {
       return new DiskStorage(opts);
@@ -82349,10 +82349,32 @@ var init_events = __esm({
 });
 
 // src/services/TunnelService.js
-var import_node_child_process2, import_node_path10, log30, TunnelService, service, TunnelService_default;
+function resolveCloudflaredPath() {
+  if (process.env.CLOUDFLARED_PATH) return process.env.CLOUDFLARED_PATH;
+  const home = import_node_os5.default.homedir() || process.env.USERPROFILE || process.env.HOME || ".";
+  const candidates = process.platform === "win32" ? [
+    import_node_path10.default.join(home, "cloudflared.exe"),
+    "C:\\Program Files (x86)\\cloudflared\\cloudflared.exe"
+  ] : [
+    "/usr/local/bin/cloudflared",
+    "/usr/bin/cloudflared",
+    import_node_path10.default.join(home, ".cloudflared", "cloudflared"),
+    import_node_path10.default.join(home, "cloudflared")
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (import_node_fs8.default.existsSync(candidate)) return candidate;
+    } catch {
+    }
+  }
+  return "cloudflared";
+}
+var import_node_child_process2, import_node_fs8, import_node_os5, import_node_path10, log30, TunnelService, service, TunnelService_default;
 var init_TunnelService = __esm({
   "src/services/TunnelService.js"() {
     import_node_child_process2 = require("node:child_process");
+    import_node_fs8 = __toESM(require("node:fs"), 1);
+    import_node_os5 = __toESM(require("node:os"), 1);
     import_node_path10 = __toESM(require("node:path"), 1);
     init_logger();
     log30 = createLogger("TunnelService");
@@ -82388,7 +82410,7 @@ var init_TunnelService = __esm({
         this.url = null;
         this._emitStatus();
         try {
-          const executable = import_node_path10.default.join(process.env.USERPROFILE, "cloudflared.exe");
+          const executable = resolveCloudflaredPath();
           log30.info(`Starting tunnel with: ${executable}`);
           this.process = (0, import_node_child_process2.spawn)(executable, ["tunnel", "--url", "http://localhost:3000"]);
           this.process.stdout.on("data", (data) => {
@@ -82817,7 +82839,7 @@ var init_server = __esm({
 
 // src/cloud/runLocalNode.js
 init_config();
-var import_node_os5 = __toESM(require("node:os"), 1);
+var import_node_os6 = __toESM(require("node:os"), 1);
 
 // src/cloud/localCommandExecutor.js
 var import_node_crypto3 = require("node:crypto");
@@ -83484,12 +83506,12 @@ init_logger();
 var log33 = createLogger("CloudNode");
 function getHostInfo() {
   return {
-    hostname: import_node_os5.default.hostname(),
-    platform: import_node_os5.default.platform(),
-    release: import_node_os5.default.release(),
-    arch: import_node_os5.default.arch(),
-    cpus: import_node_os5.default.cpus().length,
-    total_memory_mb: Math.round(import_node_os5.default.totalmem() / 1024 / 1024),
+    hostname: import_node_os6.default.hostname(),
+    platform: import_node_os6.default.platform(),
+    release: import_node_os6.default.release(),
+    arch: import_node_os6.default.arch(),
+    cpus: import_node_os6.default.cpus().length,
+    total_memory_mb: Math.round(import_node_os6.default.totalmem() / 1024 / 1024),
     network_interfaces: collectNetworkInterfaces()
   };
 }

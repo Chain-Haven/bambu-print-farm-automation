@@ -140,7 +140,12 @@
         <li>Use <strong>Download Windows App</strong> to create or reuse the organization, provision a node through <code>/api/cloud/nodes</code>, and download the prefilled, self-contained app through <code>/api/cloud/node-package</code>.</li>
         <li>Copy the one-time <code>LOCAL_NODE_TOKEN</code> only if you need to repair <code>.env</code>.</li>
         <li>Extract the app to a stable folder such as <code>C:\PrintKinetix</code>.</li>
-        <li>Double-click <code>Start Farm Node.bat</code>. There is <strong>no <code>npm install</code> and no manual Node install</strong> — every dependency is compiled into <code>farm-node.cjs</code>, and the launcher uses a bundled Node runtime, a Node already on the PC, or downloads a portable Node automatically the first time.</li>
+        <li>Start the node. There is <strong>no <code>npm install</code> and no manual Node install</strong> — every dependency is compiled into <code>farm-node.cjs</code>, and the launcher uses a bundled Node runtime, a Node already on the machine, or downloads a portable Node automatically the first time.
+          <ul>
+            <li><strong>Windows:</strong> double-click <code>Start Farm Node.bat</code>.</li>
+            <li><strong>Raspberry Pi 5 / Linux:</strong> run <code>bash start-farm-node.sh</code>. The same package runs on arm64 — a Pi 5 makes a great low-power farm controller. Optionally run <code>bash install-service.sh</code> to auto-start on boot and restart on failure (systemd).</li>
+          </ul>
+        </li>
         <li>Open <code>http://localhost:3000</code> on that Windows computer and add each Bambu printer with its LAN IP, serial, and access code.</li>
         <li>Return to <code>/cloud</code>, verify the node heartbeat is online, then queue <strong>Discover LAN Printers</strong> and <strong>Sync Printer Inventory</strong>.</li>
       </ol>

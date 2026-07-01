@@ -1,9 +1,41 @@
 
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('TunnelService');
+
+// Resolve the cloudflared binary across Windows (NUC) and Linux/macOS (Raspberry
+// Pi). CLOUDFLARED_PATH wins; otherwise probe the usual locations and finally
+// fall back to the bare command so a PATH install works everywhere.
+function resolveCloudflaredPath() {
+    if (process.env.CLOUDFLARED_PATH) return process.env.CLOUDFLARED_PATH;
+
+    const home = os.homedir() || process.env.USERPROFILE || process.env.HOME || '.';
+    const candidates = process.platform === 'win32'
+        ? [
+            path.join(home, 'cloudflared.exe'),
+            'C:\\Program Files (x86)\\cloudflared\\cloudflared.exe',
+        ]
+        : [
+            '/usr/local/bin/cloudflared',
+            '/usr/bin/cloudflared',
+            path.join(home, '.cloudflared', 'cloudflared'),
+            path.join(home, 'cloudflared'),
+        ];
+
+    for (const candidate of candidates) {
+        try {
+            if (fs.existsSync(candidate)) return candidate;
+        } catch {
+            // ignore and keep probing
+        }
+    }
+    // Rely on PATH resolution (spawn will surface an error if it is missing).
+    return 'cloudflared';
+}
 
 class TunnelService {
     constructor() {
@@ -43,9 +75,8 @@ class TunnelService {
         this._emitStatus();
 
         try {
-            // Path to cloudflared (assuming it's in user profile as per previous steps)
-            // Ideally this should be configurable or bundled
-            const executable = path.join(process.env.USERPROFILE, 'cloudflared.exe');
+            // Resolve cloudflared across platforms (Windows NUC or Raspberry Pi / Linux).
+            const executable = resolveCloudflaredPath();
 
             log.info(`Starting tunnel with: ${executable}`);
 

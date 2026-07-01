@@ -359,6 +359,104 @@ export function createGetNodePs1() {
     ].join('\r\n');
 }
 
+// Linux / Raspberry Pi launcher. Same portable farm-node.cjs, run under Node on
+// ARM64/x64. Uses LF line endings so bash accepts it.
+export function createStartFarmNodeSh() {
+    return [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'cd "$(dirname "$0")"',
+        '',
+        'echo "Starting PrintKinetix farm node..."',
+        '',
+        'if [ ! -f ".env" ]; then',
+        '  echo "Missing .env file next to this launcher (needs CLOUD_API_URL and LOCAL_NODE_TOKEN)."',
+        '  exit 1',
+        'fi',
+        '',
+        '# 1) Prefer a Node runtime bundled next to this launcher.',
+        'if [ -x "./node/bin/node" ]; then',
+        '  NODE_BIN="./node/bin/node"',
+        '# 2) Fall back to a Node already installed on this machine.',
+        'elif command -v node >/dev/null 2>&1; then',
+        '  NODE_BIN="node"',
+        'else',
+        '  # 3) No Node found: fetch a portable Node runtime automatically (no apt, no npm).',
+        '  echo "Node.js was not found. Downloading a portable copy (one time)..."',
+        '  bash ./get-node.sh',
+        '  NODE_BIN="./node/bin/node"',
+        'fi',
+        '',
+        'echo "Using Node: $NODE_BIN"',
+        'exec "$NODE_BIN" ./farm-node.cjs',
+        '',
+    ].join('\n');
+}
+
+// Downloads a portable Node build matching the machine architecture (Raspberry
+// Pi 5 = arm64). No system package manager required.
+export function createGetNodeSh() {
+    return [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'cd "$(dirname "$0")"',
+        '',
+        'VER="v22.11.0"',
+        'ARCH="$(uname -m)"',
+        'case "$ARCH" in',
+        '  aarch64|arm64) NODE_ARCH="linux-arm64" ;;',
+        '  x86_64|amd64)  NODE_ARCH="linux-x64" ;;',
+        '  armv7l|armv6l) NODE_ARCH="linux-armv7l" ;;',
+        '  *) echo "Unsupported architecture: $ARCH. Install Node 20+ manually."; exit 1 ;;',
+        'esac',
+        '',
+        'TARBALL="node-$VER-$NODE_ARCH.tar.xz"',
+        'URL="https://nodejs.org/dist/$VER/$TARBALL"',
+        'echo "Downloading $URL"',
+        'curl -fsSL "$URL" -o "/tmp/$TARBALL"',
+        'rm -rf ./node && mkdir -p ./node',
+        'tar -xJf "/tmp/$TARBALL" -C ./node --strip-components=1',
+        'rm -f "/tmp/$TARBALL"',
+        'echo "Portable Node installed to ./node"',
+        '',
+    ].join('\n');
+}
+
+// Optional: install the node as a systemd service so it auto-starts on boot and
+// restarts on failure — turning a Raspberry Pi into a self-healing farm controller.
+export function createInstallServiceSh() {
+    return [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'DIR="$(cd "$(dirname "$0")" && pwd)"',
+        'SERVICE="/etc/systemd/system/printkinetix-node.service"',
+        '',
+        'echo "Installing systemd service at $SERVICE"',
+        'sudo tee "$SERVICE" >/dev/null <<EOF',
+        '[Unit]',
+        'Description=PrintKinetix Farm Node',
+        'After=network-online.target',
+        'Wants=network-online.target',
+        '',
+        '[Service]',
+        'Type=simple',
+        'WorkingDirectory=$DIR',
+        'ExecStart=/usr/bin/env bash "$DIR/start-farm-node.sh"',
+        'Restart=always',
+        'RestartSec=5',
+        'User=$(whoami)',
+        '',
+        '[Install]',
+        'WantedBy=multi-user.target',
+        'EOF',
+        '',
+        'sudo systemctl daemon-reload',
+        'sudo systemctl enable --now printkinetix-node',
+        'echo "Service installed. Status: sudo systemctl status printkinetix-node"',
+        '',
+    ].join('\n');
+}
+
 export function createPortableReadme({ nodeName = 'Windows NUC', cloudApiUrl } = {}) {
     return [
         'PrintKinetix Farm Node (portable)',
@@ -368,18 +466,31 @@ export function createPortableReadme({ nodeName = 'Windows NUC', cloudApiUrl } =
         `Cloud: ${cloudApiUrl || 'configured in .env'}`,
         '',
         'This is a self-contained build. It does NOT need `npm install` and has no',
-        'source tree — every dependency is compiled into farm-node.cjs.',
+        'source tree — every dependency is compiled into farm-node.cjs. The same',
+        'package runs on Windows, on a Raspberry Pi 5 (arm64), and on Linux x64.',
         '',
-        'To run',
-        '------',
+        'To run on Windows',
+        '-----------------',
         '1. Keep every file in this folder together.',
         '2. Confirm .env is present (it carries CLOUD_API_URL and LOCAL_NODE_TOKEN).',
         '3. Double-click "Start Farm Node.bat".',
         '   - It uses a bundled Node runtime (\\node), Node already on the PC, or',
         '     downloads a portable Node the first time. No manual install, no keys to type.',
-        '4. Open http://localhost:3000 on this computer to add LAN printers.',
-        '5. Enable LAN/Developer mode on each Bambu printer and add its IP, serial, and access code.',
-        '6. Return to /cloud, open Local Printer Sync, and queue Discover LAN Printers, then Sync Printer Inventory.',
+        '',
+        'To run on a Raspberry Pi 5 / Linux',
+        '----------------------------------',
+        '1. Copy this folder to the Pi (keep every file together).',
+        '2. Confirm .env is present.',
+        '3. Run:  bash start-farm-node.sh',
+        '   - It uses a bundled Node, Node already installed, or downloads a portable',
+        '     Node matching the Pi (arm64) automatically. No apt, no npm, no keys to type.',
+        '4. Optional — start on boot + auto-restart (self-healing):  bash install-service.sh',
+        '',
+        'Then, on either platform',
+        '------------------------',
+        '- Open http://localhost:3000 on that machine to add LAN printers.',
+        '- Enable LAN/Developer mode on each Bambu printer and add its IP, serial, and access code.',
+        '- Return to /cloud, open Local Printer Sync, and queue Discover LAN Printers, then Sync Printer Inventory.',
         '',
         'Security model',
         '--------------',
@@ -394,7 +505,9 @@ export function createPortableReadme({ nodeName = 'Windows NUC', cloudApiUrl } =
         '  public/              local dashboard served at http://localhost:3000',
         '  migrations/          applied to the local SQLite database on first run',
         '  sql-wasm.wasm        SQLite engine (WebAssembly)',
-        '  Start Farm Node.bat  double-click launcher',
+        '  Start Farm Node.bat  Windows double-click launcher',
+        '  start-farm-node.sh   Raspberry Pi / Linux launcher',
+        '  install-service.sh   optional systemd auto-start on Pi / Linux',
         '  .env                 your cloud credentials (do not share)',
         '',
     ].join('\r\n');
@@ -438,9 +551,13 @@ export function buildPortableNodePackage({
         }
     }
 
-    // 4. Launcher, portable-Node helper, README, per-user env, manifest.
+    // 4. Launchers (Windows + Raspberry Pi / Linux), portable-Node helpers,
+    //    README, per-user env, manifest.
     addFile('Start Farm Node.bat', Buffer.from(createFarmNodeLauncherBat(), 'utf-8'));
     addFile('get-node.ps1', Buffer.from(createGetNodePs1(), 'utf-8'));
+    addFile('start-farm-node.sh', Buffer.from(createStartFarmNodeSh(), 'utf-8'));
+    addFile('get-node.sh', Buffer.from(createGetNodeSh(), 'utf-8'));
+    addFile('install-service.sh', Buffer.from(createInstallServiceSh(), 'utf-8'));
     addFile('README-FIRST.txt', Buffer.from(createPortableReadme({
         nodeName,
         cloudApiUrl: normalizedCloudApiUrl,

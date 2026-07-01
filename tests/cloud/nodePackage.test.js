@@ -9,8 +9,10 @@ import {
     collectNodePackageFiles,
     collectPortablePublicFiles,
     createFarmNodeLauncherBat,
+    createGetNodeSh,
     createNodeEnv,
     createNodePackageReadme,
+    createStartFarmNodeSh,
     hasPortableBundle,
 } from '../../src/cloud/nodePackage.js';
 
@@ -249,6 +251,10 @@ describe('Portable ("no install") node package', () => {
         expect(entries).toContain('public/index.html');
         expect(entries).toContain('Start Farm Node.bat');
         expect(entries).toContain('get-node.ps1');
+        // Cross-platform: Raspberry Pi 5 / Linux launchers ship in the same package.
+        expect(entries).toContain('start-farm-node.sh');
+        expect(entries).toContain('get-node.sh');
+        expect(entries).toContain('install-service.sh');
         expect(entries).toContain('README-FIRST.txt');
         expect(entries).toContain('.env');
         // No source tree and no cloud console in the portable package.
@@ -268,6 +274,24 @@ describe('Portable ("no install") node package', () => {
         expect(bat).toContain('node\\node.exe'); // bundled runtime
         expect(bat).toContain('where node');     // system Node
         expect(bat).toContain('get-node.ps1');   // auto-download portable Node
+    });
+
+    it('Pi/Linux launcher is npm-free, LF-terminated, and finds Node three ways', () => {
+        const sh = createStartFarmNodeSh();
+        expect(sh).not.toMatch(/npm install/i);
+        expect(sh).not.toContain('\r'); // LF only, or bash chokes on CRLF
+        expect(sh.startsWith('#!/usr/bin/env bash')).toBe(true);
+        expect(sh).toContain('farm-node.cjs');
+        expect(sh).toContain('./node/bin/node');       // bundled runtime
+        expect(sh).toContain('command -v node');        // system Node
+        expect(sh).toContain('get-node.sh');            // auto-download portable Node
+    });
+
+    it('portable Node download targets the Raspberry Pi 5 architecture', () => {
+        const sh = createGetNodeSh();
+        expect(sh).toContain('aarch64|arm64) NODE_ARCH="linux-arm64"'); // Pi 5
+        expect(sh).toContain('x86_64|amd64)  NODE_ARCH="linux-x64"');
+        expect(sh).not.toContain('\r');
     });
 
     it('buildPortableNodePackage requires cloud url and token', () => {
