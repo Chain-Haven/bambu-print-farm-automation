@@ -14,16 +14,16 @@ Use one Windows computer or NUC on the same local network as the Bambu printers.
 
 1. Open `/cloud` on the Vercel deployment.
 2. Enter `CLOUD_ADMIN_TOKEN`.
-3. Create an organization if one does not exist.
-4. Provision the Windows node with the dashboard or `POST /api/cloud/nodes`.
-5. Copy the one-time `LOCAL_NODE_TOKEN`.
-6. Download the prefilled Windows ZIP with the dashboard or `POST /api/cloud/node-package`.
+3. Use **Windows Quickstart** to create or reuse the organization, provision the node, and download the prefilled ZIP.
+4. Copy the one-time `LOCAL_NODE_TOKEN` only if you need to inspect or repair `.env`.
+5. Use **Local Printer Sync** after the Windows node is running to queue `Discover LAN Printers` and `Sync Printer Inventory`.
 
 The cloud management endpoints are:
 
 ```text
 POST /api/cloud/nodes
 POST /api/cloud/node-package
+POST /api/cloud/commands
 GET  /api/cloud/setup
 GET  /api/cloud/overview
 ```
@@ -54,6 +54,8 @@ CLOUD_RESULT_OUTBOX_MAX_ENTRIES=1000
 6. Add each Bambu printer with the printer LAN IP or hostname, serial number, and access code.
 7. Make sure Bambu LAN/Developer mode is enabled on each printer.
 8. Return to `/cloud` and confirm the node heartbeat is online.
+9. Queue **Discover LAN Printers** to confirm the Windows computer can see Bambu SSDP broadcasts.
+10. Queue **Sync Printer Inventory** to send local printer, AMS, and filament snapshots back through the cloud command result.
 
 ## Optional Startup Task
 
@@ -84,6 +86,34 @@ POST /api/agent/events
 ```
 
 The agent uses bounded retries and request timeouts for these outbound calls. If Vercel, Supabase, DNS, or the internet connection is temporarily unavailable after a command runs locally, final command results are written to `./data/cloud-result-outbox.json` and replayed before the next command claim.
+
+## Printer Discovery And Sync
+
+Admin operators can queue these from `/cloud` after selecting a Windows node:
+
+```json
+{
+  "command_type": "cloud.printers.discover",
+  "payload": {
+    "scan_cidrs": ["192.168.1.0/24"],
+    "wait_ms": 1500
+  }
+}
+```
+
+```json
+{
+  "command_type": "cloud.printers.sync",
+  "payload": {
+    "scan_cidrs": ["192.168.1.0/24"],
+    "include_saved_printers": true,
+    "sync_ams": true,
+    "sync_filament": true
+  }
+}
+```
+
+`cloud.printers.discover` reports Bambu SSDP discoveries visible from the Windows machine. `cloud.printers.sync` reports registered local printers, live connection state, AMS tray counts, and saved filament snapshots where available.
 
 ## Merchant Print Flow
 

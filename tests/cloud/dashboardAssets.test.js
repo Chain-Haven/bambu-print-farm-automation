@@ -90,6 +90,52 @@ describe('cloud dashboard assets', () => {
         expect(css).toContain('.toolbar');
     });
 
+    it('makes Windows node onboarding one-click and exposes local printer sync commands', () => {
+        const html = fs.readFileSync('public/cloud.html', 'utf8');
+        const js = fs.readFileSync('public/js/cloud-dashboard.js', 'utf8');
+
+        for (const id of [
+            'node-quickstart-form',
+            'quickstart-org-name',
+            'quickstart-node-name',
+            'quickstart-max-jobs',
+            'quickstart-scan-cidrs',
+            'quickstart-auto-download',
+            'quickstart-output',
+            'printer-sync-form',
+            'sync-scan-cidrs',
+            'sync-include-saved',
+            'sync-ams',
+            'sync-filament',
+            'sync-output',
+        ]) {
+            expect(html).toContain(`id="${id}"`);
+        }
+
+        for (const commandType of [
+            'cloud.printers.discover',
+            'cloud.printers.sync',
+        ]) {
+            expect(html).toContain(commandType);
+            expect(js).toContain(commandType);
+        }
+
+        for (const functionName of [
+            'handleNodeQuickstart',
+            'handlePrinterSync',
+            'queueNodeCommand',
+            'buildPrinterSyncPayload',
+            'parseCidrs',
+        ]) {
+            expect(js).toContain(functionName);
+        }
+
+        expect(js).toContain('/api/cloud/organizations');
+        expect(js).toContain('/api/cloud/nodes');
+        expect(js).toContain('/api/cloud/node-package');
+        expect(js).toContain('/api/cloud/commands');
+    });
+
     it('keeps browser controller scripts parseable', () => {
         for (const file of ['public/js/api.js', 'public/js/ws.js', 'public/js/app.js', 'public/js/cloud-dashboard.js']) {
             execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' });

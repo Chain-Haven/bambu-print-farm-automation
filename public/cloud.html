@@ -100,6 +100,37 @@
           </div>
         </form>
 
+        <form id="node-quickstart-form" class="panel">
+          <div class="panel-heading">
+            <h2>Windows Quickstart</h2>
+            <span>Provision + ZIP</span>
+          </div>
+          <label>
+            <span>Farm name</span>
+            <input id="quickstart-org-name" type="text" value="Bambu Farm">
+          </label>
+          <label>
+            <span>Windows node name</span>
+            <input id="quickstart-node-name" type="text" value="Windows Farm Manager 01">
+          </label>
+          <div class="split">
+            <label>
+              <span>Max jobs</span>
+              <input id="quickstart-max-jobs" type="number" min="1" max="50" value="4">
+            </label>
+            <label class="switch-row compact-switch">
+              <input id="quickstart-auto-download" type="checkbox" checked>
+              <span>Download ZIP</span>
+            </label>
+          </div>
+          <label>
+            <span>Printer networks</span>
+            <textarea id="quickstart-scan-cidrs" rows="3" placeholder="192.168.1.0/24&#10;10.0.10.0/24"></textarea>
+          </label>
+          <button type="submit">Provision + Download</button>
+          <pre id="quickstart-output" class="secret-output" hidden></pre>
+        </form>
+
         <form id="organization-form" class="panel">
           <div class="panel-heading">
             <h2>Organization</h2>
@@ -135,6 +166,38 @@
           <pre id="node-token-output" class="secret-output" hidden></pre>
         </form>
 
+        <form id="printer-sync-form" class="panel">
+          <div class="panel-heading">
+            <h2>Local Printer Sync</h2>
+            <span>Windows node</span>
+          </div>
+          <label>
+            <span>Node</span>
+            <select id="sync-node" required></select>
+          </label>
+          <label>
+            <span>Scan networks</span>
+            <textarea id="sync-scan-cidrs" rows="3" placeholder="192.168.1.0/24&#10;10.0.10.0/24"></textarea>
+          </label>
+          <label class="switch-row">
+            <input id="sync-include-saved" type="checkbox" checked>
+            <span>Saved local printers</span>
+          </label>
+          <label class="switch-row">
+            <input id="sync-ams" type="checkbox" checked>
+            <span>AMS trays</span>
+          </label>
+          <label class="switch-row">
+            <input id="sync-filament" type="checkbox" checked>
+            <span>Filament colors</span>
+          </label>
+          <div class="button-row">
+            <button type="submit" name="sync-action" value="cloud.printers.discover">Discover LAN Printers</button>
+            <button type="submit" name="sync-action" value="cloud.printers.sync">Sync Printer Inventory</button>
+          </div>
+          <pre id="sync-output" class="secret-output" hidden></pre>
+        </form>
+
         <form id="command-form" class="panel">
           <div class="panel-heading">
             <h2>Queue Command</h2>
@@ -146,6 +209,8 @@
             <button type="button" data-command-template="resume">Resume</button>
             <button type="button" data-command-template="stop">Stop</button>
             <button type="button" data-command-template="printReady">Print Ready</button>
+            <button type="button" data-command-template="discoverPrinters">Discover</button>
+            <button type="button" data-command-template="syncPrinters">Sync</button>
           </div>
           <label>
             <span>Node</span>
@@ -161,6 +226,8 @@
               <option value="printer.gcode">printer.gcode</option>
               <option value="job.start">job.start</option>
               <option value="cloud.print.ready">cloud.print.ready</option>
+              <option value="cloud.printers.discover">cloud.printers.discover</option>
+              <option value="cloud.printers.sync">cloud.printers.sync</option>
             </select>
           </label>
           <div class="split">

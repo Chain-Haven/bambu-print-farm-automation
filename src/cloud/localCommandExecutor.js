@@ -194,9 +194,163 @@ async function executeCloudPrintReady(command, deps) {
     };
 }
 
+function normalizeStringList(value) {
+    if (Array.isArray(value)) {
+        return value.map((item) => String(item || '').trim()).filter(Boolean);
+    }
+    return String(value || '')
+        .split(/[\n,;]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+function normalizeBoolean(value, fallback) {
+    if (typeof value === 'boolean') return value;
+    return fallback;
+}
+
+function normalizeDiscoveryOptions(payload = {}) {
+    const waitMs = Number.parseInt(payload.wait_ms ?? payload.waitMs ?? 1500, 10);
+    return {
+        scan_cidrs: normalizeStringList(payload.scan_cidrs || payload.scanCidrs),
+        wait_ms: Number.isFinite(waitMs) ? Math.max(0, Math.min(waitMs, 10000)) : 1500,
+    };
+}
+
+function normalizePrinterSyncOptions(payload = {}) {
+    return {
+        scan_cidrs: normalizeStringList(payload.scan_cidrs || payload.scanCidrs),
+        include_saved_printers: normalizeBoolean(payload.include_saved_printers, true),
+        sync_ams: normalizeBoolean(payload.sync_ams, true),
+        sync_filament: normalizeBoolean(payload.sync_filament, true),
+    };
+}
+
+function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function countAmsTrays(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') return 0;
+    if (Array.isArray(snapshot.ams?.trays)) return snapshot.ams.trays.length;
+    if (Array.isArray(snapshot.ams?.ams)) {
+        return snapshot.ams.ams.reduce((count, unit) => count + (Array.isArray(unit.tray) ? unit.tray.length : 0), 0);
+    }
+    if (Array.isArray(snapshot.ams?.tray)) return snapshot.ams.tray.length;
+    return 0;
+}
+
+function buildSyncedPrinterRecord(printer, worker, options) {
+    const statusSnapshot = printer.status_snapshot && typeof printer.status_snapshot === 'object'
+        ? { ...printer.status_snapshot }
+        : {};
+    const liveState = worker?.state && worker.state !== 'unknown'
+        ? worker.state
+        : statusSnapshot.state;
+    const status = worker?.connected
+        ? (liveState || 'online')
+        : (liveState || 'offline');
+
+    const record = {
+        local_printer_id: printer.printer_id,
+        name: printer.name || printer.printer_id,
+        model: printer.model || null,
+        ip_hostname: printer.ip_hostname || null,
+        status,
+        connected: !!worker?.connected,
+        capabilities: printer.capabilities || {},
+        last_seen: printer.last_seen || null,
+    };
+
+    if (options.sync_ams || options.sync_filament) {
+        record.status_snapshot = statusSnapshot;
+    }
+
+    if (options.sync_ams) {
+        record.ams_tray_count = countAmsTrays(statusSnapshot);
+    }
+
+    return record;
+}
+
+async function defaultDiscoverPrinters(options = {}) {
+    const [{ RuntimeSupervisor }, { getDiscoveryInstance }] = await Promise.all([
+        import('../runtime/RuntimeSupervisor.js'),
+        import('../services/BambuDiscovery.js'),
+    ]);
+    const supervisor = RuntimeSupervisor.getInstance();
+    const discovery = supervisor?.discovery || getDiscoveryInstance();
+    supervisor?._syncDiscoverySerials?.();
+    discovery.start?.();
+
+    if (options.wait_ms > 0) {
+        await wait(options.wait_ms);
+    }
+
+    return discovery.getDiscovered?.() || [];
+}
+
+async function defaultSyncPrinters(options = {}) {
+    const [{ PrinterModel }, { RuntimeSupervisor }, { collectNetworkInterfaces }] = await Promise.all([
+        import('../models/Printer.js'),
+        import('../runtime/RuntimeSupervisor.js'),
+        import('./localNetwork.js'),
+    ]);
+    const supervisor = RuntimeSupervisor.getInstance();
+    const registeredPrinters = options.include_saved_printers === false ? [] : PrinterModel.findAll();
+    const printers = registeredPrinters.map((printer) => (
+        buildSyncedPrinterRecord(printer, supervisor?.getWorker?.(printer.printer_id), options)
+    ));
+    const online = printers.filter((printer) => printer.connected || String(printer.status).toLowerCase() === 'online').length;
+    const amsTrays = printers.reduce((count, printer) => count + (Number(printer.ams_tray_count) || 0), 0);
+
+    return {
+        printers,
+        summary: {
+            registered: registeredPrinters.length,
+            online,
+            ams_trays: amsTrays,
+            network_interface_count: collectNetworkInterfaces().length,
+            scan_cidrs: options.scan_cidrs,
+        },
+    };
+}
+
+async function executePrinterDiscovery(command, deps) {
+    const options = normalizeDiscoveryOptions(command.payload || {});
+    const result = await deps.discoverPrinters(options);
+    const printers = Array.isArray(result) ? result : (Array.isArray(result?.printers) ? result.printers : []);
+    return {
+        discovered: printers.length,
+        printers,
+        scan_cidrs: options.scan_cidrs,
+    };
+}
+
+async function executePrinterSync(command, deps) {
+    const options = normalizePrinterSyncOptions(command.payload || {});
+    const result = await deps.syncPrinters(options);
+    const printers = Array.isArray(result) ? result : (Array.isArray(result?.printers) ? result.printers : []);
+    return {
+        synced: printers.length,
+        printers,
+        summary: result?.summary || {
+            registered: printers.length,
+            online: printers.filter((printer) => String(printer.status || '').toLowerCase() === 'online' || printer.connected === true).length,
+            ams_trays: printers.reduce((count, printer) => count + (Number(printer.ams_tray_count) || 0), 0),
+        },
+    };
+}
+
 async function executeCloudAction(command, deps) {
     if (command.command_type === 'cloud.print.ready') {
         return executeCloudPrintReady(command, deps);
+    }
+    if (command.command_type === 'cloud.printers.discover') {
+        return executePrinterDiscovery(command, deps);
+    }
+    if (command.command_type === 'cloud.printers.sync') {
+        return executePrinterSync(command, deps);
     }
     throw new Error(`Unsupported cloud command: ${command.command_type}`);
 }
@@ -213,6 +367,8 @@ function getDefaultDeps() {
         },
         downloadArtifact: defaultDownloadArtifact,
         uploadToPrinter: defaultUploadToPrinter,
+        discoverPrinters: defaultDiscoverPrinters,
+        syncPrinters: defaultSyncPrinters,
     };
 }
 

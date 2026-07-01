@@ -137,13 +137,13 @@
       <h2>Setup</h2>
       <ol>
         <li>Open <code>/cloud</code> and enter the bootstrap admin token.</li>
-        <li>Create an organization, then provision a node with <code>POST /api/cloud/nodes</code>.</li>
-        <li>Copy the one-time <code>LOCAL_NODE_TOKEN</code>, or download the prefilled ZIP with <code>POST /api/cloud/node-package</code>.</li>
+        <li>Use <strong>Windows Quickstart</strong> to create or reuse the organization, provision a node through <code>/api/cloud/nodes</code>, and download the prefilled ZIP through <code>/api/cloud/node-package</code>.</li>
+        <li>Copy the one-time <code>LOCAL_NODE_TOKEN</code> only if you need to repair <code>.env</code>.</li>
         <li>Install Node.js 24 LTS or newer on Windows.</li>
         <li>Extract the ZIP to <code>C:\PrintKinetix</code>.</li>
         <li>Run <code>Start Cloud Node.bat</code>.</li>
         <li>Open <code>http://localhost:3000</code> on that Windows computer and add each Bambu printer with its LAN IP, serial, and access code.</li>
-        <li>Return to <code>/cloud</code> and verify the node heartbeat is online.</li>
+        <li>Return to <code>/cloud</code>, verify the node heartbeat is online, then queue <strong>Discover LAN Printers</strong> and <strong>Sync Printer Inventory</strong>.</li>
       </ol>
     </section>
 
@@ -160,6 +160,20 @@
           <tr><td>POST</td><td><code>/api/agent/events</code></td><td>Streams operational events back to cloud history.</td></tr>
         </tbody>
       </table>
+    </section>
+
+    <section>
+      <h2>Printer Sync Commands</h2>
+      <p><code>cloud.printers.discover</code> returns Bambu SSDP discoveries visible from the Windows machine. <code>cloud.printers.sync</code> returns saved local printers, live worker status, AMS tray counts, and filament snapshots when available.</p>
+      <pre><code>{
+  "command_type": "cloud.printers.sync",
+  "payload": {
+    "scan_cidrs": ["192.168.1.0/24"],
+    "include_saved_printers": true,
+    "sync_ams": true,
+    "sync_filament": true
+  }
+}</code></pre>
     </section>
 
     <section>

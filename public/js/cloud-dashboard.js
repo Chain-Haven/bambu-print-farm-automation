@@ -63,6 +63,22 @@ const commandTemplates = {
       },
     },
   },
+  discoverPrinters: {
+    commandType: 'cloud.printers.discover',
+    payload: {
+      scan_cidrs: [],
+      wait_ms: 1500,
+    },
+  },
+  syncPrinters: {
+    commandType: 'cloud.printers.sync',
+    payload: {
+      scan_cidrs: [],
+      include_saved_printers: true,
+      sync_ams: true,
+      sync_filament: true,
+    },
+  },
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -100,6 +116,13 @@ const elements = {
   fullAutoMode: $('#full-auto-mode'),
   merchantModeState: $('#merchant-mode-state'),
   refreshMerchantSettings: $('#refresh-merchant-settings'),
+  nodeQuickstartForm: $('#node-quickstart-form'),
+  quickstartOrgName: $('#quickstart-org-name'),
+  quickstartNodeName: $('#quickstart-node-name'),
+  quickstartMaxJobs: $('#quickstart-max-jobs'),
+  quickstartScanCidrs: $('#quickstart-scan-cidrs'),
+  quickstartAutoDownload: $('#quickstart-auto-download'),
+  quickstartOutput: $('#quickstart-output'),
   organizationForm: $('#organization-form'),
   organizationName: $('#organization-name'),
   organizationOutput: $('#organization-output'),
@@ -109,6 +132,13 @@ const elements = {
   nodeCapabilities: $('#node-capabilities'),
   nodeTokenOutput: $('#node-token-output'),
   downloadNodePackage: $('#download-node-package'),
+  printerSyncForm: $('#printer-sync-form'),
+  syncNode: $('#sync-node'),
+  syncScanCidrs: $('#sync-scan-cidrs'),
+  syncIncludeSaved: $('#sync-include-saved'),
+  syncAms: $('#sync-ams'),
+  syncFilament: $('#sync-filament'),
+  syncOutput: $('#sync-output'),
   commandForm: $('#command-form'),
   commandNode: $('#command-node'),
   commandType: $('#command-type'),
@@ -183,6 +213,33 @@ function parseJsonField(value, fallback = {}) {
     throw new Error('JSON must be an object');
   }
   return parsed;
+}
+
+function parseCidrs(value) {
+  return String(value || '')
+    .split(/[\n,;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function buildQuickstartCapabilities() {
+  return {
+    max_concurrent_jobs: Math.max(1, Number.parseInt(elements.quickstartMaxJobs.value, 10) || 4),
+    local_controller: true,
+    command_polling: true,
+    printer_lan_control: true,
+    cloud_printer_sync: true,
+    scan_cidrs: parseCidrs(elements.quickstartScanCidrs.value),
+  };
+}
+
+function buildPrinterSyncPayload() {
+  return {
+    scan_cidrs: parseCidrs(elements.syncScanCidrs.value),
+    include_saved_printers: elements.syncIncludeSaved.checked,
+    sync_ams: elements.syncAms.checked,
+    sync_filament: elements.syncFilament.checked,
+  };
 }
 
 async function apiRequest(path, { method = 'GET', body = null } = {}) {
@@ -469,13 +526,14 @@ function updateCounts() {
   setText('#automation-alert-count', state.farmAutomation.plan?.alerts?.length || 0);
 }
 
-function renderCommandNodeOptions(nodes) {
-  const current = elements.commandNode.value;
+function renderNodeOptions(select, nodes) {
+  if (!select) return;
+  const current = select.value;
   if (!nodes.length) {
     const option = document.createElement('option');
     option.value = '';
     option.textContent = 'No nodes';
-    elements.commandNode.replaceChildren(option);
+    select.replaceChildren(option);
     return;
   }
 
@@ -486,10 +544,15 @@ function renderCommandNodeOptions(nodes) {
     option.dataset.orgId = node.org_id;
     return option;
   });
-  elements.commandNode.replaceChildren(...options);
+  select.replaceChildren(...options);
   if (nodes.some((node) => node.node_id === current)) {
-    elements.commandNode.value = current;
+    select.value = current;
   }
+}
+
+function renderCommandNodeOptions(nodes) {
+  renderNodeOptions(elements.commandNode, nodes);
+  renderNodeOptions(elements.syncNode, nodes);
 }
 
 function selectMerchant(merchant) {
@@ -906,18 +969,24 @@ function syncMerchantFields(id) {
   elements.merchantLookupId.value = id;
 }
 
-async function handleCreateOrganization(event) {
-  event.preventDefault();
-  const name = elements.organizationName.value.trim();
+function setCurrentOrganization(organization) {
+  elements.orgId.value = organization.org_id;
+  elements.nodeOrgId.value = organization.org_id;
+  window.localStorage.setItem(storageKeys.orgId, organization.org_id);
+}
+
+async function createOrganization(name) {
   const result = await apiRequest('/api/cloud/organizations', {
     method: 'POST',
     body: { name },
   });
-  const organization = result.organization;
+  setCurrentOrganization(result.organization);
+  return result.organization;
+}
 
-  elements.orgId.value = organization.org_id;
-  elements.nodeOrgId.value = organization.org_id;
-  window.localStorage.setItem(storageKeys.orgId, organization.org_id);
+async function handleCreateOrganization(event) {
+  event.preventDefault();
+  const organization = await createOrganization(elements.organizationName.value.trim());
   elements.organizationOutput.hidden = false;
   elements.organizationOutput.textContent = [
     `ORG_ID=${organization.org_id}`,
@@ -927,12 +996,31 @@ async function handleCreateOrganization(event) {
   await refreshOverview();
 }
 
-async function handleProvisionNode(event) {
-  event.preventDefault();
-  const capabilities = parseJsonField(elements.nodeCapabilities.value, {});
+function setProvisionedNode({ node, token }) {
+  state.provisionedNode = {
+    id: node.node_id,
+    name: node.name,
+    token,
+    cloudApiUrl: window.location.origin,
+  };
+}
+
+function renderProvisionedNodeOutput(target, { organization, node, token, capabilities }) {
+  target.hidden = false;
+  target.textContent = [
+    `CLOUD_API_URL=${window.location.origin}`,
+    `LOCAL_NODE_TOKEN=${token}`,
+    organization?.org_id ? `ORG_ID=${organization.org_id}` : '',
+    `NODE_ID=${node.node_id}`,
+    `NODE_NAME=${node.name || '-'}`,
+    `CAPABILITIES=${JSON.stringify(capabilities || {})}`,
+  ].filter(Boolean).join('\n');
+}
+
+async function provisionNode({ orgId, name, capabilities }) {
   const payload = {
-    org_id: elements.nodeOrgId.value.trim(),
-    name: elements.nodeName.value.trim(),
+    org_id: orgId,
+    name,
     capabilities,
   };
 
@@ -941,19 +1029,29 @@ async function handleProvisionNode(event) {
     body: payload,
   });
 
-  state.provisionedNode = {
-    id: result.node.node_id,
-    name: result.node.name || payload.name,
+  setProvisionedNode({
+    node: { ...result.node, name: result.node.name || payload.name },
     token: result.local_node_token,
-    cloudApiUrl: window.location.origin,
+  });
+  return {
+    node: { ...result.node, name: result.node.name || payload.name },
+    token: result.local_node_token,
   };
-  elements.nodeTokenOutput.hidden = false;
-  elements.nodeTokenOutput.textContent = [
-    `CLOUD_API_URL=${window.location.origin}`,
-    `LOCAL_NODE_TOKEN=${result.local_node_token}`,
-    '',
-    `Node ID: ${result.node.node_id}`,
-  ].join('\n');
+}
+
+async function handleProvisionNode(event) {
+  event.preventDefault();
+  const capabilities = parseJsonField(elements.nodeCapabilities.value, {});
+  const result = await provisionNode({
+    orgId: elements.nodeOrgId.value.trim(),
+    name: elements.nodeName.value.trim(),
+    capabilities,
+  });
+  renderProvisionedNodeOutput(elements.nodeTokenOutput, {
+    node: result.node,
+    token: result.token,
+    capabilities,
+  });
   elements.downloadNodePackage.hidden = false;
   showToast('Node provisioned');
   await refreshOverview();
@@ -980,6 +1078,49 @@ async function handleDownloadNodePackage() {
   showToast('Windows ZIP downloaded');
 }
 
+async function handleNodeQuickstart(event) {
+  event.preventDefault();
+  let organization = null;
+  const capabilities = buildQuickstartCapabilities();
+  const currentOrgId = getOrgId();
+
+  if (currentOrgId) {
+    organization = { org_id: currentOrgId, name: elements.quickstartOrgName.value.trim() || 'Bambu Farm' };
+  } else {
+    organization = await createOrganization(elements.quickstartOrgName.value.trim() || 'Bambu Farm');
+  }
+
+  const result = await provisionNode({
+    orgId: organization.org_id,
+    name: elements.quickstartNodeName.value.trim() || 'Windows Farm Manager 01',
+    capabilities,
+  });
+
+  elements.nodeOrgId.value = organization.org_id;
+  elements.nodeName.value = result.node.name;
+  elements.nodeCapabilities.value = JSON.stringify(capabilities, null, 2);
+  elements.downloadNodePackage.hidden = false;
+  renderProvisionedNodeOutput(elements.quickstartOutput, {
+    organization,
+    node: result.node,
+    token: result.token,
+    capabilities,
+  });
+  renderProvisionedNodeOutput(elements.nodeTokenOutput, {
+    organization,
+    node: result.node,
+    token: result.token,
+    capabilities,
+  });
+
+  if (elements.quickstartAutoDownload.checked) {
+    await handleDownloadNodePackage();
+  }
+
+  showToast('Windows manager ready');
+  await refreshOverview();
+}
+
 function applyCommandTemplate(name) {
   const template = commandTemplates[name];
   if (!template) return;
@@ -987,25 +1128,62 @@ function applyCommandTemplate(name) {
   elements.commandPayload.value = JSON.stringify(template.payload, null, 2);
 }
 
+async function queueNodeCommand({ nodeId, commandType, payload, printerId = null, jobId = null, orgId = null }) {
+  if (!nodeId) throw new Error('Node is required');
+  const node = state.overview.nodes.find((item) => item.node_id === nodeId);
+  const commandOrgId = orgId || node?.org_id || getOrgId();
+  if (!commandOrgId) throw new Error('Org ID is required');
+
+  return apiRequest('/api/cloud/commands', {
+    method: 'POST',
+    body: {
+      org_id: commandOrgId,
+      node_id: nodeId,
+      printer_id: printerId || null,
+      job_id: jobId || null,
+      command_type: commandType,
+      payload,
+    },
+  });
+}
+
 async function handleQueueCommand(event) {
   event.preventDefault();
   const selected = elements.commandNode.selectedOptions[0];
   const orgId = selected?.dataset.orgId || getOrgId();
-  const payload = {
-    org_id: orgId,
-    node_id: elements.commandNode.value,
-    printer_id: elements.commandPrinter.value.trim() || null,
-    job_id: elements.commandJob.value.trim() || null,
-    command_type: elements.commandType.value,
+  await queueNodeCommand({
+    orgId,
+    nodeId: elements.commandNode.value,
+    printerId: elements.commandPrinter.value.trim() || null,
+    jobId: elements.commandJob.value.trim() || null,
+    commandType: elements.commandType.value,
     payload: parseJsonField(elements.commandPayload.value, {}),
-  };
-
-  await apiRequest('/api/cloud/commands', {
-    method: 'POST',
-    body: payload,
   });
 
   showToast('Command queued');
+  await refreshOverview();
+}
+
+async function handlePrinterSync(event) {
+  event.preventDefault();
+  const commandType = event.submitter?.value || 'cloud.printers.sync';
+  const nodeId = elements.syncNode.value || elements.commandNode.value;
+  const commandPayload = buildPrinterSyncPayload();
+  const result = await queueNodeCommand({
+    nodeId,
+    commandType,
+    payload: commandPayload,
+  });
+  const command = result.command || result.node_command || result;
+
+  elements.syncOutput.hidden = false;
+  elements.syncOutput.textContent = [
+    `COMMAND_TYPE=${commandType}`,
+    command?.command_id ? `COMMAND_ID=${command.command_id}` : '',
+    `NODE_ID=${nodeId}`,
+    `PAYLOAD=${JSON.stringify(commandPayload)}`,
+  ].filter(Boolean).join('\n');
+  showToast(commandType === 'cloud.printers.discover' ? 'Discovery queued' : 'Printer sync queued');
   await refreshOverview();
 }
 
@@ -1189,6 +1367,11 @@ function bindEvents() {
   });
 
   elements.orgId.addEventListener('input', syncOrgFields);
+  elements.quickstartScanCidrs.addEventListener('input', () => {
+    if (!elements.syncScanCidrs.value.trim()) {
+      elements.syncScanCidrs.value = elements.quickstartScanCidrs.value;
+    }
+  });
   elements.merchantId.addEventListener('input', () => syncMerchantFields(elements.merchantId.value.trim()));
   elements.merchantSettingsForm.addEventListener('submit', (event) => {
     handleMerchantSettingsSubmit(event).catch((error) => {
@@ -1220,6 +1403,12 @@ function bindEvents() {
       showToast(error.message);
     });
   });
+  elements.nodeQuickstartForm.addEventListener('submit', (event) => {
+    handleNodeQuickstart(event).catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
   elements.organizationForm.addEventListener('submit', (event) => {
     handleCreateOrganization(event).catch((error) => {
       setApiState('Error', 'error');
@@ -1234,6 +1423,12 @@ function bindEvents() {
   });
   elements.downloadNodePackage.addEventListener('click', () => {
     handleDownloadNodePackage().catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.printerSyncForm.addEventListener('submit', (event) => {
+    handlePrinterSync(event).catch((error) => {
       setApiState('Error', 'error');
       showToast(error.message);
     });

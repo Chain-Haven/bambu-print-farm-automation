@@ -97,4 +97,88 @@ describe('local cloud command executor', () => {
         expect(deps.uploadToPrinter).not.toHaveBeenCalled();
         expect(worker._startPrint).not.toHaveBeenCalled();
     });
+
+    it('discovers LAN printers through the local Windows node', async () => {
+        const discovered = [
+            {
+                serial: '00M00A123',
+                name: 'P1S Rack 01',
+                model: 'Bambu P1S',
+                ip: '192.168.20.45',
+                network_interface: 'Ethernet',
+            },
+        ];
+        const deps = {
+            discoverPrinters: vi.fn().mockResolvedValue(discovered),
+        };
+
+        const result = await executeCloudCommand({
+            command_type: 'cloud.printers.discover',
+            payload: {
+                scan_cidrs: ['192.168.20.0/24'],
+                wait_ms: 250,
+            },
+        }, deps);
+
+        expect(deps.discoverPrinters).toHaveBeenCalledWith({
+            scan_cidrs: ['192.168.20.0/24'],
+            wait_ms: 250,
+        });
+        expect(result).toEqual({
+            discovered: 1,
+            printers: discovered,
+            scan_cidrs: ['192.168.20.0/24'],
+        });
+    });
+
+    it('syncs registered printer inventory and AMS state through the local Windows node', async () => {
+        const syncedPrinters = [
+            {
+                local_printer_id: 'printer-1',
+                name: 'A1 Mini 01',
+                status: 'online',
+                model: 'Bambu A1 Mini',
+                ip_hostname: '192.168.20.46',
+                status_snapshot: {
+                    ams: { trays: [{ color: '#ff0000', material: 'PLA' }] },
+                },
+            },
+        ];
+        const deps = {
+            syncPrinters: vi.fn().mockResolvedValue({
+                printers: syncedPrinters,
+                summary: {
+                    registered: 1,
+                    online: 1,
+                    ams_trays: 1,
+                },
+            }),
+        };
+
+        const result = await executeCloudCommand({
+            command_type: 'cloud.printers.sync',
+            payload: {
+                scan_cidrs: ['192.168.20.0/24'],
+                include_saved_printers: true,
+                sync_ams: true,
+                sync_filament: true,
+            },
+        }, deps);
+
+        expect(deps.syncPrinters).toHaveBeenCalledWith({
+            scan_cidrs: ['192.168.20.0/24'],
+            include_saved_printers: true,
+            sync_ams: true,
+            sync_filament: true,
+        });
+        expect(result).toEqual({
+            synced: 1,
+            printers: syncedPrinters,
+            summary: {
+                registered: 1,
+                online: 1,
+                ams_trays: 1,
+            },
+        });
+    });
 });

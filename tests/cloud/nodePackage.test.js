@@ -96,7 +96,12 @@ describe('Windows node package builder', () => {
         expect(readme).toContain('LOCAL_NODE_TOKEN');
         expect(readme).toContain('SUPABASE_SERVICE_ROLE_KEY');
         expect(readme).toContain('Start Cloud Node.bat');
+        expect(readme).toContain('Cloud setup quickstart');
+        expect(readme).toContain('Discover LAN Printers');
+        expect(readme).toContain('Sync Printer Inventory');
+        expect(readme).toContain('C:\\PrintKinetix');
         expect(readme).toContain('cloud.print.ready');
+        expect(readme).toContain('cloud.printers.sync');
         expect(readme).toContain('cloud-result-outbox.json');
     });
 
@@ -141,7 +146,10 @@ describe('Windows node package builder', () => {
         expect(zip.readAsText('README-FIRST.txt')).toContain('Print NUC 01');
         expect(zip.readAsText('README-FIRST.txt')).toContain('Start Cloud Node.bat');
         expect(zip.readAsText('README-FIRST.txt')).toContain('HTTPS outbound');
+        expect(zip.readAsText('README-FIRST.txt')).toContain('Discover LAN Printers');
+        expect(zip.readAsText('README-FIRST.txt')).toContain('Sync Printer Inventory');
         expect(zip.readAsText('README-FIRST.txt')).toContain('cloud.print.ready');
+        expect(zip.readAsText('README-FIRST.txt')).toContain('cloud.printers.sync');
         expect(zip.readAsText('README-FIRST.txt')).toContain('cloud-result-outbox.json');
         expect(JSON.parse(zip.readAsText('node-package-manifest.json'))).toMatchObject({
             generated_at: '2026-06-30T23:00:00.000Z',
