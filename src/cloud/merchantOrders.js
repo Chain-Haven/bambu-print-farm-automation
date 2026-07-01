@@ -2,6 +2,16 @@ import crypto from 'node:crypto';
 import { createHttpError, merchantScope, publicOk } from './merchantApiV2.js';
 import { createSliceHandlers } from './merchantSlices.js';
 
+const USABLE_FILE_STATUSES = new Set(['uploaded', 'ready', 'processed', 'sliced', 'completed']);
+const NON_CANCELABLE_ORDER_STATUSES = new Set([
+    'canceled',
+    'completed',
+    'shipped',
+    'failed',
+    'in_production',
+    'printing',
+]);
+
 function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -25,14 +35,22 @@ function requiredOrderId(value) {
     return requiredString(value, 'order_id');
 }
 
-function normalizeQuantity(value) {
-    const parsed = Number.parseInt(value, 10);
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+function normalizeQuantity(value, name) {
+    if (value === undefined || value === null || value === '') return 1;
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+        throw createHttpError(400, 'invalid_payload', `${name} must be a positive integer`);
+    }
+    return parsed;
 }
 
-function normalizeAmount(value) {
+function normalizeAmount(value, name) {
+    if (value === undefined || value === null || value === '') return 0;
     const parsed = Number(value);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        throw createHttpError(400, 'invalid_payload', `${name} must be a non-negative number`);
+    }
+    return parsed;
 }
 
 function normalizeItems(value) {
@@ -47,13 +65,26 @@ function normalizeItems(value) {
             file_id: requiredString(source.file_id, `items[${index}].file_id`),
             sku: optionalString(source.sku),
             name: optionalString(source.name),
-            quantity: normalizeQuantity(source.quantity),
-            unit_amount: normalizeAmount(source.unit_amount ?? source.unitAmount),
+            quantity: normalizeQuantity(source.quantity, `items[${index}].quantity`),
+            unit_amount: normalizeAmount(source.unit_amount ?? source.unitAmount, `items[${index}].unit_amount`),
             requirements: safeObject(source.requirements),
             profile: safeObject(source.profile),
             metadata: safeObject(source.metadata),
         };
     });
+}
+
+function getHeader(headers = {}, name) {
+    const lowerName = name.toLowerCase();
+    for (const [key, value] of Object.entries(headers || {})) {
+        if (String(key).toLowerCase() === lowerName) return value;
+    }
+    return null;
+}
+
+function idempotencyKeyFrom({ source, request }) {
+    return optionalString(getHeader(request?.headers || {}, 'idempotency-key'))
+        || optionalString(source.idempotency_key);
 }
 
 async function getAuthenticatedMerchant(authenticateMerchant, request) {
@@ -87,6 +118,13 @@ function publicOrder(order, itemCount = undefined) {
     return response;
 }
 
+function publicReplay(order, requestId) {
+    return publicOk({
+        ...publicOrder(order),
+        idempotent_replay: true,
+    }, requestId);
+}
+
 function shouldAutoSlice(orderSource, itemSource) {
     return Boolean(itemSource.auto_slice ?? orderSource.auto_slice);
 }
@@ -118,6 +156,27 @@ async function maybeCreateSlice({
         profile: item.profile,
         requirements: item.requirements,
     }, request, requestId);
+}
+
+function validateUsableFile(file) {
+    const status = String(file?.status || '').trim().toLowerCase();
+    if (!USABLE_FILE_STATUSES.has(status)) {
+        throw createHttpError(422, 'file_not_usable', 'File is not usable for order creation');
+    }
+}
+
+async function prevalidateFiles({ store, merchant, items }) {
+    const validated = [];
+    for (const item of items) {
+        const file = await store.getMerchantFile({
+            merchantId: merchant.merchant_id,
+            fileId: item.file_id,
+        });
+        if (!file) throw createHttpError(404, 'file_not_found', 'File not found');
+        validateUsableFile(file);
+        validated.push({ ...item, file });
+    }
+    return validated;
 }
 
 async function recordUsage({ store, scope, orderId, item = null, eventType, quantity, createdAt }) {
@@ -163,6 +222,66 @@ async function recordJobEvent({
     });
 }
 
+async function recordJobEventBestEffort(options) {
+    try {
+        await recordJobEvent(options);
+    } catch {
+        // Order state changes should not surface as 500s when only audit-event persistence fails.
+    }
+}
+
+async function findExistingOrder({ store, merchantId, idempotencyKey, externalOrderId }) {
+    if (idempotencyKey && typeof store.findMerchantOrderByIdempotencyKey === 'function') {
+        const existing = await store.findMerchantOrderByIdempotencyKey({ merchantId, idempotencyKey });
+        if (existing) return existing;
+    }
+    if (externalOrderId && typeof store.findMerchantOrderByExternalOrderId === 'function') {
+        const existing = await store.findMerchantOrderByExternalOrderId({ merchantId, externalOrderId });
+        if (existing) return existing;
+    }
+    return null;
+}
+
+async function markOrderFailed({
+    store,
+    scope,
+    merchant,
+    order,
+    metadata,
+    stage,
+    occurredAt,
+}) {
+    const failurePayload = {
+        failure_code: 'order_creation_failed',
+        failure_stage: stage,
+    };
+    try {
+        await store.updateMerchantOrder({
+            merchantId: merchant.merchant_id,
+            orderId: order.order_id,
+            fields: {
+                status: 'failed',
+                metadata: {
+                    ...metadata,
+                    ...failurePayload,
+                    failed_at: occurredAt,
+                },
+            },
+        });
+    } catch {
+        // The caller receives a safe failure even if compensation persistence fails.
+    }
+    await recordJobEventBestEffort({
+        store,
+        scope,
+        orderId: order.order_id,
+        eventType: 'order.failed',
+        message: 'Merchant order failed during creation',
+        payload: failurePayload,
+        occurredAt,
+    });
+}
+
 export function createOrderHandlers({
     store,
     authenticateMerchant,
@@ -179,119 +298,153 @@ export function createOrderHandlers({
         const timestamp = now().toISOString();
         const orderId = crypto.randomUUID();
         const externalOrderId = optionalString(source.merchant_order_id) || optionalString(source.external_order_id);
+        const idempotencyKey = idempotencyKeyFrom({ source, request });
+        const existingOrder = await findExistingOrder({
+            store,
+            merchantId: merchant.merchant_id,
+            idempotencyKey,
+            externalOrderId,
+        });
+        if (existingOrder) return publicReplay(existingOrder, requestId);
+
+        const validatedItems = await prevalidateFiles({ store, merchant, items });
         const autoSubmitRequested = items.some((item) => shouldAutoSubmit(source, item.source));
         const autoSliceRequested = items.some((item) => shouldAutoSlice(source, item.source));
-        const order = await store.createMerchantOrder({
-            ...scope,
-            order_id: orderId,
-            external_order_id: externalOrderId,
-            idempotency_key: optionalString(source.idempotency_key),
-            status: 'submitted',
-            customer: safeObject(source.customer),
-            shipping_address: safeObject(source.shipping_address),
-            billing_address: safeObject(source.billing_address),
-            totals: safeObject(source.totals),
-            due_at: optionalString(source.due_at),
-            submitted_at: timestamp,
-            metadata: {
-                ...safeObject(source.metadata),
-                item_count: items.length,
-                auto_submit_requested: autoSubmitRequested,
-                auto_slice_requested: autoSliceRequested,
-            },
-            created_at: timestamp,
-        });
-
-        await recordUsage({
-            store,
-            scope,
-            orderId: order.order_id,
-            eventType: 'order.submitted',
-            quantity: 1,
-            createdAt: timestamp,
-        });
-        await recordJobEvent({
-            store,
-            scope,
-            orderId: order.order_id,
-            eventType: 'order.submitted',
-            message: 'Merchant order submitted',
-            payload: {
-                external_order_id: externalOrderId,
-                item_count: items.length,
-            },
-            occurredAt: timestamp,
-        });
-
-        for (const item of items) {
-            const file = await store.getMerchantFile({
-                merchantId: merchant.merchant_id,
-                fileId: item.file_id,
-            });
-            if (!file) throw createHttpError(404, 'file_not_found', 'File not found');
-
-            const autoSlice = shouldAutoSlice(source, item.source);
-            const autoSubmit = shouldAutoSubmit(source, item.source);
-            const slice = autoSlice ? await maybeCreateSlice({
-                store,
-                adapters,
-                merchant,
-                file,
-                item,
-                request,
-                requestId,
-                now,
-            }) : null;
-            const orderItem = await store.createMerchantOrderItem({
+        const orderMetadata = {
+            ...safeObject(source.metadata),
+            item_count: items.length,
+            auto_submit_requested: autoSubmitRequested,
+            auto_slice_requested: autoSliceRequested,
+        };
+        let order;
+        try {
+            order = await store.createMerchantOrder({
                 ...scope,
-                order_item_id: crypto.randomUUID(),
-                order_id: order.order_id,
-                file_id: item.file_id,
-                slice_job_id: slice?.slice_id || null,
-                job_id: null,
-                sku: item.sku,
-                name: item.name,
-                quantity: item.quantity,
-                unit_amount: item.unit_amount,
-                requirements: item.requirements,
-                metadata: {
-                    ...item.metadata,
-                    item_index: item.index,
-                    file_mode: file.file_mode,
-                    auto_submit_requested: autoSubmit,
-                    auto_submit_status: autoSubmit ? 'intent_recorded' : 'not_requested',
-                    auto_slice_requested: autoSlice,
-                    auto_slice_status: autoSlice
-                        ? (slice?.slice_id ? 'created' : 'intent_recorded')
-                        : 'not_requested',
-                    slice_id: slice?.slice_id || null,
-                },
+                order_id: orderId,
+                external_order_id: externalOrderId,
+                idempotency_key: idempotencyKey,
+                status: 'submitted',
+                customer: safeObject(source.customer),
+                shipping_address: safeObject(source.shipping_address),
+                billing_address: safeObject(source.billing_address),
+                totals: safeObject(source.totals),
+                due_at: optionalString(source.due_at),
+                submitted_at: timestamp,
+                metadata: orderMetadata,
+                created_at: timestamp,
             });
+        } catch (error) {
+            const replay = await findExistingOrder({
+                store,
+                merchantId: merchant.merchant_id,
+                idempotencyKey,
+                externalOrderId,
+            });
+            if (replay) return publicReplay(replay, requestId);
+            throw error;
+        }
+
+        try {
+            const orderItems = [];
+            for (const item of validatedItems) {
+                const autoSlice = shouldAutoSlice(source, item.source);
+                const autoSubmit = shouldAutoSubmit(source, item.source);
+                const slice = autoSlice ? await maybeCreateSlice({
+                    store,
+                    adapters,
+                    merchant,
+                    file: item.file,
+                    item,
+                    request,
+                    requestId,
+                    now,
+                }) : null;
+                const orderItem = await store.createMerchantOrderItem({
+                    ...scope,
+                    order_item_id: crypto.randomUUID(),
+                    order_id: order.order_id,
+                    file_id: item.file_id,
+                    slice_job_id: slice?.slice_id || null,
+                    job_id: null,
+                    sku: item.sku,
+                    name: item.name,
+                    quantity: item.quantity,
+                    unit_amount: item.unit_amount,
+                    requirements: item.requirements,
+                    metadata: {
+                        ...item.metadata,
+                        item_index: item.index,
+                        file_mode: item.file.file_mode,
+                        auto_submit_requested: autoSubmit,
+                        auto_submit_status: autoSubmit ? 'intent_recorded' : 'not_requested',
+                        auto_slice_requested: autoSlice,
+                        auto_slice_status: autoSlice
+                            ? (slice?.slice_id ? 'created' : 'intent_recorded')
+                            : 'not_requested',
+                        slice_id: slice?.slice_id || null,
+                    },
+                });
+                orderItems.push(orderItem);
+            }
 
             await recordUsage({
                 store,
                 scope,
                 orderId: order.order_id,
-                item: orderItem,
-                eventType: 'order.item.submitted',
-                quantity: orderItem.quantity,
+                eventType: 'order.submitted',
+                quantity: 1,
                 createdAt: timestamp,
             });
             await recordJobEvent({
                 store,
                 scope,
                 orderId: order.order_id,
-                item: orderItem,
-                eventType: 'order.item.submitted',
-                message: 'Merchant order item submitted',
+                eventType: 'order.submitted',
+                message: 'Merchant order submitted',
                 payload: {
-                    sku: orderItem.sku,
-                    quantity: orderItem.quantity,
-                    auto_submit_status: orderItem.metadata?.auto_submit_status,
-                    auto_slice_status: orderItem.metadata?.auto_slice_status,
+                    external_order_id: externalOrderId,
+                    item_count: items.length,
                 },
                 occurredAt: timestamp,
             });
+
+            for (const orderItem of orderItems) {
+                await recordUsage({
+                    store,
+                    scope,
+                    orderId: order.order_id,
+                    item: orderItem,
+                    eventType: 'order.item.submitted',
+                    quantity: orderItem.quantity,
+                    createdAt: timestamp,
+                });
+                await recordJobEvent({
+                    store,
+                    scope,
+                    orderId: order.order_id,
+                    item: orderItem,
+                    eventType: 'order.item.submitted',
+                    message: 'Merchant order item submitted',
+                    payload: {
+                        sku: orderItem.sku,
+                        quantity: orderItem.quantity,
+                        auto_submit_status: orderItem.metadata?.auto_submit_status,
+                        auto_slice_status: orderItem.metadata?.auto_slice_status,
+                    },
+                    occurredAt: timestamp,
+                });
+            }
+        } catch {
+            await markOrderFailed({
+                store,
+                scope,
+                merchant,
+                order,
+                metadata: orderMetadata,
+                stage: 'create_items',
+                occurredAt: timestamp,
+            });
+            throw createHttpError(500, 'order_creation_failed', 'Order could not be created');
         }
 
         return publicOk(publicOrder(order, items.length), requestId);
@@ -313,6 +466,14 @@ export function createOrderHandlers({
         const scope = merchantScope(merchant);
         const orderId = requiredOrderId(safeObject(body).order_id);
         const timestamp = now().toISOString();
+        const existingOrder = await store.getMerchantOrder({
+            merchantId: merchant.merchant_id,
+            orderId,
+        });
+        if (!existingOrder) throw createHttpError(404, 'order_not_found', 'Order not found');
+        if (NON_CANCELABLE_ORDER_STATUSES.has(String(existingOrder.status || '').toLowerCase())) {
+            throw createHttpError(409, 'order_not_cancelable', 'Order cannot be canceled in its current status');
+        }
         const order = await store.updateMerchantOrder({
             merchantId: merchant.merchant_id,
             orderId,
@@ -322,7 +483,7 @@ export function createOrderHandlers({
             },
         });
         if (!order) throw createHttpError(404, 'order_not_found', 'Order not found');
-        await recordJobEvent({
+        await recordJobEventBestEffort({
             store,
             scope,
             orderId,

@@ -896,6 +896,24 @@ export function createSupabaseRestClient({
             });
         },
 
+        async findMerchantOrderByIdempotencyKey({ merchantId, idempotencyKey }) {
+            const rows = await request(merchantV2ListPath('merchant_orders', {
+                merchantId,
+                filters: [`idempotency_key=${eqFilter(idempotencyKey, 'idempotency_key')}`],
+                limit: 1,
+            }));
+            return firstRow(rows);
+        },
+
+        async findMerchantOrderByExternalOrderId({ merchantId, externalOrderId }) {
+            const rows = await request(merchantV2ListPath('merchant_orders', {
+                merchantId,
+                filters: [`external_order_id=${eqFilter(externalOrderId, 'external_order_id')}`],
+                limit: 1,
+            }));
+            return firstRow(rows);
+        },
+
         async updateMerchantOrder({ merchantId, orderId, fields = {} }) {
             return updateMerchantV2Row('merchant_orders', {
                 merchantId,

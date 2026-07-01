@@ -4,8 +4,6 @@ import { estimatePrintQuote } from './quoteEstimator.js';
 
 export const ROUTING_V2_STRATEGIES = [
     'fastest_fulfillment',
-    'cheapest',
-    'exact_material_match',
     'batch_by_material',
     'least_printer_wear',
     'ship_cutoff',

@@ -94,14 +94,14 @@ describe('merchant routing v2 handlers', () => {
 
         const options = await getRoutingOptions();
 
-        expect(options.strategies).toEqual(expect.arrayContaining([
+        expect(options.strategies).toEqual([
             'fastest_fulfillment',
-            'cheapest',
-            'exact_material_match',
             'batch_by_material',
             'least_printer_wear',
             'ship_cutoff',
-        ]));
+        ]);
+        expect(options.strategies).not.toContain('cheapest');
+        expect(options.strategies).not.toContain('exact_material_match');
         expect(options.default_strategy).toBe('fastest_fulfillment');
     });
 
@@ -128,6 +128,45 @@ describe('merchant routing v2 handlers', () => {
             rejection_reasons: [],
         });
         expect(store.getCloudOverview).toHaveBeenCalledWith({ orgId: 'org-1', limit: 100 });
+        expect(JSON.stringify(estimate)).not.toContain('node_id');
+        expect(JSON.stringify(estimate)).not.toContain('printer_id');
+        expect(JSON.stringify(estimate)).not.toContain('spool_id');
+    });
+
+    it('redacts internal routing ids from no-capacity estimates', async () => {
+        const { estimateRouting } = createHandlers({
+            store: {
+                getCloudOverview: vi.fn().mockResolvedValue({
+                    nodes: [{ node_id: 'node-secret', status: 'online' }],
+                    printers: [{
+                        printer_id: 'printer-secret',
+                        node_id: 'node-secret',
+                        status: 'online',
+                        status_snapshot: { print: { gcode_state: 'IDLE' } },
+                        capabilities: {
+                            max_x: 256,
+                            max_y: 256,
+                            max_z: 256,
+                            materials: ['PLA'],
+                        },
+                    }],
+                    jobs: [],
+                }),
+            },
+        });
+
+        const estimate = await estimateRouting({
+            strategy: 'fastest_fulfillment',
+            requirements: { materials: ['NYLON'] },
+        });
+
+        expect(estimate).toMatchObject({
+            compatible: false,
+            confidence: 'low',
+            rejection_reasons: ['missing_material'],
+        });
+        expect(JSON.stringify(estimate)).not.toContain('node-secret');
+        expect(JSON.stringify(estimate)).not.toContain('printer-secret');
         expect(JSON.stringify(estimate)).not.toContain('node_id');
         expect(JSON.stringify(estimate)).not.toContain('printer_id');
         expect(JSON.stringify(estimate)).not.toContain('spool_id');

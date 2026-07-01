@@ -10,6 +10,8 @@ const requiredMethods = [
     'updateMerchantSliceJob',
     'createMerchantOrder',
     'getMerchantOrder',
+    'findMerchantOrderByIdempotencyKey',
+    'findMerchantOrderByExternalOrderId',
     'updateMerchantOrder',
     'createMerchantOrderItem',
     'createMerchantMaterialReservation',
@@ -154,6 +156,33 @@ describe('merchant API v2 store surface', () => {
         expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.m1');
         expect(requestUrl.searchParams.get('job_id')).toBe('eq.j1');
         expect(requestUrl.searchParams.get('order')).toBe('occurred_at.desc');
+    });
+
+    it('finds merchant orders by idempotency key or external order id', async () => {
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse([{ order_id: 'o1', idempotency_key: 'idem-1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ order_id: 'o2', external_order_id: '1001' }]));
+        const store = await createStore(fetchImpl);
+
+        await expect(store.findMerchantOrderByIdempotencyKey({
+            merchantId: 'm1',
+            idempotencyKey: 'idem-1',
+        })).resolves.toEqual({ order_id: 'o1', idempotency_key: 'idem-1' });
+        await expect(store.findMerchantOrderByExternalOrderId({
+            merchantId: 'm1',
+            externalOrderId: '1001',
+        })).resolves.toEqual({ order_id: 'o2', external_order_id: '1001' });
+
+        const idempotencyUrl = new URL(fetchImpl.mock.calls[0][0]);
+        const externalUrl = new URL(fetchImpl.mock.calls[1][0]);
+        expect(idempotencyUrl.pathname).toBe('/rest/v1/merchant_orders');
+        expect(idempotencyUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(idempotencyUrl.searchParams.get('idempotency_key')).toBe('eq.idem-1');
+        expect(idempotencyUrl.searchParams.get('limit')).toBe('1');
+        expect(externalUrl.pathname).toBe('/rest/v1/merchant_orders');
+        expect(externalUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(externalUrl.searchParams.get('external_order_id')).toBe('eq.1001');
+        expect(externalUrl.searchParams.get('limit')).toBe('1');
     });
 
     it('releases material reservations through a merchant-scoped status and audit timestamp patch', async () => {
