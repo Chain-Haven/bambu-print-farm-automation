@@ -134,7 +134,7 @@ describe('cloud smoke test runner', () => {
             node_id: 'node-smoke',
             command_id: 'cmd-smoke',
             local_node_token_issued: true,
-            agent: { claimed: 1, succeeded: 1, failed: 0 },
+            agent: { claimed: 1, succeeded: 1, failed: 0, deferred: 0, flushed: 0 },
         });
         expect(executeCommand).toHaveBeenCalledWith({
             command_id: 'cmd-smoke',

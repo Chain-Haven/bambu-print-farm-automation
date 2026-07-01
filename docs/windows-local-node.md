@@ -38,7 +38,15 @@ GET  /api/cloud/overview
 CLOUD_API_URL=https://bambu-print-farm-automation.vercel.app
 LOCAL_NODE_TOKEN=<opaque node token>
 CLOUD_COMMAND_POLL_INTERVAL_MS=2000
+CLOUD_COMMAND_MAX_POLL_INTERVAL_MS=30000
 CLOUD_HEARTBEAT_INTERVAL_MS=30000
+CLOUD_REQUEST_TIMEOUT_MS=15000
+CLOUD_RETRY_MAX_ATTEMPTS=4
+CLOUD_RETRY_BASE_DELAY_MS=500
+CLOUD_RETRY_MAX_DELAY_MS=10000
+CLOUD_RESULT_OUTBOX_PATH=./data/cloud-result-outbox.json
+CLOUD_RESULT_OUTBOX_FLUSH_LIMIT=25
+CLOUD_RESULT_OUTBOX_MAX_ENTRIES=1000
 ```
 
 4. Double-click `Start Cloud Node.bat`.
@@ -74,6 +82,8 @@ GET  /api/agent/commands?limit=10
 POST /api/agent/command-result
 POST /api/agent/events
 ```
+
+The agent uses bounded retries and request timeouts for these outbound calls. If Vercel, Supabase, DNS, or the internet connection is temporarily unavailable after a command runs locally, final command results are written to `./data/cloud-result-outbox.json` and replayed before the next command claim.
 
 ## Merchant Print Flow
 
@@ -112,3 +122,5 @@ Source-model uploads such as `.stl`, `.obj`, `.step`, and `.stp` are accepted an
 - `/api/agent/command-result` records `running`, then `succeeded` or `failed`.
 
 If the node is offline, check `.env`, outbound HTTPS to Vercel, Node.js version, and local antivirus/firewall rules.
+
+If printers are split across multiple Windows network adapters, VLANs, or subnets, keep the Windows computer routed to each printer network. The node heartbeat reports its non-loopback IPv4 interfaces so the cloud operator can confirm which networks the node can see.

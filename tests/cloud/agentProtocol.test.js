@@ -448,7 +448,7 @@ describe('local node agent', () => {
             status: 'succeeded',
             result: { state: 'idle' },
         });
-        expect(summary).toEqual({ claimed: 1, succeeded: 1, failed: 0 });
+        expect(summary).toEqual({ claimed: 1, succeeded: 1, failed: 0, deferred: 0, flushed: 0 });
     });
 
     it('reports failed command execution back to the cloud', async () => {
@@ -467,6 +467,6 @@ describe('local node agent', () => {
             status: 'failed',
             error: 'printer offline',
         });
-        expect(summary).toEqual({ claimed: 1, succeeded: 0, failed: 1 });
+        expect(summary).toEqual({ claimed: 1, succeeded: 0, failed: 1, deferred: 0, flushed: 0 });
     });
 });

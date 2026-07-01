@@ -2,6 +2,7 @@
 // Listens for NOTIFY broadcasts on UDP port 2021 from Bambu printers
 import dgram from 'node:dgram';
 import { createLogger } from '../utils/logger.js';
+import { collectNetworkInterfaces, findInterfaceForAddress } from '../cloud/localNetwork.js';
 
 const log = createLogger('BambuDiscovery');
 
@@ -89,11 +90,15 @@ export class BambuDiscovery {
 
                     // Update/insert into discovered map
                     const existing = this._discovered.get(parsed.serial);
+                    const networkInterfaces = collectNetworkInterfaces();
+                    const observedAddress = parsed.ip || rinfo.address;
+                    const networkInterface = findInterfaceForAddress(observedAddress, networkInterfaces);
                     this._discovered.set(parsed.serial, {
                         ...parsed,
                         last_seen: Date.now(),
                         first_seen: existing?.first_seen || Date.now(),
                         source_ip: rinfo.address,
+                        network_interface: networkInterface?.name || null,
                     });
 
                     // Log new discoveries
@@ -164,6 +169,8 @@ export class BambuDiscovery {
                 signal_bars: this._signalToBars(info.signal),
                 bind_status: info.bind_status,
                 firmware: info.firmware,
+                source_ip: info.source_ip,
+                network_interface: info.network_interface,
                 already_added: this._registeredSerials.has(serial),
                 last_seen_ms: Date.now() - info.last_seen,
             });

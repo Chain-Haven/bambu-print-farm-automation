@@ -76,6 +76,9 @@ describe('Windows node package builder', () => {
 
         expect(env).toContain('CLOUD_API_URL=https://farm.example.com');
         expect(env).toContain('LOCAL_NODE_TOKEN=pkx_node_secret');
+        expect(env).toContain('CLOUD_RETRY_MAX_ATTEMPTS=4');
+        expect(env).toContain('CLOUD_REQUEST_TIMEOUT_MS=15000');
+        expect(env).toContain('CLOUD_RESULT_OUTBOX_PATH=./data/cloud-result-outbox.json');
         expect(env).toContain('MOCK_MODE=false');
         expect(env).not.toContain('SUPABASE_SERVICE_ROLE_KEY');
         expect(env).not.toContain('NODE_TOKEN_PEPPER');
@@ -94,6 +97,7 @@ describe('Windows node package builder', () => {
         expect(readme).toContain('SUPABASE_SERVICE_ROLE_KEY');
         expect(readme).toContain('Start Cloud Node.bat');
         expect(readme).toContain('cloud.print.ready');
+        expect(readme).toContain('cloud-result-outbox.json');
     });
 
     it('builds a zip with runtime files, readme, manifest, and prefilled env', () => {
@@ -138,6 +142,7 @@ describe('Windows node package builder', () => {
         expect(zip.readAsText('README-FIRST.txt')).toContain('Start Cloud Node.bat');
         expect(zip.readAsText('README-FIRST.txt')).toContain('HTTPS outbound');
         expect(zip.readAsText('README-FIRST.txt')).toContain('cloud.print.ready');
+        expect(zip.readAsText('README-FIRST.txt')).toContain('cloud-result-outbox.json');
         expect(JSON.parse(zip.readAsText('node-package-manifest.json'))).toMatchObject({
             generated_at: '2026-06-30T23:00:00.000Z',
             node_name: 'Print NUC 01',

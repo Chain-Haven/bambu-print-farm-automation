@@ -116,9 +116,14 @@ CLOUD_API_URL=https://<vercel-deployment>
 LOCAL_NODE_TOKEN=<opaque node token>
 CLOUD_COMMAND_POLL_INTERVAL_MS=2000
 CLOUD_HEARTBEAT_INTERVAL_MS=30000
+CLOUD_REQUEST_TIMEOUT_MS=15000
+CLOUD_RETRY_MAX_ATTEMPTS=4
+CLOUD_RESULT_OUTBOX_PATH=./data/cloud-result-outbox.json
 ```
 
 It should never store `SUPABASE_SERVICE_ROLE_KEY`.
+
+The local node retries transient Vercel/Supabase failures with bounded backoff, avoids overlapping command polls, and persists final command results to `CLOUD_RESULT_OUTBOX_PATH` until the cloud accepts them. Heartbeats include a non-secret IPv4 interface inventory and pending result count for operational visibility.
 
 ## End-to-end Smoke Test
 
