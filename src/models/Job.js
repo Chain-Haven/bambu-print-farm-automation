@@ -6,14 +6,15 @@ import path from 'node:path';
 import { getUploadRoot } from '../utils/uploadPaths.js';
 
 export class JobModel {
-    static create({ name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, priority, scheduled_for }) {
+    static create({ name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, priority, scheduled_for, max_retries }) {
         const id = generateId();
         dbRun(
-            `INSERT INTO jobs (job_id, name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, repeat_remaining, priority, scheduled_for)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO jobs (job_id, name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, repeat_remaining, priority, scheduled_for, max_retries)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [id, name, printer_id || null, profile_id || null, source_file_name || null,
                 JSON.stringify(ams_roles || null), repeat_total || 1, repeat_total || 1,
-                Number.isFinite(Number(priority)) ? Number(priority) : 0, scheduled_for || null]
+                Number.isFinite(Number(priority)) ? Number(priority) : 0, scheduled_for || null,
+                Number.isFinite(Number(max_retries)) ? Math.max(0, Math.trunc(Number(max_retries))) : 0]
         );
         return this.findById(id);
     }
@@ -35,7 +36,7 @@ export class JobModel {
     }
 
     static update(id, fields) {
-        const allowed = ['name', 'printer_id', 'status', 'transformed_file_name', 'transform_report', 'diff_summary', 'ams_roles', 'repeat_total', 'repeat_remaining', 'priority', 'scheduled_for'];
+        const allowed = ['name', 'printer_id', 'status', 'transformed_file_name', 'transform_report', 'diff_summary', 'ams_roles', 'repeat_total', 'repeat_remaining', 'priority', 'scheduled_for', 'max_retries'];
         const sets = []; const vals = [];
         for (const [k, v] of Object.entries(fields)) {
             if (!allowed.includes(k)) continue;

@@ -12,6 +12,7 @@ import { initWebSocket, broadcast } from './src/api/websocket.js';
 import { getSupervisor } from './src/runtime/RuntimeSupervisor.js';
 import { JobOrchestrator } from './src/services/JobOrchestrator.js';
 import { createAlertDispatcher } from './src/services/AlertDispatcher.js';
+import { createNotificationDispatcher } from './src/services/NotificationService.js';
 import TunnelService from './src/services/TunnelService.js';
 import { errorHandler } from './src/api/middleware/errorHandler.js';
 import { createLogger } from './src/utils/logger.js';
@@ -91,6 +92,8 @@ async function init() {
 
         // Deliver printer failure alerts off-screen (webhook if configured, else log).
         createAlertDispatcher().start();
+        // Fan alerts out to configured Discord/Slack/Telegram/webhook channels.
+        createNotificationDispatcher().start();
 
         // Start server
         const port = parseInt(process.env.PORT) || 3000;

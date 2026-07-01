@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { JobOrchestrator } from '../../services/JobOrchestrator.js';
 import { JobRunModel } from '../../models/JobRun.js';
 import { JobModel } from '../../models/Job.js';
+import { JobRetryService } from '../../services/JobRetryService.js';
 import { requireAuth } from '../../auth/auth.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { isZipFile, is3mfFilename, extractGcodeFrom3mf } from '../../gcode/Extract3mf.js';
@@ -194,9 +195,22 @@ router.post('/:id/schedule', requireAuth, asyncHandler(async (req, res) => {
         if (!Number.isFinite(priority)) return res.status(400).json({ error: 'priority must be a number' });
         updates.priority = Math.trunc(priority);
     }
-    if (!Object.keys(updates).length) return res.status(400).json({ error: 'provide scheduled_for and/or priority' });
+    if (req.body?.max_retries !== undefined) {
+        const maxRetries = Number(req.body.max_retries);
+        if (!Number.isFinite(maxRetries) || maxRetries < 0) return res.status(400).json({ error: 'max_retries must be a non-negative number' });
+        updates.max_retries = Math.trunc(maxRetries);
+    }
+    if (!Object.keys(updates).length) return res.status(400).json({ error: 'provide scheduled_for, priority and/or max_retries' });
 
     res.json(JobModel.update(req.params.id, updates));
+}));
+
+// Manually requeue a failed job for another attempt (force ignores max_retries).
+router.post('/:id/retry', requireAuth, asyncHandler(async (req, res) => {
+    const job = JobModel.findById(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    const result = JobRetryService.maybeRequeue(req.params.id, { error: req.body?.error || null, force: true });
+    res.json(result);
 }));
 
 // Clear history (MUST be before /:id to prevent Express matching "history" as an ID)

@@ -16485,25 +16485,25 @@ var require_numbers = __commonJS({
         cache[i] = generateBuffer(i);
       }
     }
-    function genBufVariableByteInt(num) {
+    function genBufVariableByteInt(num3) {
       const maxLength = 4;
       let digit = 0;
       let pos = 0;
       const buffer = Buffer2.allocUnsafe(maxLength);
       do {
-        digit = num % 128 | 0;
-        num = num / 128 | 0;
-        if (num > 0) digit = digit | 128;
+        digit = num3 % 128 | 0;
+        num3 = num3 / 128 | 0;
+        if (num3 > 0) digit = digit | 128;
         buffer.writeUInt8(digit, pos++);
-      } while (num > 0 && pos < maxLength);
-      if (num > 0) {
+      } while (num3 > 0 && pos < maxLength);
+      if (num3 > 0) {
         pos = 0;
       }
       return SubOk ? buffer.subarray(0, pos) : buffer.slice(0, pos);
     }
-    function generate4ByteBuffer(num) {
+    function generate4ByteBuffer(num3) {
       const buffer = Buffer2.allocUnsafe(4);
-      buffer.writeUInt32BE(num, 0);
+      buffer.writeUInt32BE(num3, 0);
       return buffer;
     }
     module2.exports = {
@@ -17149,15 +17149,15 @@ var require_writeToStream = __commonJS({
       return true;
     }
     var varByteIntCache = {};
-    function writeVarByteInt(stream, num) {
-      if (num > protocol.VARBYTEINT_MAX) {
-        stream.destroy(new Error(`Invalid variable byte integer: ${num}`));
+    function writeVarByteInt(stream, num3) {
+      if (num3 > protocol.VARBYTEINT_MAX) {
+        stream.destroy(new Error(`Invalid variable byte integer: ${num3}`));
         return false;
       }
-      let buffer = varByteIntCache[num];
+      let buffer = varByteIntCache[num3];
       if (!buffer) {
-        buffer = genBufVariableByteInt(num);
-        if (num < 16384) varByteIntCache[num] = buffer;
+        buffer = genBufVariableByteInt(num3);
+        if (num3 < 16384) varByteIntCache[num3] = buffer;
       }
       debug("writeVarByteInt: writing to stream: %o", buffer);
       return stream.write(buffer);
@@ -23585,51 +23585,51 @@ var require_number_allocator = __commonJS({
       const it = this.ss.begin();
       const low = it.pointer.low;
       const high = it.pointer.high;
-      const num = low;
-      if (num + 1 <= high) {
+      const num3 = low;
+      if (num3 + 1 <= high) {
         this.ss.updateKeyByIterator(it, new Interval(low + 1, high));
       } else {
         this.ss.eraseElementByPos(0);
       }
-      debugTrace("alloc():" + num);
-      return num;
+      debugTrace("alloc():" + num3);
+      return num3;
     };
-    NumberAllocator.prototype.use = function(num) {
-      const key = new Interval(num, num);
+    NumberAllocator.prototype.use = function(num3) {
+      const key = new Interval(num3, num3);
       const it = this.ss.lowerBound(key);
       if (!it.equals(this.ss.end())) {
         const low = it.pointer.low;
         const high = it.pointer.high;
         if (it.pointer.equals(key)) {
           this.ss.eraseElementByIterator(it);
-          debugTrace("use():" + num);
+          debugTrace("use():" + num3);
           return true;
         }
-        if (low > num) return false;
-        if (low === num) {
+        if (low > num3) return false;
+        if (low === num3) {
           this.ss.updateKeyByIterator(it, new Interval(low + 1, high));
-          debugTrace("use():" + num);
+          debugTrace("use():" + num3);
           return true;
         }
-        if (high === num) {
+        if (high === num3) {
           this.ss.updateKeyByIterator(it, new Interval(low, high - 1));
-          debugTrace("use():" + num);
+          debugTrace("use():" + num3);
           return true;
         }
-        this.ss.updateKeyByIterator(it, new Interval(num + 1, high));
-        this.ss.insert(new Interval(low, num - 1));
-        debugTrace("use():" + num);
+        this.ss.updateKeyByIterator(it, new Interval(num3 + 1, high));
+        this.ss.insert(new Interval(low, num3 - 1));
+        debugTrace("use():" + num3);
         return true;
       }
       debugTrace("use():failed");
       return false;
     };
-    NumberAllocator.prototype.free = function(num) {
-      if (num < this.min || num > this.max) {
-        debugError("free():" + num + " is out of range");
+    NumberAllocator.prototype.free = function(num3) {
+      if (num3 < this.min || num3 > this.max) {
+        debugError("free():" + num3 + " is out of range");
         return;
       }
-      const key = new Interval(num, num);
+      const key = new Interval(num3, num3);
       const it = this.ss.upperBound(key);
       if (it.equals(this.ss.end())) {
         if (it.equals(this.ss.begin())) {
@@ -23639,16 +23639,16 @@ var require_number_allocator = __commonJS({
         it.pre();
         const low = it.pointer.high;
         const high = it.pointer.high;
-        if (high + 1 === num) {
-          this.ss.updateKeyByIterator(it, new Interval(low, num));
+        if (high + 1 === num3) {
+          this.ss.updateKeyByIterator(it, new Interval(low, num3));
         } else {
           this.ss.insert(key);
         }
       } else {
         if (it.equals(this.ss.begin())) {
-          if (num + 1 === it.pointer.low) {
+          if (num3 + 1 === it.pointer.low) {
             const high = it.pointer.high;
-            this.ss.updateKeyByIterator(it, new Interval(num, high));
+            this.ss.updateKeyByIterator(it, new Interval(num3, high));
           } else {
             this.ss.insert(key);
           }
@@ -23658,24 +23658,24 @@ var require_number_allocator = __commonJS({
           it.pre();
           const lLow = it.pointer.low;
           const lHigh = it.pointer.high;
-          if (lHigh + 1 === num) {
-            if (num + 1 === rLow) {
+          if (lHigh + 1 === num3) {
+            if (num3 + 1 === rLow) {
               this.ss.eraseElementByIterator(it);
               this.ss.updateKeyByIterator(it, new Interval(lLow, rHigh));
             } else {
-              this.ss.updateKeyByIterator(it, new Interval(lLow, num));
+              this.ss.updateKeyByIterator(it, new Interval(lLow, num3));
             }
           } else {
-            if (num + 1 === rLow) {
+            if (num3 + 1 === rLow) {
               this.ss.eraseElementByIterator(it.next());
-              this.ss.insert(new Interval(num, rHigh));
+              this.ss.insert(new Interval(num3, rHigh));
             } else {
               this.ss.insert(key);
             }
           }
         }
       }
-      debugTrace("free():" + num);
+      debugTrace("free():" + num3);
     };
     NumberAllocator.prototype.clear = function() {
       debugTrace("clear()");
@@ -26745,26 +26745,26 @@ var require_permessage_deflate = __commonJS({
             value = value[0];
             if (key === "client_max_window_bits") {
               if (value !== true) {
-                const num = +value;
-                if (!Number.isInteger(num) || num < 8 || num > 15) {
+                const num3 = +value;
+                if (!Number.isInteger(num3) || num3 < 8 || num3 > 15) {
                   throw new TypeError(
                     `Invalid value for parameter "${key}": ${value}`
                   );
                 }
-                value = num;
+                value = num3;
               } else if (!this._isServer) {
                 throw new TypeError(
                   `Invalid value for parameter "${key}": ${value}`
                 );
               }
             } else if (key === "server_max_window_bits") {
-              const num = +value;
-              if (!Number.isInteger(num) || num < 8 || num > 15) {
+              const num3 = +value;
+              if (!Number.isInteger(num3) || num3 < 8 || num3 > 15) {
                 throw new TypeError(
                   `Invalid value for parameter "${key}": ${value}`
                 );
               }
-              value = num;
+              value = num3;
             } else if (key === "client_no_context_takeover" || key === "server_no_context_takeover") {
               if (value !== true) {
                 throw new TypeError(
@@ -27459,8 +27459,8 @@ var require_receiver = __commonJS({
           return;
         }
         const buf = this.consume(8);
-        const num = buf.readUInt32BE(0);
-        if (num > Math.pow(2, 53 - 32) - 1) {
+        const num3 = buf.readUInt32BE(0);
+        if (num3 > Math.pow(2, 53 - 32) - 1) {
           const error = this.createError(
             RangeError,
             "Unsupported WebSocket frame: payload length > 2^53 - 1",
@@ -27471,7 +27471,7 @@ var require_receiver = __commonJS({
           cb(error);
           return;
         }
-        this._payloadLength = num * Math.pow(2, 32) + buf.readUInt32BE(4);
+        this._payloadLength = num3 * Math.pow(2, 32) + buf.readUInt32BE(4);
         this.haveLength(cb);
       }
       /**
@@ -36864,8 +36864,8 @@ var require_utils4 = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.convertHeaderBufferToObj = exports2.HEADER_LENGTH = void 0;
     exports2.HEADER_LENGTH = 6;
-    var toOctetStr = (num) => {
-      let str = Number(num).toString(2);
+    var toOctetStr = (num3) => {
+      let str = Number(num3).toString(2);
       while (str.length < 8) {
         str = `0${str}`;
       }
@@ -41871,20 +41871,23 @@ var init_Job = __esm({
     import_node_path4 = __toESM(require("node:path"), 1);
     init_uploadPaths();
     JobModel = class {
-      static create({ name, printer_id, profile_id, source_file_name, ams_roles, repeat_total }) {
+      static create({ name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, priority, scheduled_for, max_retries }) {
         const id = generateId();
         dbRun(
-          `INSERT INTO jobs (job_id, name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, repeat_remaining)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO jobs (job_id, name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, repeat_remaining, priority, scheduled_for, max_retries)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             name,
             printer_id || null,
-            profile_id,
-            source_file_name,
+            profile_id || null,
+            source_file_name || null,
             JSON.stringify(ams_roles || null),
             repeat_total || 1,
-            repeat_total || 1
+            repeat_total || 1,
+            Number.isFinite(Number(priority)) ? Number(priority) : 0,
+            scheduled_for || null,
+            Number.isFinite(Number(max_retries)) ? Math.max(0, Math.trunc(Number(max_retries))) : 0
           ]
         );
         return this.findById(id);
@@ -41911,7 +41914,7 @@ var init_Job = __esm({
         return row ? this._parse(row) : null;
       }
       static update(id, fields) {
-        const allowed = ["name", "printer_id", "status", "transformed_file_name", "transform_report", "diff_summary", "ams_roles", "repeat_total", "repeat_remaining"];
+        const allowed = ["name", "printer_id", "status", "transformed_file_name", "transform_report", "diff_summary", "ams_roles", "repeat_total", "repeat_remaining", "priority", "scheduled_for", "max_retries"];
         const sets = [];
         const vals = [];
         for (const [k, v] of Object.entries(fields)) {
@@ -41926,10 +41929,33 @@ var init_Job = __esm({
         return this.findById(id);
       }
       static getQueue(printerId) {
-        return dbAll("SELECT * FROM jobs WHERE printer_id = ? AND status IN ('queued','assigned') ORDER BY created_at ASC", [printerId]).map((r) => this._parse(r));
+        return dbAll("SELECT * FROM jobs WHERE printer_id = ? AND status IN ('queued','assigned') ORDER BY priority DESC, created_at ASC", [printerId]).map((r) => this._parse(r));
       }
       static getGlobalQueue() {
-        return dbAll("SELECT * FROM jobs WHERE printer_id IS NULL AND status = 'queued' ORDER BY created_at ASC").map((r) => this._parse(r));
+        return dbAll("SELECT * FROM jobs WHERE printer_id IS NULL AND status = 'queued' ORDER BY priority DESC, created_at ASC").map((r) => this._parse(r));
+      }
+      /** Is a job runnable now? (queued/assigned and not scheduled for the future) */
+      static isReady(job, now = /* @__PURE__ */ new Date()) {
+        if (!job) return false;
+        if (!["queued", "assigned"].includes(job.status)) return false;
+        if (!job.scheduled_for) return true;
+        const when = new Date(job.scheduled_for);
+        if (Number.isNaN(when.getTime())) return true;
+        return when.getTime() <= now.getTime();
+      }
+      /**
+       * Ready queue for a printer: queued/assigned jobs whose scheduled_for has
+       * passed (or is unset), ordered by priority (desc) then schedule/creation.
+       */
+      static getReadyQueue(printerId, now = /* @__PURE__ */ new Date()) {
+        const iso = (now instanceof Date ? now : new Date(now)).toISOString();
+        return dbAll(
+          `SELECT * FROM jobs
+             WHERE printer_id = ? AND status IN ('queued','assigned')
+               AND (scheduled_for IS NULL OR scheduled_for <= ?)
+             ORDER BY priority DESC, COALESCE(scheduled_for, created_at) ASC, created_at ASC`,
+          [printerId, iso]
+        ).map((r) => this._parse(r));
       }
       static delete(id) {
         dbRun("DELETE FROM jobs WHERE job_id = ?", [id]);
@@ -42983,6 +43009,92 @@ var init_EjectionService = __esm({
   }
 });
 
+// src/services/EventLog.js
+var EventLog_exports = {};
+__export(EventLog_exports, {
+  EventLog: () => EventLog,
+  default: () => EventLog_default
+});
+var EventLog, EventLog_default;
+var init_EventLog = __esm({
+  "src/services/EventLog.js"() {
+    init_Event();
+    EventLog = class {
+      static record(entityType, entityId, eventType, payload = {}) {
+        return EventModel.create({ entity_type: entityType, entity_id: entityId, event_type: eventType, payload });
+      }
+      static getByEntity(entityType, entityId, options = {}) {
+        return EventModel.findByEntity(entityType, entityId, options);
+      }
+      static getAll(options = {}) {
+        return EventModel.findAll(options);
+      }
+      /** Unified timeline for a printer: merges events + commands. */
+      static getPrinterTimeline(printerId, options = {}) {
+        const events = EventModel.findByEntity("printer", printerId, options);
+        const { CommandModel: CmdModel } = Promise.resolve().then(() => (init_Command(), Command_exports));
+        return events;
+      }
+    };
+    EventLog_default = EventLog;
+  }
+});
+
+// src/services/JobRetryService.js
+function isNonRetryableError(message) {
+  return NON_RETRYABLE.test(String(message || ""));
+}
+function shouldRetry({ attemptCount, maxRetries, error, force = false } = {}) {
+  if (force) return { retry: true, reason: "forced" };
+  if (!(maxRetries > 0)) return { retry: false, reason: "retries_disabled" };
+  if (isNonRetryableError(error)) return { retry: false, reason: "non_retryable_error" };
+  if (attemptCount > maxRetries) return { retry: false, reason: "retries_exhausted" };
+  return { retry: true, reason: "eligible" };
+}
+var NON_RETRYABLE, JobRetryService;
+var init_JobRetryService = __esm({
+  "src/services/JobRetryService.js"() {
+    init_Job();
+    init_JobRun();
+    init_EventLog();
+    NON_RETRYABLE = /blocking|micro\s?-?sd|sd card|0500\s?-?c0|read\/write exception|not detected/i;
+    JobRetryService = {
+      shouldRetry,
+      isNonRetryableError,
+      /**
+       * Requeue a failed job if eligible. Returns
+       * { requeued, attempt, remaining, reason, printer_id }.
+       * Does NOT start the job — it goes back to the queue for the normal
+       * next-job flow (or a caller) to pick up.
+       */
+      maybeRequeue(jobId, { error = null, force = false } = {}) {
+        const job = JobModel.findById(jobId);
+        if (!job) return { requeued: false, reason: "job_not_found" };
+        const attemptCount = JobRunModel.findByJobId(jobId).length || 1;
+        const maxRetries = Number(job.max_retries) || 0;
+        const decision = shouldRetry({ attemptCount, maxRetries, error, force });
+        if (!decision.retry) {
+          return { requeued: false, reason: decision.reason, attempt: attemptCount, printer_id: job.printer_id };
+        }
+        JobModel.update(jobId, { status: "queued" });
+        EventLog.record("job", jobId, "job.requeued", {
+          attempt: attemptCount,
+          max_retries: maxRetries,
+          forced: force,
+          error: error ? String(error).slice(0, 500) : null
+        });
+        return {
+          requeued: true,
+          reason: decision.reason,
+          attempt: attemptCount,
+          remaining: Math.max(0, maxRetries - attemptCount + 1),
+          printer_id: job.printer_id
+        };
+      }
+    };
+  }
+});
+
 // src/services/JobOrchestrator.js
 var JobOrchestrator_exports = {};
 __export(JobOrchestrator_exports, {
@@ -43003,6 +43115,7 @@ var init_JobOrchestrator = __esm({
     init_EjectionService();
     init_logger();
     init_PrinterErrors();
+    init_JobRetryService();
     import_node_fs3 = __toESM(require("node:fs"), 1);
     import_node_path5 = __toESM(require("node:path"), 1);
     init_uploadPaths();
@@ -43403,6 +43516,19 @@ var init_JobOrchestrator = __esm({
           });
           this._broadcast("job.send_failed", { job_id: jobId, error: err.message, send_trace: sendTrace, debug_trace: debugTrace });
           this._broadcast("job.status_changed", { job_id: jobId, status: "failed" });
+          try {
+            const requeue = JobRetryService.maybeRequeue(jobId, { error: err.message });
+            if (requeue.requeued) {
+              this._broadcast("job.requeued", { job_id: jobId, attempt: requeue.attempt, remaining: requeue.remaining });
+              this._broadcast("job.status_changed", { job_id: jobId, status: "queued" });
+              if (requeue.printer_id) {
+                Promise.resolve().then(() => this._autoStartNextJob(requeue.printer_id)).catch(() => {
+                });
+              }
+            }
+          } catch (retryErr) {
+            log19.warn(`Auto-retry evaluation failed: ${retryErr.message}`);
+          }
           throw err;
         }
       }
@@ -57963,14 +58089,14 @@ var require_object_inspect = __commonJS({
     var gPO = (typeof Reflect === "function" ? Reflect.getPrototypeOf : Object.getPrototypeOf) || ([].__proto__ === Array.prototype ? function(O) {
       return O.__proto__;
     } : null);
-    function addNumericSeparator(num, str) {
-      if (num === Infinity || num === -Infinity || num !== num || num && num > -1e3 && num < 1e3 || $test.call(/e/, str)) {
+    function addNumericSeparator(num3, str) {
+      if (num3 === Infinity || num3 === -Infinity || num3 !== num3 || num3 && num3 > -1e3 && num3 < 1e3 || $test.call(/e/, str)) {
         return str;
       }
       var sepRegex = /[0-9](?=(?:[0-9]{3})+(?![0-9]))/g;
-      if (typeof num === "number") {
-        var int = num < 0 ? -$floor(-num) : $floor(num);
-        if (int !== num) {
+      if (typeof num3 === "number") {
+        var int = num3 < 0 ? -$floor(-num3) : $floor(num3);
+        if (int !== num3) {
           var intStr = String(int);
           var dec = $slice.call(str, intStr.length + 1);
           return $replace.call(intStr, sepRegex, "$&_") + "." + $replace.call($replace.call(dec, /([0-9]{3})/g, "$&_"), /_$/, "");
@@ -59031,7 +59157,7 @@ var require_get_intrinsic = __commonJS({
     var max = require_max();
     var min = require_min();
     var pow = require_pow();
-    var round = require_round();
+    var round3 = require_round();
     var sign = require_sign();
     var $Function = Function;
     var getEvalledConstructor = function(expressionSyntax) {
@@ -59145,7 +59271,7 @@ var require_get_intrinsic = __commonJS({
       "%Math.max%": max,
       "%Math.min%": min,
       "%Math.pow%": pow,
-      "%Math.round%": round,
+      "%Math.round%": round3,
       "%Math.sign%": sign,
       "%Reflect.getPrototypeOf%": $ReflectGPO
     };
@@ -61417,17 +61543,17 @@ var require_router = __commonJS({
     var toString = Object.prototype.toString;
     var proto = module2.exports = function(options) {
       var opts = options || {};
-      function router11(req, res, next) {
-        router11.handle(req, res, next);
+      function router15(req, res, next) {
+        router15.handle(req, res, next);
       }
-      setPrototypeOf(router11, proto);
-      router11.params = {};
-      router11._params = [];
-      router11.caseSensitive = opts.caseSensitive;
-      router11.mergeParams = opts.mergeParams;
-      router11.strict = opts.strict;
-      router11.stack = [];
-      return router11;
+      setPrototypeOf(router15, proto);
+      router15.params = {};
+      router15._params = [];
+      router15.caseSensitive = opts.caseSensitive;
+      router15.mergeParams = opts.mergeParams;
+      router15.strict = opts.strict;
+      router15.stack = [];
+      return router15;
     };
     proto.param = function param(name, fn) {
       if (typeof name === "function") {
@@ -63961,7 +64087,7 @@ var require_application = __commonJS({
   "node_modules/express/lib/application.js"(exports2, module2) {
     "use strict";
     var finalhandler = require_finalhandler();
-    var Router11 = require_router();
+    var Router15 = require_router();
     var methods = require_methods2();
     var middleware = require_init();
     var query = require_query();
@@ -64026,7 +64152,7 @@ var require_application = __commonJS({
     };
     app2.lazyrouter = function lazyrouter() {
       if (!this._router) {
-        this._router = new Router11({
+        this._router = new Router15({
           caseSensitive: this.enabled("case sensitive routing"),
           strict: this.enabled("strict routing")
         });
@@ -64035,17 +64161,17 @@ var require_application = __commonJS({
       }
     };
     app2.handle = function handle(req, res, callback) {
-      var router11 = this._router;
+      var router15 = this._router;
       var done = callback || finalhandler(req, res, {
         env: this.get("env"),
         onerror: logerror.bind(this)
       });
-      if (!router11) {
+      if (!router15) {
         debug("no routes defined on app");
         done();
         return;
       }
-      router11.handle(req, res, done);
+      router15.handle(req, res, done);
     };
     app2.use = function use(fn) {
       var offset = 0;
@@ -64065,15 +64191,15 @@ var require_application = __commonJS({
         throw new TypeError("app.use() requires a middleware function");
       }
       this.lazyrouter();
-      var router11 = this._router;
+      var router15 = this._router;
       fns.forEach(function(fn2) {
         if (!fn2 || !fn2.handle || !fn2.set) {
-          return router11.use(path12, fn2);
+          return router15.use(path12, fn2);
         }
         debug(".use app under %s", path12);
         fn2.mountpath = path12;
         fn2.parent = this;
-        router11.use(path12, function mounted_app(req, res, next) {
+        router15.use(path12, function mounted_app(req, res, next) {
           var orig = req.app;
           fn2.handle(req, res, function(err) {
             setPrototypeOf(req, orig.request);
@@ -65890,7 +66016,7 @@ var require_express = __commonJS({
     var mixin = require_merge_descriptors();
     var proto = require_application();
     var Route = require_route();
-    var Router11 = require_router();
+    var Router15 = require_router();
     var req = require_request();
     var res = require_response();
     exports2 = module2.exports = createApplication;
@@ -65913,7 +66039,7 @@ var require_express = __commonJS({
     exports2.request = req;
     exports2.response = res;
     exports2.Route = Route;
-    exports2.Router = Router11;
+    exports2.Router = Router15;
     exports2.json = bodyParser.json;
     exports2.query = require_query();
     exports2.raw = bodyParser.raw;
@@ -68998,9 +69124,9 @@ var require_semver = __commonJS({
         } else {
           this.prerelease = m[4].split(".").map((id) => {
             if (/^[0-9]+$/.test(id)) {
-              const num = +id;
-              if (num >= 0 && num < MAX_SAFE_INTEGER) {
-                return num;
+              const num3 = +id;
+              if (num3 >= 0 && num3 < MAX_SAFE_INTEGER) {
+                return num3;
               }
             }
             return id;
@@ -72394,37 +72520,6 @@ var init_BambuClient = __esm({
   }
 });
 
-// src/services/EventLog.js
-var EventLog_exports = {};
-__export(EventLog_exports, {
-  EventLog: () => EventLog,
-  default: () => EventLog_default
-});
-var EventLog, EventLog_default;
-var init_EventLog = __esm({
-  "src/services/EventLog.js"() {
-    init_Event();
-    EventLog = class {
-      static record(entityType, entityId, eventType, payload = {}) {
-        return EventModel.create({ entity_type: entityType, entity_id: entityId, event_type: eventType, payload });
-      }
-      static getByEntity(entityType, entityId, options = {}) {
-        return EventModel.findByEntity(entityType, entityId, options);
-      }
-      static getAll(options = {}) {
-        return EventModel.findAll(options);
-      }
-      /** Unified timeline for a printer: merges events + commands. */
-      static getPrinterTimeline(printerId, options = {}) {
-        const events = EventModel.findByEntity("printer", printerId, options);
-        const { CommandModel: CmdModel } = Promise.resolve().then(() => (init_Command(), Command_exports));
-        return events;
-      }
-    };
-    EventLog_default = EventLog;
-  }
-});
-
 // src/services/CameraProxy.js
 var CameraProxy_exports = {};
 __export(CameraProxy_exports, {
@@ -75576,8 +75671,8 @@ var require_utils7 = __commonJS({
 var require_sbmh = __commonJS({
   "node_modules/streamsearch/lib/sbmh.js"(exports2, module2) {
     "use strict";
-    function memcmp(buf1, pos1, buf2, pos2, num) {
-      for (let i = 0; i < num; ++i) {
+    function memcmp(buf1, pos1, buf2, pos2, num3) {
+      for (let i = 0; i < num3; ++i) {
         if (buf1[pos1 + i] !== buf2[pos2 + i])
           return false;
       }
@@ -80255,7 +80350,7 @@ var require_typedarray = __commonJS({
     var log34 = Math.log;
     var min = Math.min;
     var pow = Math.pow;
-    var round = Math.round;
+    var round3 = Math.round;
     function configureProperties(obj) {
       if (getOwnPropNames && defineProp) {
         var props = getOwnPropNames(obj), i;
@@ -80347,7 +80442,7 @@ var require_typedarray = __commonJS({
       return as_unsigned(bytes[0], 8);
     }
     function packU8Clamped(n) {
-      n = round(Number(n));
+      n = round3(Number(n));
       return [n < 0 ? 0 : n > 255 ? 255 : n & 255];
     }
     function packI16(n) {
@@ -81004,6 +81099,7 @@ var init_jobs = __esm({
     init_JobOrchestrator();
     init_JobRun();
     init_Job();
+    init_JobRetryService();
     init_auth();
     init_errorHandler();
     init_Extract3mf();
@@ -81129,6 +81225,42 @@ var init_jobs = __esm({
     }));
     router4.get("/queue/:printer_id", requireAuth, asyncHandler(async (req, res) => {
       res.json(JobOrchestrator.getQueue(req.params.printer_id));
+    }));
+    router4.get("/ready/:printer_id", requireAuth, asyncHandler(async (req, res) => {
+      res.json(JobModel.getReadyQueue(req.params.printer_id));
+    }));
+    router4.post("/:id/schedule", requireAuth, asyncHandler(async (req, res) => {
+      const job = JobModel.findById(req.params.id);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      const updates = {};
+      if (req.body?.scheduled_for !== void 0) {
+        const value = req.body.scheduled_for;
+        if (value === null || value === "") {
+          updates.scheduled_for = null;
+        } else {
+          const when = new Date(value);
+          if (Number.isNaN(when.getTime())) return res.status(400).json({ error: "scheduled_for must be a valid date/ISO timestamp" });
+          updates.scheduled_for = when.toISOString();
+        }
+      }
+      if (req.body?.priority !== void 0) {
+        const priority = Number(req.body.priority);
+        if (!Number.isFinite(priority)) return res.status(400).json({ error: "priority must be a number" });
+        updates.priority = Math.trunc(priority);
+      }
+      if (req.body?.max_retries !== void 0) {
+        const maxRetries = Number(req.body.max_retries);
+        if (!Number.isFinite(maxRetries) || maxRetries < 0) return res.status(400).json({ error: "max_retries must be a non-negative number" });
+        updates.max_retries = Math.trunc(maxRetries);
+      }
+      if (!Object.keys(updates).length) return res.status(400).json({ error: "provide scheduled_for, priority and/or max_retries" });
+      res.json(JobModel.update(req.params.id, updates));
+    }));
+    router4.post("/:id/retry", requireAuth, asyncHandler(async (req, res) => {
+      const job = JobModel.findById(req.params.id);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      const result = JobRetryService.maybeRequeue(req.params.id, { error: req.body?.error || null, force: true });
+      res.json(result);
     }));
     router4.delete("/history", requireAuth, asyncHandler(async (req, res) => {
       const count = await JobOrchestrator.clearHistory();
@@ -82002,10 +82134,10 @@ var init_gcode = __esm({
 // src/services/SliceService.js
 function orcaOverrides(settings = {}) {
   const process2 = {}, filament = {};
-  const num = (v) => Number.parseFloat(v);
+  const num3 = (v) => Number.parseFloat(v);
   const int = (v) => String(Math.round(Number.parseFloat(v)));
-  if (settings.layer_height != null && settings.layer_height !== "") process2.layer_height = String(num(settings.layer_height));
-  if (settings.infill_density != null && settings.infill_density !== "") process2.sparse_infill_density = `${Math.round(num(settings.infill_density))}%`;
+  if (settings.layer_height != null && settings.layer_height !== "") process2.layer_height = String(num3(settings.layer_height));
+  if (settings.infill_density != null && settings.infill_density !== "") process2.sparse_infill_density = `${Math.round(num3(settings.infill_density))}%`;
   if (settings.infill_pattern) process2.sparse_infill_pattern = String(settings.infill_pattern);
   if (settings.wall_loops != null && settings.wall_loops !== "") process2.wall_loops = int(settings.wall_loops);
   if (settings.top_layers != null && settings.top_layers !== "") process2.top_shell_layers = int(settings.top_layers);
@@ -82348,6 +82480,809 @@ var init_events = __esm({
   }
 });
 
+// src/services/AnalyticsService.js
+function sinceClause(since, column = "COALESCE(started_at, created_at)") {
+  if (!since) return { sql: "", params: [] };
+  return { sql: ` AND ${column} >= ?`, params: [since] };
+}
+function round(value, digits = 1) {
+  if (value == null || Number.isNaN(value)) return 0;
+  const f = 10 ** digits;
+  return Math.round(value * f) / f;
+}
+var RUN_MINUTES, AnalyticsService;
+var init_AnalyticsService = __esm({
+  "src/services/AnalyticsService.js"() {
+    init_database();
+    RUN_MINUTES = "(julianday(ended_at) - julianday(started_at)) * 24 * 60";
+    AnalyticsService = {
+      /** Fleet-wide totals: counts by status, success rate, print-time totals. */
+      getSummary({ since = null } = {}) {
+        const s = sinceClause(since);
+        const row = dbGet(`
+            SELECT
+                COUNT(*)                                                        AS total,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)           AS completed,
+                SUM(CASE WHEN status = 'failed'    THEN 1 ELSE 0 END)           AS failed,
+                SUM(CASE WHEN status = 'canceled'  THEN 1 ELSE 0 END)           AS canceled,
+                SUM(CASE WHEN status IN ('pending','printing') THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN status = 'completed' AND started_at IS NOT NULL AND ended_at IS NOT NULL
+                         THEN ${RUN_MINUTES} ELSE 0 END)                        AS total_minutes
+            FROM job_runs
+            WHERE 1=1${s.sql}
+        `, s.params) || {};
+        const completed = Number(row.completed || 0);
+        const failed = Number(row.failed || 0);
+        const finished = completed + failed;
+        const totalMinutes = round(Number(row.total_minutes || 0), 1);
+        return {
+          total: Number(row.total || 0),
+          completed,
+          failed,
+          canceled: Number(row.canceled || 0),
+          active: Number(row.active || 0),
+          success_rate: finished ? round(completed / finished * 100, 1) : null,
+          total_print_minutes: totalMinutes,
+          total_print_hours: round(totalMinutes / 60, 2),
+          avg_print_minutes: completed ? round(totalMinutes / completed, 1) : 0
+        };
+      },
+      /** Per-printer breakdown, newest activity first. */
+      getPerPrinter({ since = null } = {}) {
+        const s = sinceClause(since, "COALESCE(r.started_at, r.created_at)");
+        const rows = dbAll(`
+            SELECT
+                r.printer_id                                                   AS printer_id,
+                COALESCE(p.name, r.printer_id)                                  AS printer_name,
+                p.model                                                         AS model,
+                COUNT(*)                                                        AS total,
+                SUM(CASE WHEN r.status = 'completed' THEN 1 ELSE 0 END)         AS completed,
+                SUM(CASE WHEN r.status = 'failed'    THEN 1 ELSE 0 END)         AS failed,
+                SUM(CASE WHEN r.status = 'completed' AND r.started_at IS NOT NULL AND r.ended_at IS NOT NULL
+                         THEN (julianday(r.ended_at) - julianday(r.started_at)) * 24 * 60 ELSE 0 END) AS total_minutes,
+                MAX(COALESCE(r.ended_at, r.started_at, r.created_at))           AS last_activity
+            FROM job_runs r
+            LEFT JOIN printers p ON p.printer_id = r.printer_id
+            WHERE 1=1${s.sql}
+            GROUP BY r.printer_id
+            ORDER BY last_activity DESC
+        `, s.params);
+        return rows.map((row) => {
+          const completed = Number(row.completed || 0);
+          const failed = Number(row.failed || 0);
+          const finished = completed + failed;
+          const totalMinutes = round(Number(row.total_minutes || 0), 1);
+          return {
+            printer_id: row.printer_id,
+            printer_name: row.printer_name,
+            model: row.model || null,
+            total: Number(row.total || 0),
+            completed,
+            failed,
+            success_rate: finished ? round(completed / finished * 100, 1) : null,
+            total_print_minutes: totalMinutes,
+            total_print_hours: round(totalMinutes / 60, 2),
+            last_activity: row.last_activity || null
+          };
+        });
+      },
+      /** Most recent failed runs with error + printer, for a quick failure feed. */
+      getRecentFailures({ limit = 20 } = {}) {
+        const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 200);
+        return dbAll(`
+            SELECT r.run_id, r.job_id, r.printer_id,
+                   COALESCE(p.name, r.printer_id) AS printer_name,
+                   r.error, r.started_at, r.ended_at
+            FROM job_runs r
+            LEFT JOIN printers p ON p.printer_id = r.printer_id
+            WHERE r.status = 'failed'
+            ORDER BY COALESCE(r.ended_at, r.started_at, r.created_at) DESC
+            LIMIT ?
+        `, [safeLimit]);
+      },
+      /** Completed/failed counts per day for the last N days (activity chart). */
+      getActivityByDay({ days = 14 } = {}) {
+        const safeDays = Math.min(Math.max(parseInt(days, 10) || 14, 1), 365);
+        return dbAll(`
+            SELECT
+                date(COALESCE(ended_at, started_at, created_at))              AS day,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)         AS completed,
+                SUM(CASE WHEN status = 'failed'    THEN 1 ELSE 0 END)         AS failed
+            FROM job_runs
+            WHERE COALESCE(ended_at, started_at, created_at) >= date('now', ?)
+            GROUP BY day
+            ORDER BY day ASC
+        `, [`-${safeDays} days`]);
+      }
+    };
+  }
+});
+
+// src/api/routes/analytics.js
+var import_express9, router9, analytics_default;
+var init_analytics = __esm({
+  "src/api/routes/analytics.js"() {
+    import_express9 = __toESM(require_express2(), 1);
+    init_AnalyticsService();
+    init_auth();
+    init_errorHandler();
+    router9 = (0, import_express9.Router)();
+    router9.get("/summary", requireAuth, asyncHandler(async (req, res) => {
+      res.json(AnalyticsService.getSummary({ since: req.query.since || null }));
+    }));
+    router9.get("/printers", requireAuth, asyncHandler(async (req, res) => {
+      res.json(AnalyticsService.getPerPrinter({ since: req.query.since || null }));
+    }));
+    router9.get("/failures", requireAuth, asyncHandler(async (req, res) => {
+      res.json(AnalyticsService.getRecentFailures({ limit: req.query.limit }));
+    }));
+    router9.get("/activity", requireAuth, asyncHandler(async (req, res) => {
+      res.json(AnalyticsService.getActivityByDay({ days: req.query.days }));
+    }));
+    analytics_default = router9;
+  }
+});
+
+// src/models/FilamentSpool.js
+function num(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+var NUMERIC_FIELDS, FilamentSpoolModel;
+var init_FilamentSpool = __esm({
+  "src/models/FilamentSpool.js"() {
+    init_database();
+    init_uuid();
+    NUMERIC_FIELDS = /* @__PURE__ */ new Set(["total_grams", "remaining_grams", "low_threshold_grams", "ams_unit", "ams_tray"]);
+    FilamentSpoolModel = class {
+      static create(input = {}) {
+        const id = generateId();
+        const total = num(input.total_grams, 1e3);
+        const remaining = input.remaining_grams != null ? num(input.remaining_grams, total) : total;
+        dbRun(
+          `INSERT INTO filament_spools
+                (spool_id, name, material, color_hex, color_name, vendor, printer_id, ams_unit, ams_tray,
+                 total_grams, remaining_grams, low_threshold_grams)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            id,
+            input.name || null,
+            input.material || "PLA",
+            input.color_hex || "FFFFFFFF",
+            input.color_name || "Unknown",
+            input.vendor || null,
+            input.printer_id || null,
+            input.ams_unit != null ? num(input.ams_unit) : null,
+            input.ams_tray != null ? num(input.ams_tray) : null,
+            total,
+            Math.max(0, remaining),
+            num(input.low_threshold_grams, 100)
+          ]
+        );
+        return this.findById(id);
+      }
+      static findById(id) {
+        const row = dbGet("SELECT * FROM filament_spools WHERE spool_id = ?", [id]);
+        return row ? this._parse(row) : null;
+      }
+      static findAll({ includeArchived = false, lowStockOnly = false } = {}) {
+        const where = [];
+        if (!includeArchived) where.push("archived = 0");
+        if (lowStockOnly) where.push("remaining_grams <= low_threshold_grams");
+        const sql = `SELECT * FROM filament_spools${where.length ? " WHERE " + where.join(" AND ") : ""} ORDER BY updated_at DESC`;
+        return dbAll(sql).map((r) => this._parse(r));
+      }
+      static update(id, patch = {}) {
+        const allowed = [
+          "name",
+          "material",
+          "color_hex",
+          "color_name",
+          "vendor",
+          "printer_id",
+          "ams_unit",
+          "ams_tray",
+          "total_grams",
+          "remaining_grams",
+          "low_threshold_grams",
+          "archived"
+        ];
+        const sets = [];
+        const vals = [];
+        for (const key of allowed) {
+          if (patch[key] === void 0) continue;
+          sets.push(`${key} = ?`);
+          vals.push(NUMERIC_FIELDS.has(key) ? num(patch[key]) : patch[key]);
+        }
+        if (!sets.length) return this.findById(id);
+        sets.push("updated_at = datetime('now')");
+        vals.push(id);
+        dbRun(`UPDATE filament_spools SET ${sets.join(", ")} WHERE spool_id = ?`, vals);
+        return this.findById(id);
+      }
+      static remove(id) {
+        dbRun("DELETE FROM filament_spools WHERE spool_id = ?", [id]);
+      }
+      /**
+       * Decrement a spool by `grams`, clamped at 0, and record a ledger entry.
+       * Returns { spool, consumed, low, depleted, crossedLowThreshold }.
+       */
+      static consume(id, grams, { jobId = null, note = null } = {}) {
+        const spool = this.findById(id);
+        if (!spool) throw new Error("spool not found");
+        const amount = Math.max(0, num(grams));
+        const before = num(spool.remaining_grams);
+        const after = Math.max(0, before - amount);
+        const consumed = before - after;
+        dbRun("UPDATE filament_spools SET remaining_grams = ?, updated_at = datetime('now') WHERE spool_id = ?", [after, id]);
+        dbRun(
+          "INSERT INTO filament_consumption (id, spool_id, job_id, grams, note) VALUES (?, ?, ?, ?, ?)",
+          [generateId(), id, jobId, consumed, note]
+        );
+        const threshold = num(spool.low_threshold_grams);
+        return {
+          spool: this.findById(id),
+          consumed,
+          depleted: after <= 0,
+          low: after <= threshold,
+          crossedLowThreshold: before > threshold && after <= threshold
+        };
+      }
+      static ledger(id, { limit = 50 } = {}) {
+        const safe = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500);
+        return dbAll("SELECT * FROM filament_consumption WHERE spool_id = ? ORDER BY created_at DESC LIMIT ?", [id, safe]);
+      }
+      static _parse(row) {
+        return {
+          ...row,
+          total_grams: num(row.total_grams),
+          remaining_grams: num(row.remaining_grams),
+          low_threshold_grams: num(row.low_threshold_grams),
+          archived: !!row.archived,
+          low_stock: num(row.remaining_grams) <= num(row.low_threshold_grams)
+        };
+      }
+    };
+  }
+});
+
+// src/api/routes/filament.js
+var import_express10, router10, filament_default;
+var init_filament = __esm({
+  "src/api/routes/filament.js"() {
+    import_express10 = __toESM(require_express2(), 1);
+    init_FilamentSpool();
+    init_EventLog();
+    init_auth();
+    init_errorHandler();
+    router10 = (0, import_express10.Router)();
+    router10.get("/spools", requireAuth, asyncHandler(async (req, res) => {
+      res.json(FilamentSpoolModel.findAll({
+        lowStockOnly: req.query.low_stock === "1" || req.query.low_stock === "true",
+        includeArchived: req.query.archived === "1" || req.query.archived === "true"
+      }));
+    }));
+    router10.get("/low-stock", requireAuth, asyncHandler(async (req, res) => {
+      res.json(FilamentSpoolModel.findAll({ lowStockOnly: true }));
+    }));
+    router10.post("/spools", requireAuth, asyncHandler(async (req, res) => {
+      const spool = FilamentSpoolModel.create(req.body || {});
+      res.status(201).json(spool);
+    }));
+    router10.get("/spools/:id", requireAuth, asyncHandler(async (req, res) => {
+      const spool = FilamentSpoolModel.findById(req.params.id);
+      if (!spool) return res.status(404).json({ error: "spool not found" });
+      res.json(spool);
+    }));
+    router10.patch("/spools/:id", requireAuth, asyncHandler(async (req, res) => {
+      if (!FilamentSpoolModel.findById(req.params.id)) return res.status(404).json({ error: "spool not found" });
+      res.json(FilamentSpoolModel.update(req.params.id, req.body || {}));
+    }));
+    router10.post("/spools/:id/refill", requireAuth, asyncHandler(async (req, res) => {
+      const spool = FilamentSpoolModel.findById(req.params.id);
+      if (!spool) return res.status(404).json({ error: "spool not found" });
+      const remaining = req.body?.grams != null ? Number(req.body.grams) : spool.total_grams;
+      res.json(FilamentSpoolModel.update(req.params.id, { remaining_grams: remaining }));
+    }));
+    router10.delete("/spools/:id", requireAuth, asyncHandler(async (req, res) => {
+      FilamentSpoolModel.remove(req.params.id);
+      res.status(204).end();
+    }));
+    router10.get("/spools/:id/consumption", requireAuth, asyncHandler(async (req, res) => {
+      if (!FilamentSpoolModel.findById(req.params.id)) return res.status(404).json({ error: "spool not found" });
+      res.json(FilamentSpoolModel.ledger(req.params.id, { limit: req.query.limit }));
+    }));
+    router10.post("/spools/:id/consume", requireAuth, asyncHandler(async (req, res) => {
+      if (!FilamentSpoolModel.findById(req.params.id)) return res.status(404).json({ error: "spool not found" });
+      const grams = Number(req.body?.grams);
+      if (!Number.isFinite(grams) || grams <= 0) {
+        return res.status(400).json({ error: "grams must be a positive number" });
+      }
+      const result = FilamentSpoolModel.consume(req.params.id, grams, {
+        jobId: req.body?.job_id || null,
+        note: req.body?.note || null
+      });
+      if (result.crossedLowThreshold || result.depleted) {
+        EventLog.record("system", req.params.id, "filament.low_stock", {
+          spool_id: req.params.id,
+          material: result.spool.material,
+          color_name: result.spool.color_name,
+          remaining_grams: result.spool.remaining_grams,
+          low_threshold_grams: result.spool.low_threshold_grams,
+          depleted: result.depleted
+        });
+      }
+      res.json(result);
+    }));
+    filament_default = router10;
+  }
+});
+
+// src/models/PrinterMaintenance.js
+function num2(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+function round2(value, digits = 2) {
+  const f = 10 ** digits;
+  return Math.round(num2(value) * f) / f;
+}
+var PrinterMaintenanceModel;
+var init_PrinterMaintenance = __esm({
+  "src/models/PrinterMaintenance.js"() {
+    init_database();
+    init_uuid();
+    PrinterMaintenanceModel = class {
+      /** Cumulative completed print hours for a printer (the odometer). */
+      static odometerHours(printerId) {
+        const row = dbGet(`
+            SELECT SUM((julianday(ended_at) - julianday(started_at)) * 24) AS hours
+            FROM job_runs
+            WHERE printer_id = ? AND status = 'completed'
+              AND started_at IS NOT NULL AND ended_at IS NOT NULL
+        `, [printerId]);
+        return round2(row?.hours || 0, 2);
+      }
+      static create({ printer_id, task, interval_hours = 200, notes = null, hours_at_last_done = null } = {}) {
+        if (!printer_id) throw new Error("printer_id is required");
+        if (!task) throw new Error("task is required");
+        const id = generateId();
+        const baseline = hours_at_last_done != null ? num2(hours_at_last_done) : this.odometerHours(printer_id);
+        dbRun(
+          `INSERT INTO printer_maintenance (id, printer_id, task, interval_hours, hours_at_last_done, notes)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+          [id, printer_id, task, num2(interval_hours, 200), baseline, notes]
+        );
+        return this.findById(id);
+      }
+      static findById(id) {
+        const row = dbGet("SELECT * FROM printer_maintenance WHERE id = ?", [id]);
+        return row ? this._withDue(row) : null;
+      }
+      static findAll({ printerId = null, dueOnly = false } = {}) {
+        const rows = printerId ? dbAll("SELECT * FROM printer_maintenance WHERE printer_id = ? ORDER BY task", [printerId]) : dbAll("SELECT * FROM printer_maintenance ORDER BY printer_id, task");
+        const odometerCache = /* @__PURE__ */ new Map();
+        const withDue = rows.map((row) => {
+          if (!odometerCache.has(row.printer_id)) {
+            odometerCache.set(row.printer_id, this.odometerHours(row.printer_id));
+          }
+          return this._withDue(row, odometerCache.get(row.printer_id));
+        });
+        return dueOnly ? withDue.filter((r) => r.due) : withDue;
+      }
+      static update(id, patch = {}) {
+        const allowed = ["task", "interval_hours", "notes", "hours_at_last_done"];
+        const sets = [];
+        const vals = [];
+        for (const key of allowed) {
+          if (patch[key] === void 0) continue;
+          sets.push(`${key} = ?`);
+          vals.push(key === "interval_hours" || key === "hours_at_last_done" ? num2(patch[key]) : patch[key]);
+        }
+        if (!sets.length) return this.findById(id);
+        sets.push("updated_at = datetime('now')");
+        vals.push(id);
+        dbRun(`UPDATE printer_maintenance SET ${sets.join(", ")} WHERE id = ?`, vals);
+        return this.findById(id);
+      }
+      /** Mark a task done: reset its baseline to the current odometer. */
+      static markDone(id) {
+        const row = dbGet("SELECT * FROM printer_maintenance WHERE id = ?", [id]);
+        if (!row) return null;
+        const odometer = this.odometerHours(row.printer_id);
+        dbRun(
+          "UPDATE printer_maintenance SET hours_at_last_done = ?, last_done_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+          [odometer, id]
+        );
+        return this.findById(id);
+      }
+      static remove(id) {
+        dbRun("DELETE FROM printer_maintenance WHERE id = ?", [id]);
+      }
+      static _withDue(row, odometer = null) {
+        const odo = odometer != null ? odometer : this.odometerHours(row.printer_id);
+        const interval = num2(row.interval_hours, 200);
+        const hoursSinceDone = round2(odo - num2(row.hours_at_last_done), 2);
+        const hoursUntilDue = round2(interval - hoursSinceDone, 2);
+        return {
+          ...row,
+          interval_hours: interval,
+          hours_at_last_done: num2(row.hours_at_last_done),
+          odometer_hours: odo,
+          hours_since_done: hoursSinceDone,
+          hours_until_due: hoursUntilDue,
+          percent_used: interval > 0 ? Math.min(100, round2(hoursSinceDone / interval * 100, 1)) : 0,
+          due: hoursSinceDone >= interval
+        };
+      }
+    };
+  }
+});
+
+// src/api/routes/maintenance.js
+var import_express11, router11, maintenance_default;
+var init_maintenance = __esm({
+  "src/api/routes/maintenance.js"() {
+    import_express11 = __toESM(require_express2(), 1);
+    init_PrinterMaintenance();
+    init_auth();
+    init_errorHandler();
+    router11 = (0, import_express11.Router)();
+    router11.get("/", requireAuth, asyncHandler(async (req, res) => {
+      res.json(PrinterMaintenanceModel.findAll({
+        printerId: req.query.printer_id || null,
+        dueOnly: req.query.due === "1" || req.query.due === "true"
+      }));
+    }));
+    router11.get("/due", requireAuth, asyncHandler(async (req, res) => {
+      res.json(PrinterMaintenanceModel.findAll({ dueOnly: true }));
+    }));
+    router11.get("/odometer/:printer_id", requireAuth, asyncHandler(async (req, res) => {
+      res.json({ printer_id: req.params.printer_id, odometer_hours: PrinterMaintenanceModel.odometerHours(req.params.printer_id) });
+    }));
+    router11.post("/", requireAuth, asyncHandler(async (req, res) => {
+      try {
+        res.status(201).json(PrinterMaintenanceModel.create(req.body || {}));
+      } catch (err) {
+        res.status(400).json({ error: err.message });
+      }
+    }));
+    router11.get("/:id", requireAuth, asyncHandler(async (req, res) => {
+      const task = PrinterMaintenanceModel.findById(req.params.id);
+      if (!task) return res.status(404).json({ error: "maintenance task not found" });
+      res.json(task);
+    }));
+    router11.patch("/:id", requireAuth, asyncHandler(async (req, res) => {
+      if (!PrinterMaintenanceModel.findById(req.params.id)) return res.status(404).json({ error: "maintenance task not found" });
+      res.json(PrinterMaintenanceModel.update(req.params.id, req.body || {}));
+    }));
+    router11.post("/:id/done", requireAuth, asyncHandler(async (req, res) => {
+      const task = PrinterMaintenanceModel.markDone(req.params.id);
+      if (!task) return res.status(404).json({ error: "maintenance task not found" });
+      res.json(task);
+    }));
+    router11.delete("/:id", requireAuth, asyncHandler(async (req, res) => {
+      PrinterMaintenanceModel.remove(req.params.id);
+      res.status(204).end();
+    }));
+    maintenance_default = router11;
+  }
+});
+
+// src/models/NotificationChannel.js
+function parseJson(value, fallback) {
+  if (value == null) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+var VALID_TYPES, NotificationChannelModel;
+var init_NotificationChannel = __esm({
+  "src/models/NotificationChannel.js"() {
+    init_database();
+    init_uuid();
+    VALID_TYPES = /* @__PURE__ */ new Set(["discord", "slack", "telegram", "webhook"]);
+    NotificationChannelModel = class {
+      static create({ name = null, type, config = {}, events = ["all"], enabled = true } = {}) {
+        if (!VALID_TYPES.has(type)) throw new Error(`invalid channel type: ${type}`);
+        const id = generateId();
+        dbRun(
+          `INSERT INTO notification_channels (channel_id, name, type, config, events, enabled)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+          [id, name, type, JSON.stringify(config || {}), JSON.stringify(events || ["all"]), enabled ? 1 : 0]
+        );
+        return this.findById(id);
+      }
+      static findById(id) {
+        const row = dbGet("SELECT * FROM notification_channels WHERE channel_id = ?", [id]);
+        return row ? this._parse(row) : null;
+      }
+      static findAll({ enabledOnly = false } = {}) {
+        const sql = enabledOnly ? "SELECT * FROM notification_channels WHERE enabled = 1 ORDER BY created_at ASC" : "SELECT * FROM notification_channels ORDER BY created_at ASC";
+        return dbAll(sql).map((r) => this._parse(r));
+      }
+      /** Enabled channels subscribed to an event type (or to "all"). */
+      static findForEvent(eventType) {
+        return this.findAll({ enabledOnly: true }).filter((c) => c.events.includes("all") || c.events.includes(eventType));
+      }
+      static update(id, patch = {}) {
+        const sets = [];
+        const vals = [];
+        if (patch.name !== void 0) {
+          sets.push("name = ?");
+          vals.push(patch.name);
+        }
+        if (patch.type !== void 0) {
+          if (!VALID_TYPES.has(patch.type)) throw new Error(`invalid channel type: ${patch.type}`);
+          sets.push("type = ?");
+          vals.push(patch.type);
+        }
+        if (patch.config !== void 0) {
+          sets.push("config = ?");
+          vals.push(JSON.stringify(patch.config || {}));
+        }
+        if (patch.events !== void 0) {
+          sets.push("events = ?");
+          vals.push(JSON.stringify(patch.events || ["all"]));
+        }
+        if (patch.enabled !== void 0) {
+          sets.push("enabled = ?");
+          vals.push(patch.enabled ? 1 : 0);
+        }
+        if (!sets.length) return this.findById(id);
+        sets.push("updated_at = datetime('now')");
+        vals.push(id);
+        dbRun(`UPDATE notification_channels SET ${sets.join(", ")} WHERE channel_id = ?`, vals);
+        return this.findById(id);
+      }
+      static remove(id) {
+        dbRun("DELETE FROM notification_channels WHERE channel_id = ?", [id]);
+      }
+      static _parse(row) {
+        return {
+          ...row,
+          config: parseJson(row.config, {}),
+          events: parseJson(row.events, ["all"]),
+          enabled: !!row.enabled
+        };
+      }
+    };
+  }
+});
+
+// src/cloud/merchantApiV2.js
+function createHttpError(statusCode, code, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  PUBLIC_SAFE_ERRORS.add(error);
+  return error;
+}
+var PUBLIC_SAFE_ERRORS;
+var init_merchantApiV2 = __esm({
+  "src/cloud/merchantApiV2.js"() {
+    PUBLIC_SAFE_ERRORS = /* @__PURE__ */ new WeakSet();
+  }
+});
+
+// src/cloud/urlGuard.js
+function isPrivateIpv4(host) {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!match) return false;
+  const octets = match.slice(1).map(Number);
+  if (octets.some((n) => n > 255)) return true;
+  const [a, b] = octets;
+  if (a === 0) return true;
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  return false;
+}
+function isPrivateIpv6(rawHost) {
+  const host = rawHost.replace(/^\[|\]$/g, "").toLowerCase();
+  if (host === "::1" || host === "::") return true;
+  if (host.startsWith("fe80:")) return true;
+  if (host.startsWith("fc") || host.startsWith("fd")) return true;
+  const mapped = /::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(host);
+  if (mapped) return isPrivateIpv4(mapped[1]);
+  return false;
+}
+function isBlockedHost(hostname) {
+  const host = hostname.toLowerCase();
+  if (!host) return true;
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (host.endsWith(".local") || host.endsWith(".internal")) return true;
+  if (host.includes(":")) return isPrivateIpv6(host);
+  return isPrivateIpv4(host);
+}
+function assertSafeWebhookUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(String(value));
+  } catch {
+    throw createHttpError(400, "invalid_payload", "url must be a valid HTTPS URL");
+  }
+  if (parsed.protocol !== "https:") {
+    throw createHttpError(400, "invalid_payload", "url must use https");
+  }
+  if (isBlockedHost(parsed.hostname)) {
+    throw createHttpError(400, "invalid_payload", "url must not target an internal or private host");
+  }
+  return parsed.toString();
+}
+var init_urlGuard = __esm({
+  "src/cloud/urlGuard.js"() {
+    init_merchantApiV2();
+  }
+});
+
+// src/services/NotificationService.js
+function formatChannelMessage(channel, notification) {
+  const title = notification.title || "PrintKinetix";
+  const message = notification.message || "";
+  const config = channel.config || {};
+  switch (channel.type) {
+    case "discord":
+      return { url: config.url, body: { content: `**${title}**
+${message}` } };
+    case "slack":
+      return { url: config.url, body: { text: `*${title}*
+${message}` } };
+    case "telegram":
+      return {
+        url: `https://api.telegram.org/bot${config.bot_token}/sendMessage`,
+        body: { chat_id: config.chat_id, text: `${title}
+${message}` }
+      };
+    case "webhook":
+    default:
+      return {
+        url: config.url,
+        body: {
+          event: notification.event,
+          title,
+          message,
+          severity: notification.severity || "info",
+          data: notification.data || null
+        }
+      };
+  }
+}
+function alertToNotification(alert) {
+  const printer = alert?.printer_name || alert?.printer_id || "a printer";
+  const canceled = alert?.kind === "auto_canceled";
+  return {
+    event: canceled ? "printer.auto_canceled" : "printer.alert",
+    title: canceled ? `Print auto-canceled on ${printer}` : `Printer alert: ${printer}`,
+    message: alert?.message || alert?.kind || "A printer reported a fault.",
+    severity: alert?.severity || "critical",
+    data: alert
+  };
+}
+function createNotificationDispatcher({
+  fetchImpl = globalThis.fetch,
+  events = SystemEvents_default,
+  model = NotificationChannelModel,
+  timeoutMs = Number.parseInt(process.env.NOTIFY_TIMEOUT_MS || "", 10) || 8e3,
+  logger = createLogger("Notifications")
+} = {}) {
+  async function deliverOne(channel, notification) {
+    const { url, body } = formatChannelMessage(channel, notification);
+    if (!url) return { channel_id: channel.channel_id, type: channel.type, ok: false, error: "no_url" };
+    if (channel.type !== "telegram") {
+      try {
+        assertSafeWebhookUrl(url);
+      } catch (error) {
+        return { channel_id: channel.channel_id, type: channel.type, ok: false, error: error.message };
+      }
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetchImpl(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      const ok = !!(res && (res.ok || res.status >= 200 && res.status < 300));
+      return { channel_id: channel.channel_id, type: channel.type, ok, status: res?.status };
+    } catch (error) {
+      return { channel_id: channel.channel_id, type: channel.type, ok: false, error: error.message };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  async function dispatch(notification) {
+    const channels = model.findForEvent(notification.event);
+    if (!channels.length) return [];
+    return Promise.all(channels.map((c) => deliverOne(c, notification)));
+  }
+  const handler = (alert) => {
+    dispatch(alertToNotification(alert)).catch((error) => logger.warn(`notify failed: ${error.message}`));
+  };
+  return {
+    dispatch,
+    // notify programmatically / in tests
+    deliverOne,
+    // exposed for tests
+    start() {
+      events.on("printer.alert", handler);
+      logger.info("Notification dispatcher active (Discord/Slack/Telegram/webhook)");
+      return this;
+    },
+    stop() {
+      events.off("printer.alert", handler);
+    }
+  };
+}
+var init_NotificationService = __esm({
+  "src/services/NotificationService.js"() {
+    init_SystemEvents();
+    init_NotificationChannel();
+    init_urlGuard();
+    init_logger();
+  }
+});
+
+// src/api/routes/notifications.js
+var import_express12, router12, dispatcher, notifications_default;
+var init_notifications = __esm({
+  "src/api/routes/notifications.js"() {
+    import_express12 = __toESM(require_express2(), 1);
+    init_NotificationChannel();
+    init_NotificationService();
+    init_auth();
+    init_errorHandler();
+    router12 = (0, import_express12.Router)();
+    dispatcher = createNotificationDispatcher();
+    router12.get("/channels", requireAuth, asyncHandler(async (req, res) => {
+      res.json(NotificationChannelModel.findAll());
+    }));
+    router12.post("/channels", requireAuth, asyncHandler(async (req, res) => {
+      try {
+        res.status(201).json(NotificationChannelModel.create(req.body || {}));
+      } catch (err) {
+        res.status(400).json({ error: err.message });
+      }
+    }));
+    router12.get("/channels/:id", requireAuth, asyncHandler(async (req, res) => {
+      const channel = NotificationChannelModel.findById(req.params.id);
+      if (!channel) return res.status(404).json({ error: "channel not found" });
+      res.json(channel);
+    }));
+    router12.patch("/channels/:id", requireAuth, asyncHandler(async (req, res) => {
+      if (!NotificationChannelModel.findById(req.params.id)) return res.status(404).json({ error: "channel not found" });
+      try {
+        res.json(NotificationChannelModel.update(req.params.id, req.body || {}));
+      } catch (err) {
+        res.status(400).json({ error: err.message });
+      }
+    }));
+    router12.delete("/channels/:id", requireAuth, asyncHandler(async (req, res) => {
+      NotificationChannelModel.remove(req.params.id);
+      res.status(204).end();
+    }));
+    router12.post("/channels/:id/test", requireAuth, asyncHandler(async (req, res) => {
+      const channel = NotificationChannelModel.findById(req.params.id);
+      if (!channel) return res.status(404).json({ error: "channel not found" });
+      const result = await dispatcher.deliverOne(channel, {
+        event: "test",
+        title: "PrintKinetix test notification",
+        message: "If you can read this, the channel is wired up correctly.",
+        severity: "info"
+      });
+      res.json(result);
+    }));
+    notifications_default = router12;
+  }
+});
+
 // src/services/TunnelService.js
 function resolveCloudflaredPath() {
   if (process.env.CLOUDFLARED_PATH) return process.env.CLOUDFLARED_PATH;
@@ -82466,17 +83401,17 @@ var init_TunnelService = __esm({
 });
 
 // src/api/routes/system.js
-var import_express9, router9, system_default;
+var import_express13, router13, system_default;
 var init_system = __esm({
   "src/api/routes/system.js"() {
-    import_express9 = __toESM(require_express2(), 1);
+    import_express13 = __toESM(require_express2(), 1);
     init_TunnelService();
     init_auth();
-    router9 = (0, import_express9.Router)();
-    router9.get("/tunnel/status", requireAuth, (req, res) => {
+    router13 = (0, import_express13.Router)();
+    router13.get("/tunnel/status", requireAuth, (req, res) => {
       res.json(TunnelService_default.getStatus());
     });
-    router9.post("/tunnel/start", requireAuth, async (req, res) => {
+    router13.post("/tunnel/start", requireAuth, async (req, res) => {
       try {
         const status = await TunnelService_default.start();
         res.json(status);
@@ -82484,19 +83419,19 @@ var init_system = __esm({
         res.status(500).json({ error: err.message });
       }
     });
-    router9.post("/tunnel/stop", requireAuth, (req, res) => {
+    router13.post("/tunnel/stop", requireAuth, (req, res) => {
       const status = TunnelService_default.stop();
       res.json(status);
     });
-    system_default = router9;
+    system_default = router13;
   }
 });
 
 // src/api/router.js
-var import_express10, router10, router_default;
+var import_express14, router14, router_default;
 var init_router = __esm({
   "src/api/router.js"() {
-    import_express10 = __toESM(require_express2(), 1);
+    import_express14 = __toESM(require_express2(), 1);
     init_auth();
     init_RuntimeSupervisor();
     init_printers();
@@ -82507,32 +83442,40 @@ var init_router = __esm({
     init_gcode();
     init_slice();
     init_events();
+    init_analytics();
+    init_filament();
+    init_maintenance();
+    init_notifications();
     init_system();
-    router10 = (0, import_express10.Router)();
-    router10.post("/auth/login", (req, res) => {
+    router14 = (0, import_express14.Router)();
+    router14.post("/auth/login", (req, res) => {
       const { username, password } = req.body;
       if (!username || !password) return res.status(400).json({ error: "username and password required" });
       const result = login(username, password);
       if (!result) return res.status(401).json({ error: "Invalid credentials" });
       res.json(result);
     });
-    router10.get("/auth/me", requireAuth, (req, res) => {
+    router14.get("/auth/me", requireAuth, (req, res) => {
       res.json(req.user);
     });
-    router10.use("/system", system_default);
-    router10.get("/system/status", requireAuth, (req, res) => {
+    router14.use("/system", system_default);
+    router14.get("/system/status", requireAuth, (req, res) => {
       const supervisor = getSupervisor();
       res.json(supervisor.getStatus());
     });
-    router10.use("/printers", printers_default);
-    router10.use("/accessories", accessories_default);
-    router10.use("/commands", commands_default);
-    router10.use("/jobs", jobs_default);
-    router10.use("/job-templates", jobTemplates_default);
-    router10.use("/gcode", gcode_default);
-    router10.use("/slice", slice_default);
-    router10.use("/events", events_default);
-    router_default = router10;
+    router14.use("/printers", printers_default);
+    router14.use("/accessories", accessories_default);
+    router14.use("/commands", commands_default);
+    router14.use("/jobs", jobs_default);
+    router14.use("/job-templates", jobTemplates_default);
+    router14.use("/gcode", gcode_default);
+    router14.use("/slice", slice_default);
+    router14.use("/events", events_default);
+    router14.use("/analytics", analytics_default);
+    router14.use("/filament", filament_default);
+    router14.use("/maintenance", maintenance_default);
+    router14.use("/notifications", notifications_default);
+    router_default = router14;
   }
 });
 
@@ -82590,75 +83533,6 @@ var init_websocket = __esm({
     init_logger();
     log31 = createLogger("WebSocket");
     wss = null;
-  }
-});
-
-// src/cloud/merchantApiV2.js
-function createHttpError(statusCode, code, message) {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  error.code = code;
-  PUBLIC_SAFE_ERRORS.add(error);
-  return error;
-}
-var PUBLIC_SAFE_ERRORS;
-var init_merchantApiV2 = __esm({
-  "src/cloud/merchantApiV2.js"() {
-    PUBLIC_SAFE_ERRORS = /* @__PURE__ */ new WeakSet();
-  }
-});
-
-// src/cloud/urlGuard.js
-function isPrivateIpv4(host) {
-  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (!match) return false;
-  const octets = match.slice(1).map(Number);
-  if (octets.some((n) => n > 255)) return true;
-  const [a, b] = octets;
-  if (a === 0) return true;
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  return false;
-}
-function isPrivateIpv6(rawHost) {
-  const host = rawHost.replace(/^\[|\]$/g, "").toLowerCase();
-  if (host === "::1" || host === "::") return true;
-  if (host.startsWith("fe80:")) return true;
-  if (host.startsWith("fc") || host.startsWith("fd")) return true;
-  const mapped = /::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(host);
-  if (mapped) return isPrivateIpv4(mapped[1]);
-  return false;
-}
-function isBlockedHost(hostname) {
-  const host = hostname.toLowerCase();
-  if (!host) return true;
-  if (host === "localhost" || host.endsWith(".localhost")) return true;
-  if (host.endsWith(".local") || host.endsWith(".internal")) return true;
-  if (host.includes(":")) return isPrivateIpv6(host);
-  return isPrivateIpv4(host);
-}
-function assertSafeWebhookUrl(value) {
-  let parsed;
-  try {
-    parsed = new URL(String(value));
-  } catch {
-    throw createHttpError(400, "invalid_payload", "url must be a valid HTTPS URL");
-  }
-  if (parsed.protocol !== "https:") {
-    throw createHttpError(400, "invalid_payload", "url must use https");
-  }
-  if (isBlockedHost(parsed.hostname)) {
-    throw createHttpError(400, "invalid_payload", "url must not target an internal or private host");
-  }
-  return parsed.toString();
-}
-var init_urlGuard = __esm({
-  "src/cloud/urlGuard.js"() {
-    init_merchantApiV2();
   }
 });
 
@@ -82760,6 +83634,7 @@ async function init() {
     supervisor.setWsBroadcast(broadcast);
     await supervisor.start();
     createAlertDispatcher().start();
+    createNotificationDispatcher().start();
     const port = parseInt(process.env.PORT) || 3e3;
     const host = process.env.HOST || "0.0.0.0";
     server.listen(port, host, () => {
@@ -82781,11 +83656,11 @@ async function init() {
     process.exit(1);
   }
 }
-var import_express11, import_node_http, import_node_path11, import_node_url2, import_meta2, __dirname3, publicDir, log32, app, server;
+var import_express15, import_node_http, import_node_path11, import_node_url2, import_meta2, __dirname3, publicDir, log32, app, server;
 var init_server = __esm({
   "server.js"() {
     init_config();
-    import_express11 = __toESM(require_express2(), 1);
+    import_express15 = __toESM(require_express2(), 1);
     import_node_http = require("node:http");
     import_node_path11 = __toESM(require("node:path"), 1);
     import_node_url2 = require("node:url");
@@ -82797,6 +83672,7 @@ var init_server = __esm({
     init_RuntimeSupervisor();
     init_JobOrchestrator();
     init_AlertDispatcher();
+    init_NotificationService();
     init_TunnelService();
     init_errorHandler();
     init_logger();
@@ -82805,10 +83681,10 @@ var init_server = __esm({
     __dirname3 = import_meta2.url ? import_node_path11.default.dirname((0, import_node_url2.fileURLToPath)(import_meta2.url)) : process.env.PKX_ASSET_ROOT || process.cwd();
     publicDir = resolveAsset("public", import_node_path11.default.join(__dirname3, "public"));
     log32 = createLogger("Server");
-    app = (0, import_express11.default)();
+    app = (0, import_express15.default)();
     server = (0, import_node_http.createServer)(app);
-    app.use(import_express11.default.json({ limit: "200mb" }));
-    app.use(import_express11.default.urlencoded({ extended: true }));
+    app.use(import_express15.default.json({ limit: "200mb" }));
+    app.use(import_express15.default.urlencoded({ extended: true }));
     app.use((req, res, next) => {
       res.header("Access-Control-Allow-Origin", "*");
       res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
@@ -82816,7 +83692,7 @@ var init_server = __esm({
       if (req.method === "OPTIONS") return res.sendStatus(200);
       next();
     });
-    app.use(import_express11.default.static(publicDir));
+    app.use(import_express15.default.static(publicDir));
     app.get("/cloud", (req, res) => {
       res.sendFile(import_node_path11.default.join(publicDir, "cloud.html"));
     });
