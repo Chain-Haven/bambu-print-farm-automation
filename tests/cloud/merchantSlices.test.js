@@ -361,6 +361,118 @@ describe('merchant slicing API handlers', () => {
         expect(JSON.stringify(store.updateMerchantSliceJob.mock.calls)).not.toContain('node_id=');
     });
 
+    it('fails safely when slice finalization returns null after artifact persistence', async () => {
+        const { createSlice, store } = createHandlers({
+            store: {
+                updateMerchantSliceJob: vi.fn()
+                    .mockResolvedValueOnce(null)
+                    .mockImplementationOnce(async ({ sliceJobId, fields }) => ({
+                        slice_job_id: sliceJobId,
+                        org_id: 'org-1',
+                        merchant_id: 'merchant-1',
+                        file_id: 'source-file',
+                        ...fields,
+                    })),
+            },
+        });
+
+        let caughtError;
+        try {
+            await createSlice({
+                file_id: 'source-file',
+                profile: { quality: 'standard' },
+            });
+        } catch (error) {
+            caughtError = error;
+        }
+
+        expect(caughtError).toMatchObject({
+            statusCode: 500,
+            code: 'slice_finalization_failed',
+            message: 'Slice could not be finalized',
+        });
+        expect(store.createMerchantJobArtifact).toHaveBeenCalled();
+        expect(store.updateMerchantSliceJob.mock.calls[0][0]).toMatchObject({
+            merchantId: 'merchant-1',
+            sliceJobId: 'slice1',
+            fields: {
+                status: 'completed_mock',
+                result: expect.objectContaining({
+                    provider: 'mock',
+                    artifact_id: 'artifact1',
+                }),
+            },
+        });
+        expect(store.updateMerchantSliceJob.mock.calls[1][0]).toEqual({
+            merchantId: 'merchant-1',
+            sliceJobId: 'slice1',
+            fields: {
+                status: 'failed',
+                result: {
+                    provider: 'mock',
+                    error_code: 'slice_finalization_failed',
+                    message: 'Slice could not be finalized',
+                },
+                metadata: {
+                    error_code: 'slice_finalization_failed',
+                },
+            },
+        });
+    });
+
+    it('fails safely when slice finalization throws after artifact persistence', async () => {
+        const rawError = 'postgres://internal-db node_id=writer-3 stack at finalize.js:77';
+        const { createSlice, store } = createHandlers({
+            store: {
+                updateMerchantSliceJob: vi.fn()
+                    .mockRejectedValueOnce(new Error(rawError))
+                    .mockImplementationOnce(async ({ sliceJobId, fields }) => ({
+                        slice_job_id: sliceJobId,
+                        org_id: 'org-1',
+                        merchant_id: 'merchant-1',
+                        file_id: 'source-file',
+                        ...fields,
+                    })),
+            },
+        });
+
+        let caughtError;
+        try {
+            await createSlice({
+                file_id: 'source-file',
+                profile: { quality: 'standard' },
+            });
+        } catch (error) {
+            caughtError = error;
+        }
+
+        expect(caughtError).toMatchObject({
+            statusCode: 500,
+            code: 'slice_finalization_failed',
+            message: 'Slice could not be finalized',
+        });
+        expect(JSON.stringify(caughtError)).not.toContain('postgres://internal-db');
+        expect(JSON.stringify(caughtError)).not.toContain('node_id=');
+        expect(store.createMerchantJobArtifact).toHaveBeenCalled();
+        expect(store.updateMerchantSliceJob.mock.calls[1][0]).toEqual({
+            merchantId: 'merchant-1',
+            sliceJobId: 'slice1',
+            fields: {
+                status: 'failed',
+                result: {
+                    provider: 'mock',
+                    error_code: 'slice_finalization_failed',
+                    message: 'Slice could not be finalized',
+                },
+                metadata: {
+                    error_code: 'slice_finalization_failed',
+                },
+            },
+        });
+        expect(JSON.stringify(store.updateMerchantSliceJob.mock.calls)).not.toContain('postgres://internal-db');
+        expect(JSON.stringify(store.updateMerchantSliceJob.mock.calls)).not.toContain('node_id=');
+    });
+
     it('rejects ready-to-print files because slicing requires a source model', async () => {
         const { createSlice, store, adapters } = createHandlers({
             store: {

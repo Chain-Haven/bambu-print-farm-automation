@@ -101,6 +101,14 @@ function artifactFailureResult(adapterResult) {
     };
 }
 
+function finalizationFailureResult(adapterResult) {
+    return {
+        provider: adapterResult.provider,
+        error_code: 'slice_finalization_failed',
+        message: 'Slice could not be finalized',
+    };
+}
+
 function artifactPayload(artifact) {
     const payload = publicArtifact(artifact) || {};
     if (artifact?.slice_job_id) payload.slice_id = artifact.slice_job_id;
@@ -150,6 +158,25 @@ async function markSliceArtifactFailed({
             result: artifactFailureResult(adapterResult),
             metadata: {
                 error_code: 'artifact_persistence_failed',
+            },
+        },
+    });
+}
+
+async function markSliceFinalizationFailed({
+    store,
+    merchant,
+    sliceJobId,
+    adapterResult,
+}) {
+    await store.updateMerchantSliceJob({
+        merchantId: merchant.merchant_id,
+        sliceJobId,
+        fields: {
+            status: 'failed',
+            result: finalizationFailureResult(adapterResult),
+            metadata: {
+                error_code: 'slice_finalization_failed',
             },
         },
     });
@@ -239,13 +266,31 @@ export function createSliceHandlers({
             completed_at: adapterResult.completed_at || null,
             updated_at: adapterResult.updated_at,
         };
-        const sliceJob = await store.updateMerchantSliceJob({
-            merchantId: merchant.merchant_id,
-            sliceJobId,
-            fields: finalFields,
-        });
+        let sliceJob = null;
+        try {
+            sliceJob = await store.updateMerchantSliceJob({
+                merchantId: merchant.merchant_id,
+                sliceJobId,
+                fields: finalFields,
+            });
+            if (!sliceJob) {
+                throw new Error('slice finalization returned no row');
+            }
+        } catch {
+            try {
+                await markSliceFinalizationFailed({
+                    store,
+                    merchant,
+                    sliceJobId,
+                    adapterResult,
+                });
+            } catch {
+                // Return the sanitized create failure even if compensation cannot be persisted.
+            }
+            throw createHttpError(500, 'slice_finalization_failed', 'Slice could not be finalized');
+        }
 
-        return publicOk(publicSlice(sliceJob || { ...initialSliceJob, ...finalFields }, publicArtifact(storedArtifact?.payload || artifact)), requestId);
+        return publicOk(publicSlice(sliceJob, publicArtifact(storedArtifact?.payload || artifact)), requestId);
     }
 
     async function getSlice(body = {}, request = null, requestId = undefined) {
