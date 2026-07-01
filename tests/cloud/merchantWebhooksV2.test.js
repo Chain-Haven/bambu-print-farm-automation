@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createMerchantWebhooksV2Handlers } from '../../src/cloud/merchantWebhooksV2.js';
+import { signWebhookPayload } from '../../src/cloud/webhooks.js';
 
 const now = () => new Date('2026-07-01T12:00:00.000Z');
 
@@ -90,6 +91,8 @@ function createHandlers() {
             authenticateMerchant,
             now,
             secretGenerator: () => 'whsec_test_secret_for_task_9',
+            signingSecretEncryptionKey: 'test-webhook-signing-secret-key',
+            encryptionIvGenerator: () => Buffer.alloc(12, 7),
             idGenerator: () => '11111111-1111-4111-8111-111111111111',
         }),
     };
@@ -121,6 +124,11 @@ describe('merchant webhooks v2 public handlers', () => {
         const patched = await updateEndpoint({
             webhook_id: created.webhook_id,
             events: ['job.created', 'shipment.created'],
+            metadata: {
+                label: 'updated',
+                webhook_signing_secret: 'attacker-supplied-secret',
+                secret: 'metadata-update-secret',
+            },
         });
         const testDelivery = await testEndpoint({ webhook_id: created.webhook_id });
         const deleted = await deleteEndpoint({ webhook_id: created.webhook_id });
@@ -137,8 +145,15 @@ describe('merchant webhooks v2 public handlers', () => {
         expect(list.endpoints[0]).not.toHaveProperty('secret_hash');
         expect(fetched).not.toHaveProperty('secret');
         expect(fetched).not.toHaveProperty('secret_hash');
-        expect(JSON.stringify({ list, fetched, patched, testDelivery, deleted })).not.toContain('whsec_test_secret');
-        expect(JSON.stringify({ created, list, fetched, patched, testDelivery, deleted })).not.toContain('merchant-supplied-secret');
+        const publicResponses = { list, fetched, patched, testDelivery, deleted };
+        expect(JSON.stringify(publicResponses)).not.toContain('whsec_test_secret');
+        expect(JSON.stringify(publicResponses)).not.toContain('secret_hash');
+        expect(JSON.stringify(publicResponses)).not.toContain('webhook_signing_secret');
+        expect(JSON.stringify(publicResponses)).not.toContain('encrypted_signing_secret');
+        expect(JSON.stringify(publicResponses)).not.toContain('merchant-supplied-secret');
+        expect(JSON.stringify(publicResponses)).not.toContain('attacker-supplied-secret');
+        expect(JSON.stringify(publicResponses)).not.toContain('metadata-update-secret');
+        expect(JSON.stringify({ created, ...publicResponses })).not.toContain('merchant-supplied-secret');
 
         expect(patched).toMatchObject({
             ok: true,
@@ -165,11 +180,42 @@ describe('merchant webhooks v2 public handlers', () => {
         });
         expect(persistedEndpoint.secret_hash).toEqual(expect.stringMatching(/^[a-f0-9]{64}$/));
         expect(persistedEndpoint.secret_hash).not.toBe(created.secret);
+        expect(JSON.stringify(persistedEndpoint.metadata)).not.toContain(created.secret);
+        expect(persistedEndpoint.metadata).toMatchObject({
+            label: 'primary',
+            webhook_signing_secret: {
+                alg: 'aes-256-gcm',
+                ciphertext: expect.any(String),
+                iv: expect.any(String),
+                tag: expect.any(String),
+            },
+        });
+        const metadataPatch = store.updateMerchantWebhookEndpoint.mock.calls.find((call) => (
+            call[0].fields?.metadata
+        ))[0].fields.metadata;
+        expect(metadataPatch).toMatchObject({
+            label: 'updated',
+            webhook_signing_secret: persistedEndpoint.metadata.webhook_signing_secret,
+        });
+        expect(JSON.stringify(metadataPatch)).not.toContain(created.secret);
+        expect(JSON.stringify(metadataPatch)).not.toContain('attacker-supplied-secret');
 
         expect(store.deleteMerchantWebhookEndpoint).toHaveBeenCalledWith({
             merchantId: 'merchant-1',
             webhookId: created.webhook_id,
         });
+        const storedDelivery = store.createMerchantWebhookDelivery.mock.calls[0][0];
+        const expectedSignature = signWebhookPayload({
+            secret: created.secret,
+            timestamp: storedDelivery.metadata.timestamp,
+            body: JSON.stringify(storedDelivery.request_payload),
+        });
+        expect(storedDelivery.metadata.signature).toBe(expectedSignature);
+        expect(storedDelivery.metadata.signature).not.toBe(signWebhookPayload({
+            secret: persistedEndpoint.secret_hash,
+            timestamp: storedDelivery.metadata.timestamp,
+            body: JSON.stringify(storedDelivery.request_payload),
+        }));
         expect(store.createMerchantWebhookDelivery).toHaveBeenCalledWith(expect.objectContaining({
             org_id: 'org-1',
             merchant_id: 'merchant-1',
@@ -184,7 +230,7 @@ describe('merchant webhooks v2 public handlers', () => {
                 }),
             }),
             metadata: expect.objectContaining({
-                signature: expect.stringMatching(/^v1=[a-f0-9]{64}$/),
+                signature: expectedSignature,
                 timestamp: '1782907200',
             }),
         }));

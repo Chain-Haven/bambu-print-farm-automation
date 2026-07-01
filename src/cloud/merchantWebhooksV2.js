@@ -34,6 +34,55 @@ function hashSecret(secret, pepper = '') {
     return crypto.createHash('sha256').update(input, 'utf8').digest('hex');
 }
 
+function encryptionKey(keyMaterial = '') {
+    return crypto.createHash('sha256').update(String(keyMaterial), 'utf8').digest();
+}
+
+function encryptSigningSecret(secret, {
+    keyMaterial,
+    ivGenerator,
+}) {
+    const iv = Buffer.from(ivGenerator());
+    const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey(keyMaterial), iv);
+    const ciphertext = Buffer.concat([
+        cipher.update(secret, 'utf8'),
+        cipher.final(),
+    ]);
+    return {
+        alg: 'aes-256-gcm',
+        iv: iv.toString('base64'),
+        ciphertext: ciphertext.toString('base64'),
+        tag: cipher.getAuthTag().toString('base64'),
+    };
+}
+
+function decryptSigningSecret(encrypted = {}, keyMaterial = '') {
+    if (encrypted.alg !== 'aes-256-gcm' || !encrypted.iv || !encrypted.ciphertext || !encrypted.tag) {
+        throw createHttpError(409, 'webhook_secret_unavailable', 'Webhook signing secret is unavailable');
+    }
+    try {
+        const decipher = crypto.createDecipheriv(
+            'aes-256-gcm',
+            encryptionKey(keyMaterial),
+            Buffer.from(encrypted.iv, 'base64'),
+        );
+        decipher.setAuthTag(Buffer.from(encrypted.tag, 'base64'));
+        return Buffer.concat([
+            decipher.update(Buffer.from(encrypted.ciphertext, 'base64')),
+            decipher.final(),
+        ]).toString('utf8');
+    } catch {
+        throw createHttpError(409, 'webhook_secret_unavailable', 'Webhook signing secret is unavailable');
+    }
+}
+
+function endpointMetadataWithSigningSecret(sourceMetadata, encryptedSigningSecret) {
+    return {
+        ...redactPublicValue(safeObject(sourceMetadata)),
+        webhook_signing_secret: encryptedSigningSecret,
+    };
+}
+
 function requiredWebhookId(value) {
     return requiredString(value, 'webhook_id');
 }
@@ -142,6 +191,10 @@ export function createMerchantWebhooksV2Handlers({
         || process.env.MERCHANT_API_KEY_PEPPER
         || process.env.NODE_TOKEN_PEPPER
         || '',
+    signingSecretEncryptionKey = process.env.MERCHANT_WEBHOOK_SIGNING_SECRET_KEY
+        || secretPepper
+        || '',
+    encryptionIvGenerator = () => crypto.randomBytes(12),
 } = {}) {
     if (!store) throw new Error('store is required');
 
@@ -171,7 +224,13 @@ export function createMerchantWebhooksV2Handlers({
             secret_hash: hashSecret(secret, secretPepper),
             status: normalizeStatus(source.status, 'active'),
             last_delivery_at: null,
-            metadata: redactPublicValue(safeObject(source.metadata)),
+            metadata: endpointMetadataWithSigningSecret(
+                source.metadata,
+                encryptSigningSecret(secret, {
+                    keyMaterial: signingSecretEncryptionKey,
+                    ivGenerator: encryptionIvGenerator,
+                }),
+            ),
             created_at: timestamp,
             updated_at: timestamp,
         });
@@ -211,7 +270,10 @@ export function createMerchantWebhooksV2Handlers({
             fields.status = normalizeStatus(source.status, current.status || 'active');
         }
         if (source.metadata !== undefined) {
-            fields.metadata = redactPublicValue(safeObject(source.metadata));
+            fields.metadata = endpointMetadataWithSigningSecret(
+                source.metadata,
+                safeObject(current.metadata).webhook_signing_secret,
+            );
         }
 
         const endpoint = await store.updateMerchantWebhookEndpoint({
@@ -258,7 +320,10 @@ export function createMerchantWebhooksV2Handlers({
         const bodyText = JSON.stringify(payload);
         const timestamp = String(Math.floor(now().getTime() / 1000));
         const signature = signWebhookPayload({
-            secret: endpoint.secret_hash,
+            secret: decryptSigningSecret(
+                safeObject(endpoint.metadata).webhook_signing_secret,
+                signingSecretEncryptionKey,
+            ),
             timestamp,
             body: bodyText,
         });
