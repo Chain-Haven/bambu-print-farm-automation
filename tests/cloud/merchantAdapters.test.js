@@ -136,5 +136,15 @@ describe('merchant API v2 helpers', () => {
             message: 'Unexpected server error',
             request_id: 'req-5',
         });
+        expect(publicError({
+            statusCode: 400,
+            code: 'bad_request',
+            message: 'internal secret detail',
+        }, 'req-6')).toEqual({
+            ok: false,
+            error: 'internal_error',
+            message: 'Unexpected server error',
+            request_id: 'req-6',
+        });
     });
 });
