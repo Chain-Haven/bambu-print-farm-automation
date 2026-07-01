@@ -1143,6 +1143,14 @@ export function createSupabaseRestClient({
             return createMerchantV2Row('merchant_inspections', inspection);
         },
 
+        async getMerchantInspection({ merchantId, inspectionId }) {
+            return getMerchantV2Row('merchant_inspections', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_inspections,
+                id: inspectionId,
+            });
+        },
+
         async getMerchantInspectionByJob({ merchantId, jobId }) {
             const rows = await request(merchantV2ResourcePath('merchant_inspections', {
                 merchantId,
@@ -1150,6 +1158,24 @@ export function createSupabaseRestClient({
                 id: jobId,
             }));
             return firstRow(rows);
+        },
+
+        async listMerchantInspections({
+            merchantId,
+            jobId = null,
+            orderId = null,
+            status = null,
+            limit = 50,
+        }) {
+            const filters = [];
+            if (jobId) filters.push(`job_id=${eqFilter(jobId, 'job_id')}`);
+            if (orderId) filters.push(`order_id=${eqFilter(orderId, 'order_id')}`);
+            if (status) filters.push(`status=${eqFilter(status, 'status')}`);
+            return listMerchantV2Rows('merchant_inspections', {
+                merchantId,
+                filters,
+                limit,
+            });
         },
 
         async updateMerchantInspection({ merchantId, inspectionId, fields = {} }) {
@@ -1165,8 +1191,25 @@ export function createSupabaseRestClient({
             return createMerchantV2Row('merchant_post_processing_tasks', task);
         },
 
-        async listMerchantPostProcessingTasks({ merchantId, jobId = null, limit = 50 }) {
-            const filters = jobId ? [`job_id=${eqFilter(jobId, 'job_id')}`] : [];
+        async getMerchantPostProcessingTask({ merchantId, taskId }) {
+            return getMerchantV2Row('merchant_post_processing_tasks', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_post_processing_tasks,
+                id: taskId,
+            });
+        },
+
+        async listMerchantPostProcessingTasks({
+            merchantId,
+            jobId = null,
+            orderId = null,
+            status = null,
+            limit = 50,
+        }) {
+            const filters = [];
+            if (jobId) filters.push(`job_id=${eqFilter(jobId, 'job_id')}`);
+            if (orderId) filters.push(`order_id=${eqFilter(orderId, 'order_id')}`);
+            if (status) filters.push(`status=${eqFilter(status, 'status')}`);
             return listMerchantV2Rows('merchant_post_processing_tasks', { merchantId, filters, limit });
         },
 
@@ -1177,6 +1220,25 @@ export function createSupabaseRestClient({
                 id: taskId,
                 body: fields,
             });
+        },
+
+        async updateMerchantPostProcessingTaskIfStatus({
+            merchantId,
+            taskId,
+            allowedStatuses = [],
+            fields = {},
+        }) {
+            const rows = await request(merchantV2ConditionalResourcePath('merchant_post_processing_tasks', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_post_processing_tasks,
+                id: taskId,
+                filters: [`status=${statusInFilter(allowedStatuses)}`],
+            }), {
+                method: 'PATCH',
+                headers: { Prefer: 'return=representation' },
+                body: fields,
+            });
+            return firstRow(rows);
         },
 
         async createMerchantShipment(shipment) {

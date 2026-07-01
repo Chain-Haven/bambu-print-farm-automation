@@ -20,6 +20,14 @@ function methodNotAllowed(res, methods, requestId) {
     );
 }
 
+function normalizeMethods(methods) {
+    if (Array.isArray(methods)) return methods.map((method) => String(method).trim()).filter(Boolean);
+    return String(methods || '')
+        .split(',')
+        .map((method) => method.trim())
+        .filter(Boolean);
+}
+
 function statusForError(error) {
     return Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode < 600
         ? error.statusCode
@@ -69,7 +77,10 @@ export async function runMerchantRoute(req, res, {
     handle,
 }) {
     const requestId = createRequestId();
-    if (req.method && req.method !== methods) return methodNotAllowed(res, methods, requestId);
+    const allowedMethods = normalizeMethods(methods);
+    if (req.method && !allowedMethods.includes(req.method)) {
+        return methodNotAllowed(res, allowedMethods.join(', '), requestId);
+    }
 
     try {
         const result = await handle(requestId);
