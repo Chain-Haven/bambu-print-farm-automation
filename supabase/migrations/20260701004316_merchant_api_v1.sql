@@ -98,7 +98,8 @@ alter table public.print_jobs
     'canceled',
     'needs_slicing',
     'needs_review',
-    'waiting_for_capacity'
+    'waiting_for_capacity',
+    'reprint_requested'
   ));
 
 create trigger platform_settings_set_updated_at

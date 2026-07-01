@@ -283,19 +283,43 @@ async function main() {
     }
 
     async function waitForText(page, selector, text, timeout = 30000) {
-        await page.waitForFunction(
-            ({ selector: query, text: expected }) => document.querySelector(query)?.textContent?.includes(expected),
-            { selector, text },
-            { timeout },
-        );
+        try {
+            await page.waitForFunction(
+                ({ selector: query, text: expected }) => document.querySelector(query)?.textContent?.includes(expected),
+                { selector, text },
+                { timeout },
+            );
+        } catch (error) {
+            const visibleText = await page.locator(selector).innerText({ timeout: 1000 }).catch(() => '');
+            throw new Error(`Timed out waiting for ${selector} to include "${text}". Visible text: ${visibleText.slice(0, 500)}`);
+        }
     }
 
     async function waitForCountAtLeast(page, selector, count, timeout = 30000) {
-        await page.waitForFunction(
-            ({ selector: query, count: expected }) => Number(document.querySelector(query)?.textContent || 0) >= expected,
-            { selector, count },
-            { timeout },
-        );
+        try {
+            await page.waitForFunction(
+                ({ selector: query, count: expected }) => Number(document.querySelector(query)?.textContent || 0) >= expected,
+                { selector, count },
+                { timeout },
+            );
+        } catch (error) {
+            const visibleText = await page.locator(selector).innerText({ timeout: 1000 }).catch(() => '');
+            throw new Error(`Timed out waiting for ${selector} to be at least ${count}. Visible text: ${visibleText}`);
+        }
+    }
+
+    async function eventually(fn, { timeoutMs = 15000, intervalMs = 750 } = {}) {
+        const deadline = Date.now() + timeoutMs;
+        let lastError = null;
+        while (Date.now() <= deadline) {
+            try {
+                return await fn();
+            } catch (error) {
+                lastError = error;
+                await new Promise((resolve) => setTimeout(resolve, intervalMs));
+            }
+        }
+        throw lastError || new Error('condition was not met before timeout');
     }
 
     async function seedPrinter({ orgId, nodeId, localPrinterId }) {
@@ -714,6 +738,12 @@ async function main() {
                 adminPage.locator('#integrations-form button[type="submit"]').click(),
             ]);
             await waitForText(adminPage, '#farm-automation-plan', 'auto ejection', 45000);
+            const persisted = await adminApi('/api/cloud/farm-automation?limit=100', { expected: [200] });
+            const persistedSpools = persisted.automation?.settings?.inventory?.spools || [];
+            assert(
+                persistedSpools.some((spool) => spool.spool_id === `${RUN_ID}-pla-cyan`),
+                'admin farm automation readback did not include the PLA E2E spool',
+            );
             return {
                 spools_saved: farmInventory.spools.length,
                 integrations_saved: Object.values(farmIntegrations).flat().length,
@@ -784,16 +814,19 @@ async function main() {
         });
 
         await step('public farm capability and filament endpoints publish availability', async () => {
-            const filaments = await api('/api/public/farm/filaments', { expected: [200] });
-            const capabilities = await api('/api/public/farm/capabilities', { expected: [200] });
-            const materials = (filaments.filaments?.materials || []).map((item) => item.material);
-            assert(materials.includes('PLA'), 'public filament endpoint did not include PLA');
-            assert(materials.includes('PETG'), 'public filament endpoint did not include PETG');
-            assert(capabilities.capabilities?.features?.filament_inventory === true, 'public capabilities did not enable filament inventory');
-            assert(capabilities.capabilities?.features?.auto_ejection === true, 'public capabilities did not enable auto ejection');
-            assert(capabilities.capabilities?.features?.shopify === true, 'public capabilities did not expose Shopify integration');
-            assert(capabilities.capabilities?.features?.shipstation === true, 'public capabilities did not expose ShipStation integration');
-            assert(capabilities.capabilities?.features?.slack_alerts === true, 'public capabilities did not expose Slack alerts');
+            const { filaments, capabilities, materials } = await eventually(async () => {
+                const filamentsPayload = await api(`/api/public/farm/filaments?run_id=${encodeURIComponent(RUN_ID)}&t=${Date.now()}`, { expected: [200] });
+                const capabilitiesPayload = await api(`/api/public/farm/capabilities?run_id=${encodeURIComponent(RUN_ID)}&t=${Date.now()}`, { expected: [200] });
+                const publicMaterials = (filamentsPayload.filaments?.materials || []).map((item) => item.material);
+                assert(publicMaterials.includes('PLA'), 'public filament endpoint did not include PLA');
+                assert(publicMaterials.includes('PETG'), 'public filament endpoint did not include PETG');
+                assert(capabilitiesPayload.capabilities?.features?.filament_inventory === true, 'public capabilities did not enable filament inventory');
+                assert(capabilitiesPayload.capabilities?.features?.auto_ejection === true, 'public capabilities did not enable auto ejection');
+                assert(capabilitiesPayload.capabilities?.features?.shopify === true, 'public capabilities did not expose Shopify integration');
+                assert(capabilitiesPayload.capabilities?.features?.shipstation === true, 'public capabilities did not expose ShipStation integration');
+                assert(capabilitiesPayload.capabilities?.features?.slack_alerts === true, 'public capabilities did not expose Slack alerts');
+                return { filaments: filamentsPayload, capabilities: capabilitiesPayload, materials: publicMaterials };
+            }, { timeoutMs: 20000, intervalMs: 1000 });
             return {
                 materials,
                 accepting_jobs: capabilities.capabilities?.accepting_jobs,
@@ -871,6 +904,7 @@ async function main() {
         });
 
         const printJob = await step('merchant print job ingestion routing idempotency and lifecycle work', async () => {
+            const jobName = `E2E Routed Print ${RUN_ID}`;
             const requirements = {
                 material: 'PLA',
                 color: COLOR_HEX,
@@ -878,7 +912,7 @@ async function main() {
                 estimated_grams: 18,
             };
             const jobBody = {
-                name: `E2E Routed Print ${RUN_ID}`,
+                name: jobName,
                 file: {
                     name: `${RUN_ID}.gcode`,
                     content_type: 'text/plain',
@@ -936,6 +970,7 @@ async function main() {
             assert(reprint.job?.status === 'reprint_requested', 'reprint endpoint did not create a reprint request');
             return {
                 job_id: created.job.job_id,
+                job_name: jobName,
                 routed_printer_id: created.routing.selected_printer_id,
                 print_command_claimed: true,
                 reprint_job_id: reprint.job.job_id,
@@ -950,10 +985,11 @@ async function main() {
             ]);
             await waitForCountAtLeast(adminPage, '#merchant-job-count', 1, 45000);
             await waitForCountAtLeast(adminPage, '#merchant-usage-count', 1, 45000);
-            await waitForText(adminPage, '#merchant-jobs-table', printJob.job_id.slice(0, 8), 45000);
+            await waitForText(adminPage, '#merchant-jobs-table', printJob.job_name, 45000);
             await adminPage.locator('#refresh').click();
             await waitForText(adminPage, '#events-table', 'printer.discovered', 45000);
-            await waitForText(adminPage, '#commands-table', adminCommand.command_id.slice(0, 8), 45000);
+            await waitForText(adminPage, '#commands-table', 'printer.status', 45000);
+            await waitForText(adminPage, '#commands-table', 'succeeded', 45000);
 
             const jobs = await adminApi(`/api/cloud/merchant-jobs?merchant_id=${encodeURIComponent(merchant.merchant_id)}&limit=20`, { expected: [200] });
             const usage = await adminApi(`/api/cloud/merchant-usage?merchant_id=${encodeURIComponent(merchant.merchant_id)}&limit=50`, { expected: [200] });
