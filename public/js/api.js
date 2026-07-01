@@ -134,4 +134,9 @@ class ApiClient {
 
     // Tunnel
     getTunnelStatus() { return this.request('GET', '/system/tunnel/status'); }
-    startTunnel() { retu
+    startTunnel() { return this.request('POST', '/system/tunnel/start'); }
+    stopTunnel() { return this.request('POST', '/system/tunnel/stop'); }
+}
+
+window.ApiClient = ApiClient;
+window.api = new ApiClient();

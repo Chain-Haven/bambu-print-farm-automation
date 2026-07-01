@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PrintKinetix Windows Node Guide</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --text: #18202f;
+      --muted: #526073;
+      --line: #d9e0ea;
+      --accent: #0f766e;
+      --code: #111827;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #10141d;
+        --panel: #171d29;
+        --text: #eff4fb;
+        --muted: #a8b3c2;
+        --line: #2d3748;
+        --accent: #2dd4bf;
+        --code: #0b1020;
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 44px 20px 72px;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 24px;
+      padding-bottom: 24px;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(2rem, 6vw, 3.4rem);
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 34px 0 12px;
+      font-size: 1.35rem;
+      letter-spacing: 0;
+    }
+
+    p, li { color: var(--muted); }
+    a { color: var(--accent); }
+
+    code {
+      border-radius: 4px;
+      background: rgba(15, 118, 110, 0.12);
+      color: var(--text);
+      padding: 0.1rem 0.25rem;
+    }
+
+    pre {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--code);
+      color: #eef6ff;
+      padding: 16px;
+    }
+
+    pre code {
+      background: transparent;
+      color: inherit;
+      padding: 0;
+    }
+
+    section {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 20px;
+      margin: 18px 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th { color: var(--text); }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Windows Local Node</h1>
+      <p>Run one Windows computer on the same local network as the Bambu printers. It keeps an outbound secure connection to Vercel and executes printer work over LAN.</p>
+      <p><a href="/merchant-onboarding.html">Merchant onboarding</a> | <a href="/merchant-api.html">Merchant API docs</a> | <a href="/cloud">Cloud console</a></p>
+    </header>
+
+    <section>
+      <h2>Network Model</h2>
+      <ul>
+        <li>The Windows node only needs <strong>HTTPS outbound</strong> access to the Vercel app.</li>
+        <li>Do not open inbound firewall ports from the public internet to the Windows node.</li>
+        <li>The node stores <code>LOCAL_NODE_TOKEN</code>, not <code>SUPABASE_SERVICE_ROLE_KEY</code>, <code>CLOUD_ADMIN_TOKEN</code>, or token pepper values.</li>
+        <li>The node talks to printers through LAN MQTT and FTPS after the printer is configured locally.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Setup</h2>
+      <ol>
+        <li>Open <code>/cloud</code> and enter the bootstrap admin token.</li>
+        <li>Create an organization, then provision a node with <code>POST /api/cloud/nodes</code>.</li>
+        <li>Copy the one-time <code>LOCAL_NODE_TOKEN</code>, or download the prefilled ZIP with <code>POST /api/cloud/node-package</code>.</li>
+        <li>Install Node.js 24 LTS or newer on Windows.</li>
+        <li>Extract the ZIP to <code>C:\PrintKinetix</code>.</li>
+        <li>Run <code>Start Cloud Node.bat</code>.</li>
+        <li>Open <code>http://localhost:3000</code> on that Windows computer and add each Bambu printer with its LAN IP, serial, and access code.</li>
+        <li>Return to <code>/cloud</code> and verify the node heartbeat is online.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Agent Endpoints</h2>
+      <table>
+        <thead>
+          <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>POST</td><td><code>/api/agent/heartbeat</code></td><td>Reports node status and capabilities.</td></tr>
+          <tr><td>GET</td><td><code>/api/agent/commands</code></td><td>Claims queued commands for this node.</td></tr>
+          <tr><td>POST</td><td><code>/api/agent/command-result</code></td><td>Reports running, succeeded, or failed command state.</td></tr>
+          <tr><td>POST</td><td><code>/api/agent/events</code></td><td>Streams operational events back to cloud history.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Print Command</h2>
+      <p>The merchant API queues <code>cloud.print.ready</code> when a ready file can be routed. The Windows node downloads the signed private artifact, wraps raw <code>.gcode</code> into <code>.gcode.3mf</code> when needed, uploads it to the selected printer over LAN FTPS, and starts the print over Bambu MQTT.</p>
+      <pre><code>{
+  "command_type": "cloud.print.ready",
+  "payload": {
+    "local_printer_id": "printer-1",
+    "download_url": "https://...",
+    "original_name": "part.gcode.3mf"
+  }
+}</code></pre>
+    </section>
+  </main>
+</body>
+</html>

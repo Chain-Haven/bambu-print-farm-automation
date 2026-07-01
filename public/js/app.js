@@ -4,6 +4,7 @@
 const $ = (s, p = document) => p.querySelector(s);
 const $$ = (s, p = document) => [...p.querySelectorAll(s)];
 const html = (strings, ...vals) => strings.reduce((r, s, i) => r + s + (vals[i] ?? ''), '');
+const api = window.api;
 
 function toast(message, type = 'info') {
   const container = $('#toast-container');
@@ -13,6 +14,8 @@ function toast(message, type = 'info') {
   container.appendChild(el);
   setTimeout(() => el.remove(), 4000);
 }
+
+window.toast = toast;
 
 window.showModal = function (content) {
   const overlay = $('#modal-overlay');
@@ -157,6 +160,8 @@ async function navigateTo(path) {
     contentEl.innerHTML = '<div class="empty-state"><h3>404</h3><p>Page not found</p></div>';
   }
 }
+
+window.navigateTo = navigateTo;
 
 // Hash-based routing
 window.addEventListener('hashchange', () => {
@@ -2807,4 +2812,152 @@ window.useTemplate = async function (templateId) {
             </label>
           </div>
 
-          <div id="sft-transform-section" style="${ov.skip_transform ? 'di
+          <div id="sft-transform-section" style="${ov.skip_transform ? 'display:none;' : ''}">
+            <div class="form-group">
+              <label>Transform Profile</label>
+              <select class="form-control" id="sft-profile">
+                <option value="">None</option>
+                ${profiles.map(p => html`<option value="${p.profile_id}" ${p.profile_id === tmpl.profile_id ? 'selected' : ''}>${p.name} (${p.printer_model})</option>`).join('')}
+              </select>
+            </div>
+
+            <details style="margin-top:0.5rem;">
+              <summary style="cursor:pointer;font-weight:600;font-size:0.88rem;color:var(--accent-primary);user-select:none;">
+                Automator Settings
+              </summary>
+              <div style="margin-top:0.75rem;display:grid;grid-template-columns:1fr 1fr;gap:0.65rem;">
+                <div class="form-group" style="margin:0;">
+                  <label style="font-size:0.78rem;">Printer Model</label>
+                  <select class="form-control" id="sft-printer-model">
+                    <option value="P1S" ${ov.printer_model === 'P1S' ? 'selected' : ''}>P1S</option>
+                    <option value="X1" ${ov.printer_model === 'X1' ? 'selected' : ''}>X1</option>
+                    <option value="A1" ${ov.printer_model === 'A1' ? 'selected' : ''}>A1</option>
+                    <option value="A1_MINI" ${ov.printer_model === 'A1_MINI' ? 'selected' : ''}>A1 Mini</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin:0;">
+                  <label style="font-size:0.78rem;">Print Loops (One File)</label>
+                  <input type="number" class="form-control" id="sft-n-loops" step="1" min="1" max="999" value="${ov.n_loops || 1}">
+                </div>
+                <div class="form-group" style="margin:0;">
+                  <label style="font-size:0.78rem;">Cooldown Mode</label>
+                  <select class="form-control" id="sft-cooldown-mode">
+                    <option value="temperature" ${ov.cooldown_mode !== 'time' ? 'selected' : ''}>Wait for temperature</option>
+                    <option value="time" ${ov.cooldown_mode === 'time' ? 'selected' : ''}>Wait fixed time</option>
+                  </select>
+                </div>
+                <div class="form-group sft-cool-temp" style="margin:0;">
+                  <label style="font-size:0.78rem;">Release Temp (C)</label>
+                  <input type="number" class="form-control" id="sft-release-temp" step="1" min="15" max="60" value="${ov.release_temp_c || 27}">
+                </div>
+                <div class="form-group sft-cool-temp" style="margin:0;">
+                  <label style="font-size:0.78rem;">Max Wait (min)</label>
+                  <input type="number" class="form-control" id="sft-max-wait" step="1" min="10" max="120" value="${ov.max_wait_min || 60}">
+                </div>
+                <div class="form-group sft-cool-time" style="margin:0;${ov.cooldown_mode === 'time' ? '' : 'display:none;'}">
+                  <label style="font-size:0.78rem;">Cool Time (min)</label>
+                  <input type="number" class="form-control" id="sft-cool-time" step="1" min="1" max="180" value="${ov.cool_time_min || 30}">
+                </div>
+                <div class="form-group" style="margin:0;">
+                  <label style="font-size:0.78rem;">Sweep Z (mm)</label>
+                  <input type="number" class="form-control" id="sft-sweep-z" step="0.5" min="1" max="20" value="${ov.sweep_z_mm || 4}">
+                </div>
+                <div class="form-group" style="margin:0;">
+                  <label style="font-size:0.78rem;">Z Clear Travel (mm)</label>
+                  <input type="number" class="form-control" id="sft-z-clear" step="1" min="10" max="300" value="${ov.z_clear_travel_mm || 200}">
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-lg" style="width:100%;font-size:1rem;margin-top:1rem;">Submit Now</button>
+        </form>
+      `);
+
+      function sftSyncCooldownMode() {
+        const isTime = $('#sft-cooldown-mode').value === 'time';
+        document.querySelectorAll('.sft-cool-temp').forEach(el => el.style.display = isTime ? 'none' : 'block');
+        document.querySelectorAll('.sft-cool-time').forEach(el => el.style.display = isTime ? 'block' : 'none');
+      }
+
+      function sftPopulateFromProfile() {
+        const profileId = $('#sft-profile').value;
+        const profile = profiles.find(p => p.profile_id === profileId);
+        if (!profile) return;
+        if (!ov.n_loops) $('#sft-n-loops').value = profile.n_loops ?? 1;
+        if (!ov.release_temp_c) $('#sft-release-temp').value = profile.release_bed_temp_c ?? profile.cool_target_c ?? 27;
+        if (!ov.max_wait_min) $('#sft-max-wait').value = profile.max_cool_wait_minutes ?? 60;
+        if (!ov.cooldown_mode && profile.cooldown_mode) $('#sft-cooldown-mode').value = profile.cooldown_mode;
+        if (!ov.cool_time_min) $('#sft-cool-time').value = profile.cool_time_minutes ?? 30;
+        sftSyncCooldownMode();
+      }
+
+      sftPopulateFromProfile();
+      sftSyncCooldownMode();
+      $('#sft-profile').onchange = sftPopulateFromProfile;
+      $('#sft-cooldown-mode').onchange = sftSyncCooldownMode;
+      $('#sft-skip-transform').onchange = function () {
+        $('#sft-transform-section').style.display = this.checked ? 'none' : 'block';
+      };
+
+      $('#submit-from-template-form').onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          const file = $('#sft-file').files[0];
+          if (!file) throw new Error('Select a G-code or 3MF file first');
+
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('name', $('#sft-name').value || tmpl.name || file.name);
+          formData.append('printer_id', $('#sft-printer').value || tmpl.printer_id || '');
+          formData.append('repeat_total', $('#sft-repeat').value || tmpl.repeat_total || '1');
+
+          const skipTransform = $('#sft-skip-transform').checked;
+          formData.append('skip_transform', skipTransform);
+
+          if (!skipTransform) {
+            formData.append('profile_id', $('#sft-profile').value || tmpl.profile_id || '');
+            const submitOverrides = {};
+            const model = $('#sft-printer-model').value;
+            if (model) submitOverrides.printer_model = model;
+            const nLoops = parseInt($('#sft-n-loops').value);
+            if (!isNaN(nLoops) && nLoops >= 1) submitOverrides.n_loops = nLoops;
+            const cooldownMode = $('#sft-cooldown-mode').value === 'time' ? 'time' : 'temperature';
+            submitOverrides.cooldown_mode = cooldownMode;
+            if (cooldownMode === 'time') {
+              const coolTime = parseInt($('#sft-cool-time').value);
+              if (!isNaN(coolTime)) submitOverrides.cool_time_min = coolTime;
+            } else {
+              const releaseTemp = parseInt($('#sft-release-temp').value);
+              if (!isNaN(releaseTemp)) submitOverrides.release_temp_c = releaseTemp;
+              const maxWait = parseInt($('#sft-max-wait').value);
+              if (!isNaN(maxWait)) submitOverrides.max_wait_min = maxWait;
+            }
+            const sweepZ = parseFloat($('#sft-sweep-z').value);
+            if (!isNaN(sweepZ)) submitOverrides.sweep_z_mm = sweepZ;
+            const zClear = parseFloat($('#sft-z-clear').value);
+            if (!isNaN(zClear)) submitOverrides.z_clear_travel_mm = zClear;
+            formData.append('transform_overrides', JSON.stringify(submitOverrides));
+          } else {
+            formData.append('transform_overrides', JSON.stringify({ skip_transform: true }));
+          }
+
+          await api.submitJob(formData);
+          hideModal();
+          toast('Job submitted from template!', 'success');
+          navigateTo('/jobs');
+        } catch (err) { toast(err.message, 'error'); }
+      };
+    }
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+};
+
+// ===== APP STARTUP =====
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.api?.isAuthenticated) {
+    window.ws?.connect();
+  }
+  navigateTo(window.location.hash.slice(1) || '/');
+});

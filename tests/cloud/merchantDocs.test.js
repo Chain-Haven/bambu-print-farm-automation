@@ -20,4 +20,39 @@ describe('merchant API docs', () => {
         ]));
         expect(spec.components.securitySchemes.MerchantApiKey.scheme).toBe('bearer');
     });
+
+    it('publishes a functional merchant onboarding page and Windows node setup guide', () => {
+        const onboarding = fs.readFileSync('public/merchant-onboarding.html', 'utf8');
+        const nodeGuide = fs.readFileSync('public/windows-node-guide.html', 'utf8');
+        const nodeGuideMarkdown = fs.readFileSync('docs/windows-local-node.md', 'utf8');
+
+        expect(onboarding).toContain('id="merchant-signup-form"');
+        expect(onboarding).toContain('/api/public/merchants/signup');
+        expect(onboarding).toContain('/api/public/api-keys');
+        expect(onboarding).toContain('pkx_live_');
+        expect(onboarding).toContain('approval-required by default');
+        expect(nodeGuide).toContain('/api/cloud/nodes');
+        expect(nodeGuide).toContain('/api/cloud/node-package');
+        expect(nodeGuide).toContain('LOCAL_NODE_TOKEN');
+        expect(nodeGuide).toContain('SUPABASE_SERVICE_ROLE_KEY');
+        expect(nodeGuideMarkdown).toContain('HTTPS outbound');
+        expect(nodeGuideMarkdown).toContain('Start Cloud Node.bat');
+        expect(nodeGuideMarkdown).toContain('cloud.print.ready');
+    });
+
+    it('keeps the local controller shell bootable with API and app scripts', () => {
+        const html = fs.readFileSync('public/index.html', 'utf8');
+
+        expect(html).toContain('<script src="/js/api.js"></script>');
+        expect(html).toContain('<script src="/js/ws.js"></script>');
+        expect(html).toContain('<script type="module" src="/js/app.js"></script>');
+        expect(html.trim()).toMatch(/<\/html>$/);
+    });
+
+    it('exposes ready-print cloud commands from the admin console without duplicate payload inputs', () => {
+        const html = fs.readFileSync('public/cloud.html', 'utf8');
+
+        expect(html).toContain('value="cloud.print.ready"');
+        expect(html.match(/id="command-payload"/g)).toHaveLength(1);
+    });
 });

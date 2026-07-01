@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PrintKinetix Merchant Onboarding</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7f8;
+      --ink: #17202a;
+      --muted: #5d6a72;
+      --line: #d8e0e4;
+      --panel: #ffffff;
+      --accent: #126a5a;
+      --accent-strong: #0d4f43;
+      --blue: #285f9f;
+      --warn: #9a5a12;
+      --danger: #b3261e;
+      --shadow: 0 10px 24px rgba(25, 35, 42, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    a { color: var(--accent); }
+
+    main {
+      width: min(1180px, 100%);
+      margin: 0 auto;
+      padding: 26px;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid var(--line);
+      padding: 0 0 22px;
+      margin-bottom: 22px;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+
+    h1 {
+      margin-bottom: 8px;
+      font-size: clamp(2rem, 4.5vw, 3.4rem);
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin-bottom: 14px;
+      font-size: 1.2rem;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin-bottom: 8px;
+      font-size: 1rem;
+      letter-spacing: 0;
+    }
+
+    p, li { color: var(--muted); }
+
+    code {
+      border-radius: 4px;
+      background: rgba(18, 106, 90, 0.12);
+      color: var(--ink);
+      padding: 0.1rem 0.25rem;
+    }
+
+    .eyebrow {
+      margin-bottom: 6px;
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .links a,
+    button {
+      min-height: 40px;
+      border: 1px solid var(--accent-strong);
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      padding: 9px 14px;
+      text-decoration: none;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+    }
+
+    .links a.secondary,
+    button.secondary {
+      background: #fff;
+      color: var(--accent-strong);
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.65;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(320px, 0.9fr) minmax(280px, 1.1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel,
+    .status-panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+
+    form {
+      display: grid;
+      gap: 13px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    label span,
+    .label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      padding: 9px 10px;
+      font: inherit;
+    }
+
+    textarea {
+      min-height: 88px;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .status-panel {
+      display: grid;
+      gap: 14px;
+    }
+
+    .status-card {
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--warn);
+      border-radius: 6px;
+      padding: 13px;
+      background: #fffaf1;
+    }
+
+    .status-card.ready {
+      border-left-color: var(--accent);
+      background: #f0faf6;
+    }
+
+    .status-card.error {
+      border-left-color: var(--danger);
+      background: #fff4f3;
+    }
+
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      min-height: 82px;
+      border: 1px solid var(--line);
+      border-top: 4px solid var(--accent);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+    }
+
+    .metric:nth-child(2) { border-top-color: var(--blue); }
+    .metric:nth-child(3) { border-top-color: var(--warn); }
+
+    .metric strong {
+      display: block;
+      margin-top: 8px;
+      font-size: 1.35rem;
+    }
+
+    .secret {
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #111827;
+      color: #eef6ff;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
+
+    .hidden { display: none; }
+
+    @media (max-width: 820px) {
+      main { padding: 18px; }
+      header,
+      .grid,
+      .row,
+      .metric-row {
+        grid-template-columns: 1fr;
+      }
+      header {
+        display: grid;
+        align-items: start;
+      }
+      .links { justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">Merchant API</p>
+        <h1>PrintKinetix Onboarding</h1>
+        <p>Merchants can request access, receive approval, exchange a setup token, and submit live print jobs with <code>pkx_live_</code> credentials.</p>
+      </div>
+      <nav class="links" aria-label="Merchant resources">
+        <a href="/merchant-api.html">API Docs</a>
+        <a class="secondary" href="/openapi/merchant-api-v1.json">OpenAPI</a>
+        <a class="secondary" href="/windows-node-guide.html">Windows Node</a>
+      </nav>
+    </header>
+
+    <section class="grid" aria-label="Merchant onboarding">
+      <div class="panel">
+        <h2>Signup</h2>
+        <form id="merchant-signup-form">
+          <label>
+            <span>Company name</span>
+            <input name="company_name" type="text" autocomplete="organization" required>
+          </label>
+          <div class="row">
+            <label>
+              <span>Contact name</span>
+              <input name="contact_name" type="text" autocomplete="name">
+            </label>
+            <label>
+              <span>Contact email</span>
+              <input name="contact_email" type="email" autocomplete="email" required>
+            </label>
+          </div>
+          <label>
+            <span>Website</span>
+            <input name="website" type="url" autocomplete="url" placeholder="https://example.com">
+          </label>
+          <button type="submit">Request Access</button>
+        </form>
+      </div>
+
+      <aside class="status-panel" aria-label="Onboarding status">
+        <div class="metric-row">
+          <div class="metric">
+            <span class="label">Default</span>
+            <strong>Approval</strong>
+          </div>
+          <div class="metric">
+            <span class="label">Mode</span>
+            <strong>Live</strong>
+          </div>
+          <div class="metric">
+            <span class="label">Routing</span>
+            <strong>Fastest</strong>
+          </div>
+        </div>
+
+        <div id="signup-status" class="status-card">
+          <h3>approval-required by default</h3>
+          <p>Pending merchants do not receive live credentials until an operator approves the account in the cloud console.</p>
+        </div>
+
+        <form id="setup-token-form">
+          <h2>Exchange Setup Token</h2>
+          <label>
+            <span>Setup token</span>
+            <input id="setup-token" name="setup_token" type="password" autocomplete="off" placeholder="pkx_setup_...">
+          </label>
+          <label>
+            <span>Key name</span>
+            <input id="api-key-name" name="name" type="text" value="Production">
+          </label>
+          <button type="submit">Create Live API Key</button>
+        </form>
+
+        <div id="api-key-result" class="hidden">
+          <h2>Live API Key</h2>
+          <p>The secret is returned once by <code>/api/public/api-keys</code>.</p>
+          <pre id="api-key-secret" class="secret"></pre>
+          <button id="copy-api-key" type="button" class="secondary">Copy Key</button>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const signupForm = document.querySelector('#merchant-signup-form');
+    const setupForm = document.querySelector('#setup-token-form');
+    const signupStatus = document.querySelector('#signup-status');
+    const setupTokenInput = document.querySelector('#setup-token');
+    const apiKeyResult = document.querySelector('#api-key-result');
+    const apiKeySecret = document.querySelector('#api-key-secret');
+    const copyApiKey = document.querySelector('#copy-api-key');
+
+    function formJson(form) {
+      return Object.fromEntries([...new FormData(form).entries()].map(([key, value]) => [key, String(value).trim()]));
+    }
+
+    function setStatus(kind, title, body) {
+      signupStatus.className = `status-card ${kind || ''}`.trim();
+      signupStatus.innerHTML = `<h3>${title}</h3><p>${body}</p>`;
+    }
+
+    async function requestJson(path, options) {
+      const response = await fetch(path, options);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.message || payload.error || `Request failed (${response.status})`);
+      }
+      return payload;
+    }
+
+    signupForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = signupForm.querySelector('button[type="submit"]');
+      button.disabled = true;
+      setStatus('', 'Submitting', 'Creating the merchant request through /api/public/merchants/signup.');
+      try {
+        const payload = await requestJson('/api/public/merchants/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formJson(signupForm)),
+        });
+
+        if (payload.merchant_setup_token) {
+          setupTokenInput.value = payload.merchant_setup_token;
+          setStatus('ready', 'Approved', 'Full-auto merchant mode returned a one-time setup token. Exchange it for a live key.');
+        } else {
+          const merchantId = payload.merchant?.merchant_id || 'pending';
+          setStatus('', 'Pending approval', `Signup accepted as ${merchantId}. An operator must approve it before a pkx_live_ key can be created.`);
+        }
+      } catch (error) {
+        setStatus('error', 'Signup failed', error.message);
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    setupForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const token = setupTokenInput.value.trim();
+      const button = setupForm.querySelector('button[type="submit"]');
+      if (!token) {
+        setStatus('error', 'Setup token required', 'Paste the pkx_setup_ token from the approval email or cloud console.');
+        return;
+      }
+      button.disabled = true;
+      try {
+        const payload = await requestJson('/api/public/api-keys', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Merchant-Setup-Token': token,
+          },
+          body: JSON.stringify({ name: document.querySelector('#api-key-name').value.trim() || 'Production' }),
+        });
+        apiKeySecret.textContent = payload.api_key_secret || 'pkx_live_...';
+        apiKeyResult.classList.remove('hidden');
+        setStatus('ready', 'Live key created', 'Use Authorization: Bearer pkx_live_... when submitting jobs to /api/public/print-jobs.');
+      } catch (error) {
+        setStatus('error', 'Key creation failed', error.message);
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    copyApiKey.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(apiKeySecret.textContent.trim());
+      copyApiKey.textContent = 'Copied';
+      setTimeout(() => { copyApiKey.textContent = 'Copy Key'; }, 1200);
+    });
+  </script>
+</body>
+</html>

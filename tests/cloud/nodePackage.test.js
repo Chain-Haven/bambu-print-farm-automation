@@ -7,6 +7,7 @@ import {
     buildWindowsNodePackage,
     collectNodePackageFiles,
     createNodeEnv,
+    createNodePackageReadme,
 } from '../../src/cloud/nodePackage.js';
 
 const tempRoots = [];
@@ -81,6 +82,20 @@ describe('Windows node package builder', () => {
         expect(env).not.toContain('CLOUD_ADMIN_TOKEN');
     });
 
+    it('documents the secure Windows node connection model', () => {
+        const readme = createNodePackageReadme({
+            nodeName: 'Print NUC 01',
+            cloudApiUrl: 'https://farm.example.com',
+        });
+
+        expect(readme).toContain('Print NUC 01');
+        expect(readme).toContain('HTTPS outbound');
+        expect(readme).toContain('LOCAL_NODE_TOKEN');
+        expect(readme).toContain('SUPABASE_SERVICE_ROLE_KEY');
+        expect(readme).toContain('Start Cloud Node.bat');
+        expect(readme).toContain('cloud.print.ready');
+    });
+
     it('builds a zip with runtime files, readme, manifest, and prefilled env', () => {
         const root = makeTempRoot();
         writeFile(root, 'package.json', '{"name":"antigravity"}');
@@ -121,6 +136,8 @@ describe('Windows node package builder', () => {
         expect(zip.readAsText('.env')).not.toContain('SUPABASE_SERVICE_ROLE_KEY');
         expect(zip.readAsText('README-FIRST.txt')).toContain('Print NUC 01');
         expect(zip.readAsText('README-FIRST.txt')).toContain('Start Cloud Node.bat');
+        expect(zip.readAsText('README-FIRST.txt')).toContain('HTTPS outbound');
+        expect(zip.readAsText('README-FIRST.txt')).toContain('cloud.print.ready');
         expect(JSON.parse(zip.readAsText('node-package-manifest.json'))).toMatchObject({
             generated_at: '2026-06-30T23:00:00.000Z',
             node_name: 'Print NUC 01',

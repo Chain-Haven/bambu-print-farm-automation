@@ -161,3 +161,8 @@ Supported cloud command types in this slice:
 - `printer.stop` with `payload.local_printer_id`
 - `printer.gcode` with `payload.local_printer_id` and `payload.gcode`
 - `job.start` with `payload.local_job_id`
+- `cloud.print.ready` with `payload.local_printer_id`, `payload.download_url`, and `payload.original_name`
+
+`cloud.print.ready` is the merchant API fulfillment command. The local Windows node downloads the signed private artifact from Vercel/Supabase storage, wraps raw `.gcode` into `.gcode.3mf` when needed, uploads the file to the selected Bambu printer over LAN FTPS, starts the print over MQTT, and reports the command result back to Vercel.
+
+For the operator-facing setup path, see `docs/windows-local-node.md` or `/windows-node-guide.html`.

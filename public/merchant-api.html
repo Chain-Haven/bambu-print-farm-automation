@@ -106,13 +106,17 @@
     <header>
       <h1>PrintKinetix Merchant API v1</h1>
       <p>Submit merchant print files, route them to the best available Bambu printer, and track usage through the live PrintKinetix cloud control plane.</p>
-      <p><a href="/openapi/merchant-api-v1.json">OpenAPI JSON</a></p>
+      <p>
+        <a href="/merchant-onboarding.html">Merchant onboarding</a> |
+        <a href="/openapi/merchant-api-v1.json">OpenAPI JSON</a> |
+        <a href="/windows-node-guide.html">Windows node guide</a>
+      </p>
     </header>
 
     <section>
       <h2>Onboarding</h2>
       <ol>
-        <li>Call <code>POST /api/public/merchants/signup</code> with company and contact details.</li>
+        <li>Use <a href="/merchant-onboarding.html">the public merchant onboarding form</a> or call <code>POST /api/public/merchants/signup</code> with company and contact details.</li>
         <li>Signup is approval-required by default. Pending merchants receive no live credentials.</li>
         <li>An admin approves the merchant with <code>POST /api/cloud/merchants</code>.</li>
         <li>The admin issues a one-time <code>pkx_setup_...</code> token during approval or with <code>POST /api/cloud/merchant-setup-token</code>.</li>
