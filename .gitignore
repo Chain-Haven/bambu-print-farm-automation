@@ -10,5 +10,6 @@ supabase/.temp/
 .env.*.local
 .vercel
 .playwright-cli/
+.worktrees/
 output/playwright/
 output/admin-reset-links-*.json
