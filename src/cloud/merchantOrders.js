@@ -61,12 +61,69 @@ function normalizeAmount(value, name) {
     return parsed;
 }
 
+const MAX_ORDER_ITEMS = 200;
+const MAX_PLACEMENTS = 20;
+
+// Storefront customization intake: color / case type / design + logo/photo
+// placements. Stored verbatim (color/material also feed capability-aware routing).
+// The placement geometry is a forward-looking contract for a future compositor;
+// nothing downstream is forced to consume it yet, so this is purely additive.
+function normalizeCustomization(value) {
+    const source = safeObject(value);
+    if (Object.keys(source).length === 0) return null;
+
+    const placementsInput = Array.isArray(source.placement) ? source.placement
+        : Array.isArray(source.placements) ? source.placements : [];
+    const placement = placementsInput.slice(0, MAX_PLACEMENTS).map((p) => {
+        const s = safeObject(p);
+        return {
+            asset_file_id: optionalString(s.asset_file_id ?? s.file_id),
+            face: optionalString(s.face),
+            x_mm: Number.isFinite(Number(s.x_mm ?? s.x)) ? Number(s.x_mm ?? s.x) : null,
+            y_mm: Number.isFinite(Number(s.y_mm ?? s.y)) ? Number(s.y_mm ?? s.y) : null,
+            width_mm: Number.isFinite(Number(s.width_mm ?? s.width)) ? Number(s.width_mm ?? s.width) : null,
+            rotation_deg: Number.isFinite(Number(s.rotation_deg ?? s.rotation)) ? Number(s.rotation_deg ?? s.rotation) : null,
+            mode: optionalString(s.mode), // e.g. 'emboss' | 'engrave' | 'decal'
+        };
+    });
+
+    const out = {
+        case_type: optionalString(source.case_type ?? source.caseType),
+        design_id: optionalString(source.design_id ?? source.designId),
+        color: optionalString(source.color ?? source.color_hex ?? source.colour),
+        material: optionalString(source.material),
+        finish: optionalString(source.finish),
+        notes: optionalString(source.notes),
+        placement,
+    };
+    // Drop empty keys so the persisted object is clean.
+    for (const k of Object.keys(out)) {
+        if (out[k] == null || (Array.isArray(out[k]) && out[k].length === 0)) delete out[k];
+    }
+    return Object.keys(out).length ? out : null;
+}
+
 function normalizeItems(value) {
     if (!Array.isArray(value) || value.length === 0) {
         throw createHttpError(400, 'invalid_payload', 'items must contain at least one item');
     }
+    if (value.length > MAX_ORDER_ITEMS) {
+        throw createHttpError(400, 'invalid_payload', `items must not exceed ${MAX_ORDER_ITEMS} entries`);
+    }
     return value.map((item, index) => {
         const source = safeObject(item);
+        const customization = normalizeCustomization(source.customization);
+        const requirements = safeObject(source.requirements);
+        // Let a customization color/material choice drive capability-aware routing
+        // when the caller didn't already specify one explicitly.
+        if (customization) {
+            if (customization.color && requirements.color === undefined && requirements.colors === undefined) {
+                requirements.color = customization.color;
+            }
+            if (customization.material && requirements.material === undefined && requirements.materials === undefined) {
+                requirements.material = customization.material;
+            }
+        }
         return {
             source,
             index,
@@ -75,9 +132,10 @@ function normalizeItems(value) {
             name: optionalString(source.name),
             quantity: normalizeQuantity(source.quantity, `items[${index}].quantity`),
             unit_amount: normalizeAmount(source.unit_amount ?? source.unitAmount, `items[${index}].unit_amount`),
-            requirements: safeObject(source.requirements),
+            requirements,
             profile: safeObject(source.profile),
             metadata: safeObject(source.metadata),
+            ...(customization ? { customization } : {}),
         };
     });
 }
@@ -460,6 +518,7 @@ export function createOrderHandlers({
                     requirements: item.requirements,
                     metadata: {
                         ...item.metadata,
+                        ...(item.customization ? { customization: item.customization } : {}),
                         item_index: item.index,
                         file_mode: item.file.file_mode,
                         auto_submit_requested: autoSubmit,

@@ -50,6 +50,44 @@ describe('cloud merchant admin handler', () => {
         expect(res.body).toEqual({ ok: true, merchants });
     });
 
+    it('redacts the plaintext webhook signing secret from listed merchants', async () => {
+        const store = {
+            listMerchants: vi.fn().mockResolvedValue([{
+                merchant_id: 'merchant-1',
+                status: 'active',
+                metadata: {
+                    company: 'Acme',
+                    webhook: {
+                        endpoint_url: 'https://merchant.example/hook',
+                        enabled: true,
+                        events: ['job.completed'],
+                        secret: 'whsec_supersecret',
+                    },
+                },
+            }]),
+        };
+        const handler = createCloudMerchantsHandler({ store, adminToken: 'admin-secret' });
+        const res = createMockResponse();
+
+        await handler({
+            method: 'GET',
+            headers: { authorization: 'Bearer admin-secret' },
+            query: {},
+        }, res);
+
+        expect(res.statusCode).toBe(200);
+        const [merchant] = res.body.merchants;
+        expect(merchant.metadata.company).toBe('Acme');
+        expect(merchant.metadata.webhook).toEqual({
+            endpoint_url: 'https://merchant.example/hook',
+            enabled: true,
+            events: ['job.completed'],
+            has_secret: true,
+        });
+        expect(merchant.metadata.webhook.secret).toBeUndefined();
+        expect(JSON.stringify(res.body)).not.toContain('whsec_supersecret');
+    });
+
     it('approves merchants and can issue a one-time setup token in the same action', async () => {
         const merchant = {
             merchant_id: 'merchant-1',

@@ -1,4 +1,5 @@
 import { createHmac, createHash, randomBytes } from 'node:crypto';
+import { assertSafeWebhookUrl } from './urlGuard.js';
 
 export const SUPPORTED_WEBHOOK_EVENTS = [
     'job.accepted',
@@ -13,8 +14,10 @@ export const SUPPORTED_WEBHOOK_EVENTS = [
 ];
 
 export function normalizeWebhookConfig(input = {}, current = {}) {
+    // Validate only a newly-provided URL (SSRF guard); an unchanged stored URL is
+    // preserved as-is so config edits that don't touch the URL keep working.
     const endpointUrl = typeof input.endpoint_url === 'string' && input.endpoint_url.trim()
-        ? input.endpoint_url.trim()
+        ? assertSafeWebhookUrl(input.endpoint_url.trim())
         : current.endpoint_url || null;
     const events = Array.isArray(input.events)
         ? input.events.filter((event) => SUPPORTED_WEBHOOK_EVENTS.includes(event))

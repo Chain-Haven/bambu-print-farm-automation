@@ -304,6 +304,52 @@ describe('merchant order handlers', () => {
         });
     });
 
+    it('persists storefront customization and feeds color/material into routing requirements', async () => {
+        const { createOrder, store } = createHandlers();
+
+        await createOrder({
+            merchant_order_id: '2002',
+            items: [
+                {
+                    file_id: 'ready-file',
+                    quantity: 1,
+                    customization: {
+                        case_type: 'iphone-15-slim',
+                        design_id: 'tmpl-monogram',
+                        color: '#0A7',
+                        material: 'PLA',
+                        placement: [
+                            { asset_file_id: 'logo-1', face: 'back', x_mm: 10, y_mm: 20, width_mm: 30, mode: 'emboss' },
+                        ],
+                    },
+                },
+            ],
+        });
+
+        const [itemArg] = store.createMerchantOrderItem.mock.calls[0];
+        // Customization persisted verbatim in the item metadata.
+        expect(itemArg.metadata.customization).toMatchObject({
+            case_type: 'iphone-15-slim',
+            design_id: 'tmpl-monogram',
+            color: '#0A7',
+            material: 'PLA',
+        });
+        expect(itemArg.metadata.customization.placement[0]).toMatchObject({
+            asset_file_id: 'logo-1', face: 'back', x_mm: 10, mode: 'emboss',
+        });
+        // Color/material promoted into routing requirements (capability-aware routing).
+        expect(itemArg.requirements.color).toBe('#0A7');
+        expect(itemArg.requirements.material).toBe('PLA');
+    });
+
+    it('does not add a customization key when none is supplied', async () => {
+        const { createOrder, store } = createHandlers();
+        await createOrder({ merchant_order_id: '2003', items: [{ file_id: 'ready-file', quantity: 1 }] });
+        const [itemArg] = store.createMerchantOrderItem.mock.calls[0];
+        expect(itemArg.metadata).not.toHaveProperty('customization');
+        expect(itemArg).not.toHaveProperty('customization');
+    });
+
     it('prevalidates every file before creating a durable order', async () => {
         const { createOrder, store } = createHandlers({
             store: {

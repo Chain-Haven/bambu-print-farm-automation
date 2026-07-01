@@ -119,7 +119,14 @@ export async function authenticateMerchantRequest(req, {
     }
 
     if (typeof store.touchMerchantApiKey === 'function') {
-        await store.touchMerchantApiKey(apiKey.key_id, now().toISOString());
+        // Best-effort last-used tracking: a transient failure here must not reject
+        // an otherwise-valid authenticated request (this runs in the hot path of
+        // every merchant API call).
+        try {
+            await store.touchMerchantApiKey(apiKey.key_id, now().toISOString());
+        } catch {
+            /* ignore last-used update failures */
+        }
     }
 
     return { merchant, apiKey };

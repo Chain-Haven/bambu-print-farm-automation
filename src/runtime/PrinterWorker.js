@@ -25,11 +25,22 @@ export class PrinterWorker {
         this.state = 'unknown';
         this.connected = false;
         this.mqttClient = null;
-        this.latestStatus = {};
+        // Seed from the persisted snapshot so a restart doesn't re-log already-known
+        // HMS/print_error state as brand-new error events (phantom spam).
+        this.latestStatus = (printer.status_snapshot && typeof printer.status_snapshot === 'object')
+            ? { ...printer.status_snapshot }
+            : {};
         this.onStatusUpdate = null; // callback
+        this.onAlert = null; // callback(alert) — fired on detected failures (set by supervisor)
         this.mockMode = process.env.MOCK_MODE === 'true';
         this.activeJobId = null; // Track if current print was started by Antigravity
         this.lastReportTime = null; // Timestamp of last MQTT report
+        this._alertedErrorCode = 0; // de-dupe: last print_error we already alerted on
+        // Self-healing state
+        this._reconnectAttempts = 0;
+        this._lastReconnectAt = 0;
+        this._staleNudged = false;
+        this.staleReportMs = parseInt(process.env.PRINTER_STALE_REPORT_MS) || 120000; // 2min
     }
 
     /**
@@ -75,8 +86,11 @@ export class PrinterWorker {
         if (hms && Array.isArray(hms) && hms.length > 0) {
             for (const h of hms) {
                 const code = h.attr?.toString(16) || '';
-                const msg = h.code || '';
-                if (code.includes('0300') || msg.toLowerCase().includes('sd') || msg.toLowerCase().includes('storage') || msg.toLowerCase().includes('micro')) {
+                // h.code is numeric on Bambu HMS reports; coerce before string ops
+                // (otherwise .toLowerCase() throws and 500s preflight/diagnostics
+                // exactly when an HMS error is present).
+                const msg = String(h.code ?? '').toLowerCase();
+                if (code.includes('0300') || msg.includes('sd') || msg.includes('storage') || msg.includes('micro')) {
                     errors.push(`SD/Storage error detected: HMS ${code} — Format SD in printer or replace card`);
                 }
             }
@@ -148,6 +162,11 @@ export class PrinterWorker {
         this.connected = false;
     }
 
+    /** Whether the printer can currently accept control commands (mock-aware). */
+    canControl() {
+        return this.mockMode || !!(this.mqttClient && this.mqttClient.connected);
+    }
+
     /**
      * Execute a command on this printer.
      */
@@ -201,7 +220,13 @@ export class PrinterWorker {
         }
 
         if (this.mqttClient) {
-            this.mqttClient.startPrint(params);
+            // publish() returns false when the MQTT socket is not connected. If we
+            // ignored it we would report a print as started that the printer never
+            // received (e.g. an MQTT drop during the multi-minute FTPS upload).
+            const published = this.mqttClient.startPrint(params);
+            if (published === false) {
+                throw new Error('MQTT not connected: start command was not delivered to the printer');
+            }
             return { started: true };
         }
         throw new Error('MQTT client not available');
@@ -245,6 +270,10 @@ export class PrinterWorker {
         this.connected = true;
         this.lastReportTime = Date.now();
         const print = data.print || {};
+
+        // Capture prior error state so we can log transitions to the event log below.
+        const priorPrintError = this.latestStatus?.print_error || 0;
+        const priorHms = Array.isArray(this.latestStatus?.hms_errors) ? this.latestStatus.hms_errors : [];
 
         // Merge incremental updates (Bambu sends partial reports)
         const update = {};
@@ -294,6 +323,120 @@ export class PrinterWorker {
 
         PrinterModel.updateStatus(this.printerId, this.latestStatus);
         if (this.onStatusUpdate) this.onStatusUpdate(this.latestStatus);
+
+        // Persist error transitions as a queryable per-printer error log.
+        this._logErrorTransitions(priorPrintError, priorHms);
+
+        // Camera/logs/motor-stat driven safety: react to a NEW blocking fault mid-print.
+        this._checkForFailures();
+    }
+
+    /**
+     * Write a durable, queryable error-history entry whenever the printer's
+     * print_error or HMS set changes. Fires only on transitions (not every report),
+     * so the events table stays bounded. Queryable via GET /events/printer/:id or
+     * GET /printers/:id/errors.
+     */
+    _logErrorTransitions(priorPrintError, priorHms) {
+        try {
+            const err = this.latestStatus?.print_error || 0;
+            if (err && err !== priorPrintError) {
+                const decoded = decodePrintError(err);
+                EventModel.create({
+                    entity_type: 'printer', entity_id: this.printerId,
+                    event_type: 'printer.error',
+                    payload: {
+                        code: err, formatted: decoded?.formatted, message: decoded?.message,
+                        severity: decoded?.severity, state: this.state,
+                    },
+                });
+            } else if (!err && priorPrintError) {
+                EventModel.create({
+                    entity_type: 'printer', entity_id: this.printerId,
+                    event_type: 'printer.error_cleared',
+                    payload: { previous_code: priorPrintError, formatted: formatErrorCode(priorPrintError) },
+                });
+            }
+
+            const hms = Array.isArray(this.latestStatus?.hms_errors) ? this.latestStatus.hms_errors : [];
+            const keyOf = (h) => `${h?.attr}-${h?.code}`;
+            const priorKeys = new Set((priorHms || []).map(keyOf));
+            for (const h of hms.filter((x) => !priorKeys.has(keyOf(x)))) {
+                const hex = `${(h?.attr ?? 0).toString(16).toUpperCase()}_${(h?.code ?? 0).toString(16).toUpperCase()}`;
+                EventModel.create({
+                    entity_type: 'printer', entity_id: this.printerId,
+                    event_type: 'printer.hms',
+                    payload: { attr: h?.attr, code: h?.code, hms: hex, state: this.state },
+                });
+            }
+        } catch { /* error logging must never break status handling */ }
+    }
+
+    _autoCancelEnabled() {
+        // Default ON: a blocking print_error means the job can't succeed anyway.
+        return process.env.AUTO_CANCEL_ON_FAILURE !== 'false';
+    }
+
+    /**
+     * Detect a new blocking failure during an active print and alert (and, unless
+     * disabled, auto-cancel). Fires once per distinct error code; resets when the
+     * error clears so a later fault alerts again.
+     */
+    _checkForFailures() {
+        const code = this.latestStatus?.print_error || 0;
+
+        if (!code || !isBlockingError(code)) {
+            this._alertedErrorCode = 0;
+            return;
+        }
+        if (this._alertedErrorCode === code) return; // already handled this fault
+
+        // Only auto-act while a print is (or should be) running. Idle stale errors
+        // are handled by the health-check auto-clear path, not by cancelling.
+        const activePrint = this.state === 'printing' || this.state === 'paused' || !!this.activeJobId;
+        if (!activePrint) return;
+
+        this._alertedErrorCode = code;
+        const decoded = decodePrintError(code);
+        const alert = {
+            printer_id: this.printerId,
+            printer_name: this.printer.name,
+            severity: 'critical',
+            kind: 'print_error',
+            code,
+            formatted: decoded?.formatted,
+            message: decoded?.message,
+            remediation: decoded?.remediation,
+            job_id: this.activeJobId,
+            state: this.state,
+            at: new Date().toISOString(),
+        };
+
+        log.error(`Printer ${this.printer.name}: FAILURE during print — ${decoded?.formatted} (${decoded?.message}); auto_cancel=${this._autoCancelEnabled()}`);
+        try {
+            EventModel.create({
+                entity_type: 'printer', entity_id: this.printerId,
+                event_type: 'printer.failure_detected', payload: alert,
+            });
+        } catch { /* persistence best-effort */ }
+        if (this.onAlert) { try { this.onAlert(alert); } catch { /* ignore */ } }
+
+        // Auto-cancel the doomed print (opt out with AUTO_CANCEL_ON_FAILURE=false).
+        if (this._autoCancelEnabled() && this.state !== 'idle') {
+            try {
+                this._stopPrint();
+                EventModel.create({
+                    entity_type: 'printer', entity_id: this.printerId,
+                    event_type: 'printer.auto_canceled',
+                    payload: { reason: decoded?.formatted, message: decoded?.message, job_id: this.activeJobId },
+                });
+                if (this.onAlert) {
+                    this.onAlert({ ...alert, kind: 'auto_canceled', message: `Auto-canceled: ${decoded?.message}` });
+                }
+            } catch (e) {
+                log.error(`Auto-cancel failed for ${this.printer.name}: ${e.message}`);
+            }
+        }
     }
 
     _mapBambuState(bambuState) {
@@ -343,7 +486,29 @@ export class PrinterWorker {
             this.connected = true;
             return;
         }
-        const live = !!(this.mqttClient && this.mqttClient.isConnected);
+        const live = !!(this.mqttClient && this.mqttClient.connected);
+
+        if (!this.mqttClient) {
+            // No transport at all (e.g. started before auth was configured, or a
+            // previous connect threw). Self-heal by re-attempting on a backoff
+            // instead of staying offline forever. A client that merely dropped is
+            // left to the mqtt library's own auto-reconnect (don't recreate it).
+            await this._attemptReconnect();
+        } else if (live) {
+            // Connected at the socket level — detect a hung printer (socket open
+            // but no fresh status reports) and nudge it with a status request.
+            const age = this.lastReportTime ? Date.now() - this.lastReportTime : Infinity;
+            if (age > this.staleReportMs) {
+                if (!this._staleNudged) {
+                    log.warn(`Printer ${this.printer.name}: no status for ${Math.round(age / 1000)}s — requesting refresh`);
+                    this._staleNudged = true;
+                }
+                this.requestStatusRefresh();
+            } else {
+                this._staleNudged = false;
+            }
+        }
+
         if (!live && this.connected !== false) {
             // Just went offline — update state and notify the UI so the dashboard
             // reflects the disconnection without waiting for a manual refresh.
@@ -351,6 +516,33 @@ export class PrinterWorker {
             this._transitionState('offline');
             this.latestStatus = { ...this.latestStatus, state: 'offline' };
             if (this.onStatusUpdate) this.onStatusUpdate(this.latestStatus);
+        }
+    }
+
+    /**
+     * Self-healing (re)connect for a worker with no live MQTT transport, throttled
+     * with exponential backoff (5s → 80s). Only recreates when there is no client;
+     * a disconnected-but-present client is handled by the mqtt library.
+     */
+    async _attemptReconnect() {
+        const now = Date.now();
+        const backoff = Math.min(80000, 5000 * 2 ** Math.min(this._reconnectAttempts, 4));
+        if (this._lastReconnectAt && (now - this._lastReconnectAt) < backoff) return;
+        this._lastReconnectAt = now;
+
+        const authData = PrinterModel.getAuth(this.printerId);
+        if (!authData) return; // still unconfigured — nothing to connect with
+
+        this._reconnectAttempts += 1;
+        try {
+            log.info(`Self-heal: (re)connecting ${this.printer.name} (attempt ${this._reconnectAttempts})`);
+            this.mqttClient = new BambuMqttClient(this.printer, authData);
+            this.mqttClient.onStatus((data) => this._handleStatus(data));
+            await this.mqttClient.connect();
+            this._reconnectAttempts = 0; // success resets the backoff
+        } catch (err) {
+            log.warn(`Self-heal reconnect failed for ${this.printer.name}: ${err.message}`);
+            this.mqttClient = null; // drop the half-built client so we retry cleanly
         }
     }
 

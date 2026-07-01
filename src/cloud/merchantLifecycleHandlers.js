@@ -108,10 +108,31 @@ export function createMerchantPrintJobLifecycleHandler({
                         cancel_reason: optionalString(body.reason),
                     },
                 });
+                // Best-effort: tell the node that owns this job to stop the print, so
+                // canceling in the storefront actually halts the printer. Guarded so a
+                // dispatch failure never blocks the cancel + reservation release.
+                let stop_dispatched = false;
+                if (job.node_id && typeof store.createNodeCommand === 'function') {
+                    try {
+                        await store.createNodeCommand({
+                            org_id: context.merchant.org_id,
+                            node_id: job.node_id,
+                            printer_id: job.printer_id || null,
+                            job_id: job.job_id,
+                            command_type: 'printer.stop',
+                            payload: {
+                                local_printer_id: job.routing_summary?.local_printer_id || job.printer_id || null,
+                                job_id: job.job_id,
+                                reason: optionalString(body.reason),
+                            },
+                        });
+                        stop_dispatched = true;
+                    } catch { /* node dispatch is best-effort */ }
+                }
                 const reservation_release = await releaseReservationIfNeeded({ store, job });
                 await recordLifecycleUsage({ store, merchant: context.merchant, job: updated, eventType: 'job.canceled', now });
                 await deliverMerchantWebhook({ merchant: context.merchant, eventType: 'job.canceled', data: { job: updated }, fetchImpl, now });
-                return sendJson(res, 200, { ok: true, job: updated, reservation_release });
+                return sendJson(res, 200, { ok: true, job: updated, reservation_release, stop_dispatched });
             }
 
             const reprint = await store.createPrintJob({

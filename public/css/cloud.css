@@ -283,8 +283,24 @@ h2 {
 
 .automation-grid {
   display: grid;
-  grid-template-columns: minmax(240px, 0.8fr) repeat(2, minmax(260px, 1fr));
+  grid-template-columns: minmax(0, 0.8fr) repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+/* Grid/flex items default to min-width:auto, so a wide child (JSON textarea,
+   min-width table) forces its track wider than the viewport and creates a
+   horizontal scrollbar. Let these containers and their items shrink to track. */
+.admin-layout,
+.operations-stack,
+.control-stack,
+.automation-grid,
+.table-grid,
+.strategy-grid,
+.operations-stack > *,
+.control-stack > *,
+.automation-grid > *,
+.table-grid > * {
+  min-width: 0;
 }
 
 .alert-list {
@@ -454,7 +470,7 @@ h2 {
 }
 
 .strategy-grid {
-  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr) minmax(320px, 1.15fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.15fr);
 }
 
 .table-panel {
@@ -604,6 +620,10 @@ th {
   padding: 12px 14px;
   box-shadow: var(--shadow);
   font-size: 14px;
+}
+
+.detail-drawer[hidden] {
+  display: none;
 }
 
 .detail-drawer {

@@ -41,6 +41,60 @@ router.get('/discover', requireAuth, asyncHandler(async (req, res) => {
     res.json(supervisor.discovery.getDiscovered());
 }));
 
+// Fleet filament — aggregate AMS/loaded filament across every printer, optionally
+// filtered by material/color (for routing a color-critical job to a ready printer).
+// NOTE: registered before '/:id' so it isn't captured as a printer id.
+router.get('/ams', requireAuth, asyncHandler(async (req, res) => {
+    const { material, color } = req.query;
+    const m = material ? String(material).toUpperCase() : null;
+    const c = color ? String(color).toUpperCase() : null;
+    const fleet = PrinterRegistry.findAll().map((p) => {
+        let ams = null;
+        try { ams = AmsService.getFullStatus(p.printer_id); } catch { ams = null; }
+        return { printer_id: p.printer_id, name: p.name, model: p.model, ams };
+    });
+    const matches = (f) => (f.ams?.slots || []).some((s) => {
+        const sm = String(s.live_type || s.configured_material || '').toUpperCase();
+        const sc = String(s.live_color || s.configured_color || '').toUpperCase();
+        return (!m || sm.includes(m)) && (!c || sc.includes(c));
+    });
+    const printers = (m || c) ? fleet.filter(matches) : fleet;
+    res.json({ count: printers.length, printers });
+}));
+
+// Bulk control across the fleet — pause-all / resume-all / stop-all / clear-all-errors
+// / lights. Body: { action, printer_ids? (default all), params? }.
+router.post('/bulk/control', requireAdmin, asyncHandler(async (req, res) => {
+    const { RuntimeSupervisor } = await import('../../runtime/RuntimeSupervisor.js');
+    const supervisor = RuntimeSupervisor.getInstance();
+    const { action } = req.body || {};
+    if (!action) return res.status(400).json({ error: 'action is required' });
+    const ids = Array.isArray(req.body?.printer_ids) && req.body.printer_ids.length
+        ? req.body.printer_ids
+        : PrinterRegistry.findAll().map((p) => p.printer_id);
+    const results = [];
+    for (const id of ids) {
+        const worker = supervisor?.getWorker(id);
+        if (!worker?.canControl?.()) { results.push({ printer_id: id, ok: false, error: 'not_controllable' }); continue; }
+        try {
+            let ok;
+            switch (action) {
+                case 'pause':       ok = !!worker._pausePrint(); break;
+                case 'resume':      ok = !!worker._resumePrint(); break;
+                case 'stop':        ok = !!worker._stopPrint(); break;
+                case 'clear_error': ok = worker.clearPrintError() !== false; break;
+                case 'light_on':    ok = worker.mqttClient?.setLight(true) ?? false; break;
+                case 'light_off':   ok = worker.mqttClient?.setLight(false) ?? false; break;
+                default: return res.status(400).json({ error: `Unsupported bulk action: ${action}` });
+            }
+            results.push({ printer_id: id, ok: !!ok });
+        } catch (err) {
+            results.push({ printer_id: id, ok: false, error: err.message });
+        }
+    }
+    res.json({ action, total: ids.length, succeeded: results.filter((r) => r.ok).length, results });
+}));
+
 // Get single printer with full detail
 router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
     const printer = PrinterRegistry.getFullDetail(req.params.id);
@@ -224,9 +278,23 @@ router.get('/:id/diagnostics', requireAuth, asyncHandler(async (req, res) => {
     if (diag.sd_health.hms_errors.length > 0) {
         for (const h of diag.sd_health.hms_errors) {
             const code = h.attr?.toString(16) || '';
-            const msg = h.code || '';
-            if (code.includes('0300') || msg.toLowerCase().includes('sd') || msg.toLowerCase().includes('storage')) {
+            const msg = String(h.code ?? '').toLowerCase(); // numeric on Bambu — coerce before string ops
+            if (code.includes('0300') || msg.includes('sd') || msg.includes('storage')) {
                 diag.sd_health.has_sd_error = true;
+            }
+        }
+    }
+    // Also flag an SD fault from a standing print_error (e.g. 0x0500C010 MicroSD
+    // read/write). The HMS list is often empty while print_error persists.
+    {
+        const pe = worker?.latestStatus?.print_error;
+        if (pe) {
+            const { decodePrintError } = await import('../../utils/PrinterErrors.js');
+            const decoded = decodePrintError(pe);
+            const hex = (decoded?.hex || '').toLowerCase();
+            if (hex.includes('0500c01') || /sd|storage|micro/i.test(decoded?.message || '')) {
+                diag.sd_health.has_sd_error = true;
+                diag.sd_health.print_error = { code: pe, formatted: decoded?.formatted, message: decoded?.message };
             }
         }
     }
@@ -288,7 +356,7 @@ router.post('/:id/ams/sync', requireAdmin, asyncHandler(async (req, res) => {
     const { AmsService } = await import('../../services/AmsService.js');
     const supervisor = RuntimeSupervisor.getInstance();
     const worker = supervisor?.getWorker(req.params.id);
-    if (!worker?.mqttClient?.isConnected) {
+    if (!worker?.mqttClient?.connected) {
         return res.status(503).json({ error: 'Printer MQTT not connected' });
     }
 
@@ -302,12 +370,27 @@ router.post('/:id/control', requireAdmin, asyncHandler(async (req, res) => {
     const { RuntimeSupervisor } = await import('../../runtime/RuntimeSupervisor.js');
     const supervisor = RuntimeSupervisor.getInstance();
     const worker = supervisor?.getWorker(req.params.id);
-    if (!worker?.mqttClient?.isConnected) {
+    if (!worker?.canControl?.()) {
         return res.status(503).json({ error: 'Printer MQTT not connected' });
     }
 
-    const mqtt = worker.mqttClient;
     const { action } = req.body;
+
+    // Job-lifecycle controls go through the worker so its state machine stays in
+    // sync with the cloud/CommandBus path (avoids UI vs. real-state drift).
+    if (action === 'pause' || action === 'resume' || action === 'stop') {
+        const result = action === 'pause' ? worker._pausePrint()
+            : action === 'resume' ? worker._resumePrint()
+                : worker._stopPrint();
+        return res.json({ ok: true, action, ...result });
+    }
+    if (action === 'clear_error') {
+        const ok = worker.clearPrintError();
+        return res.json({ ok: ok !== false, action });
+    }
+
+    const mqtt = worker.mqttClient;
+    if (!mqtt) return res.status(503).json({ error: 'Printer MQTT not connected' });
     let ok = false;
 
     switch (action) {
@@ -364,6 +447,100 @@ router.delete('/:id/overrides/:key', requireAdmin, asyncHandler(async (req, res)
     const { dbRun } = await import('../../db/database.js');
     dbRun('DELETE FROM printer_overrides WHERE printer_id = ? AND setting_key = ?', [req.params.id, req.params.key]);
     res.json({ ok: true });
+}));
+
+// Per-printer error log — decoded print_error / HMS / failure history.
+router.get('/:id/errors', requireAuth, asyncHandler(async (req, res) => {
+    const printer = PrinterRegistry.findById(req.params.id);
+    if (!printer) return res.status(404).json({ error: 'Printer not found' });
+    const { EventLog } = await import('../../services/EventLog.js');
+    const { decodePrintError } = await import('../../utils/PrinterErrors.js');
+    const ERROR_TYPES = new Set([
+        'printer.error', 'printer.error_cleared', 'printer.hms',
+        'printer.failure_detected', 'printer.auto_canceled',
+    ]);
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+    // Pull a window of entity events and keep the error-related ones.
+    const events = EventLog.getByEntity('printer', req.params.id, { limit: limit * 3, offset: 0 }) || [];
+    const errors = events
+        .filter((e) => ERROR_TYPES.has(e.event_type))
+        .slice(0, limit)
+        .map((e) => {
+            const p = typeof e.payload === 'string' ? (() => { try { return JSON.parse(e.payload); } catch { return {}; } })() : (e.payload || {});
+            const decoded = p.code ? decodePrintError(p.code) : null;
+            return {
+                event_id: e.event_id,
+                type: e.event_type,
+                created_at: e.created_at,
+                code: p.code ?? null,
+                formatted: p.formatted ?? decoded?.formatted ?? p.hms ?? null,
+                message: p.message ?? decoded?.message ?? null,
+                severity: p.severity ?? decoded?.severity ?? (e.event_type === 'printer.error_cleared' ? 'info' : 'error'),
+                remediation: decoded?.remediation ?? null,
+                state: p.state ?? null,
+            };
+        });
+    res.json({ printer_id: req.params.id, count: errors.length, errors });
+}));
+
+// ─── Camera feed ────────────────────────────────────────────────────
+// The SPA's camera widget calls these (authenticated via ?token= for <img>/MJPEG,
+// which requireAuth supports). The CameraProxy handles model-specific transport
+// (P1 JPEG on :6000, X1 RTSPS on :322). Auth (access code) comes from the
+// encrypted printer record.
+async function ensureCameraProxy(printerId) {
+    const printer = PrinterRegistry.findById(printerId);
+    if (!printer) return { error: 'Printer not found', status: 404 };
+    if (process.env.MOCK_MODE === 'true') {
+        return { error: 'Camera feed is unavailable in mock mode (no physical printer).', status: 503 };
+    }
+    const { default: cameraProxy } = await import('../../services/CameraProxy.js');
+    const auth = PrinterRegistry.getAuth?.(printerId) || {};
+    if (!cameraProxy.isRunning(printerId)) {
+        await cameraProxy.start(printerId, printer.ip_hostname, auth.access_code || '', printer.model);
+    }
+    return { cameraProxy };
+}
+
+// Snapshot — returns the most recent JPEG frame (starts the proxy on first call).
+router.get('/:id/camera/snapshot', requireAuth, asyncHandler(async (req, res) => {
+    const result = await ensureCameraProxy(req.params.id);
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    const { cameraProxy } = result;
+
+    // Give a freshly-started proxy a moment to produce the first frame.
+    let frame = cameraProxy.getFrame(req.params.id);
+    for (let i = 0; i < 20 && !frame; i++) {
+        await new Promise((r) => setTimeout(r, 150));
+        frame = cameraProxy.getFrame(req.params.id);
+    }
+    if (!frame) {
+        const err = cameraProxy.getError(req.params.id) || 'Camera frame not yet available';
+        return res.status(503).json({ error: err });
+    }
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(frame);
+}));
+
+// Live MJPEG stream (multipart/x-mixed-replace) — usable directly as an <img> src.
+router.get('/:id/camera/stream', requireAuth, asyncHandler(async (req, res) => {
+    const result = await ensureCameraProxy(req.params.id);
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    const { cameraProxy } = result;
+
+    res.writeHead(200, {
+        'Content-Type': 'multipart/x-mixed-replace; boundary=frame',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        Connection: 'keep-alive',
+        Pragma: 'no-cache',
+    });
+    const added = cameraProxy.addStreamClient(req.params.id, res);
+    if (!added) {
+        const err = cameraProxy.getError(req.params.id) || 'Camera stream unavailable';
+        return res.end(`--frame\r\nContent-Type: text/plain\r\n\r\n${err}\r\n`);
+    }
+    // Response is held open by the proxy; it removes the client on 'close'.
 }));
 
 export default router;

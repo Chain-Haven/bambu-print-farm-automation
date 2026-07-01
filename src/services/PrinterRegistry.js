@@ -42,6 +42,11 @@ export class PrinterRegistry {
     static findAll() { return PrinterModel.findAll(); }
     static findById(id) { return PrinterModel.findById(id); }
 
+    // Decrypted printer auth ({ access_code, serial }). Several routes reference
+    // PrinterRegistry.getAuth(); without it they silently fell back to an empty
+    // access code (broken FTPS reachability / camera / diagnostics on real printers).
+    static getAuth(id) { return PrinterModel.getAuth(id); }
+
     static update(id, fields) {
         const printer = PrinterModel.update(id, fields);
         if (printer && fields.model) {

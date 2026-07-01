@@ -1,6 +1,7 @@
 // src/runtime/RuntimeSupervisor.js — Spawns and manages workers for all printers/accessories
 import { PrinterModel } from '../models/Printer.js';
 import { AccessoryModel } from '../models/Accessory.js';
+import { EventModel } from '../models/Event.js';
 import { PrinterWorker } from './PrinterWorker.js';
 import { AccessoryWorker } from './AccessoryWorker.js';
 import { CommandBus } from '../services/CommandBus.js';
@@ -63,6 +64,13 @@ export class RuntimeSupervisor {
         // Process timeouts periodically
         setInterval(() => CommandBus.processTimeouts(), 10000);
 
+        // Bound event-log growth (self-healing storage): prune old events on start
+        // and every 6h so a long-running 300-printer node doesn't accumulate rows
+        // forever (which also slows the periodic full-DB export).
+        const retentionDays = parseInt(process.env.EVENT_RETENTION_DAYS) || 30;
+        this._pruneEvents(retentionDays);
+        this.eventPruneInterval = setInterval(() => this._pruneEvents(retentionDays), 6 * 60 * 60 * 1000);
+
         // Start SSDP printer discovery
         this._syncDiscoverySerials();
         this.discovery.start();
@@ -77,6 +85,7 @@ export class RuntimeSupervisor {
         this.running = false;
         if (this.commandPollInterval) clearInterval(this.commandPollInterval);
         if (this.healthCheckInterval) clearInterval(this.healthCheckInterval);
+        if (this.eventPruneInterval) clearInterval(this.eventPruneInterval);
         this.discovery.stop();
 
         for (const [id, worker] of this.printerWorkers) {
@@ -94,9 +103,20 @@ export class RuntimeSupervisor {
         if (this.printerWorkers.has(printer.printer_id)) return;
         const worker = new PrinterWorker(printer);
         worker.onStatusUpdate = (status) => this._broadcastStatus('printer', printer.printer_id, status);
+        worker.onAlert = (alert) => {
+            if (this.wsBroadcast) this.wsBroadcast({ type: 'printer.alert', id: printer.printer_id, data: alert });
+            systemEvents.emit('printer.alert', alert); // for alerting integrations (email/webhook/etc.)
+        };
         this.printerWorkers.set(printer.printer_id, worker);
-        await worker.start();
-        log.info(`Printer worker spawned: ${printer.name} [${printer.printer_id}]`);
+        try {
+            await worker.start();
+            log.info(`Printer worker spawned: ${printer.name} [${printer.printer_id}]`);
+        } catch (err) {
+            // One printer failing to start must never abort the whole fleet's boot
+            // (critical at 300 printers). The worker stays registered and the health
+            // loop self-heals it via _attemptReconnect().
+            log.warn(`Printer worker ${printer.name} failed initial start (${err.message}); will self-heal`);
+        }
     }
 
     async spawnAccessoryWorker(accessory) {
@@ -145,6 +165,15 @@ export class RuntimeSupervisor {
                     CommandBus.markFailed(cmd.command_id, err.message);
                 });
             }
+        }
+    }
+
+    _pruneEvents(retentionDays) {
+        try {
+            const removed = EventModel.pruneOlderThan(retentionDays);
+            if (removed > 0) log.info(`Pruned ${removed} events older than ${retentionDays}d`);
+        } catch (err) {
+            log.warn(`Event prune failed: ${err.message}`);
         }
     }
 
