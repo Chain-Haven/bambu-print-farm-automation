@@ -345,4 +345,18 @@ export class BambuMqttClient {
 
     /** Baby-step Z-offset adjustment during print. offset in mm (e.g. -0.05). */
     setZOffset(offset) {
-        const 
+        const z = Number.isFinite(Number(offset)) ? Number(offset) : 0;
+        log.info(`Z offset adjustment -> ${z}mm`);
+        return this.sendGcode(`M290 Z${z.toFixed(3)}`);
+    }
+
+    disconnect() {
+        if (this.client) {
+            this.client.end(true);
+            this.client = null;
+        }
+        this.connected = false;
+    }
+}
+
+export default BambuMqttClient;

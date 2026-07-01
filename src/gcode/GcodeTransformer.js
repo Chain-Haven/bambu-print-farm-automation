@@ -280,4 +280,14 @@ export const DEFAULT_PROFILE = {
     z_clear_travel_mm: 200,
     z_sweep_mm: 2.0,
     sweep_start_x_mm: 125,
-    sw
+    sweep_start_y_mm: 250,
+    sweep_y_top_mm: 250,
+    sweep_y_bottom_mm: 0,
+    sweep_x_lanes: [220, 190, 160, 130, 100, 70, 40, 30],
+    sweep_f_xy: 12000,
+    sweep_f_z: 10000,
+    fan_main_during_cool: null,
+    fan_detect_from_source: true,
+};
+
+export default transformGcode;

@@ -351,4 +351,19 @@ router.put('/:id/overrides', requireAdmin, asyncHandler(async (req, res) => {
 
     // Delete then insert (sql.js upsert workaround)
     dbRun('DELETE FROM printer_overrides WHERE printer_id = ? AND setting_key = ?', [req.params.id, key]);
-    if (value !== null && value !== undefined && value 
+    if (value !== null && value !== undefined && value !== '') {
+        dbRun(
+            'INSERT INTO printer_overrides (printer_id, setting_key, setting_value) VALUES (?, ?, ?)',
+            [req.params.id, key, String(value)],
+        );
+    }
+    res.json({ ok: true, key, value });
+}));
+
+router.delete('/:id/overrides/:key', requireAdmin, asyncHandler(async (req, res) => {
+    const { dbRun } = await import('../../db/database.js');
+    dbRun('DELETE FROM printer_overrides WHERE printer_id = ? AND setting_key = ?', [req.params.id, req.params.key]);
+    res.json({ ok: true });
+}));
+
+export default router;

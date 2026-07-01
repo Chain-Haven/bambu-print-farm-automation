@@ -601,4 +601,33 @@ export class JobOrchestrator {
 
     static findById(id) { return JobModel.findById(id); }
     static findAll(opts) { return JobModel.findAll(opts); }
-    static getQueue(printerId) { return JobModel.getQueue(printer
+    static getQueue(printerId) { return JobModel.getQueue(printerId); }
+
+    static async deleteJob(jobId) {
+        const job = JobModel.findById(jobId);
+        if (!job) throw new Error('Job not found');
+        JobModel.delete(jobId);
+        this._broadcast('job.deleted', { job_id: jobId });
+        return { success: true };
+    }
+
+    static async clearHistory() {
+        const count = JobModel.clearHistory();
+        this._broadcast('jobs.history_cleared', { count });
+        return count;
+    }
+
+    static async _autoStartNextJob(printerId) {
+        const next = JobModel.getQueue(printerId)[0];
+        if (!next) return null;
+
+        try {
+            return await this.startJob(next.job_id);
+        } catch (error) {
+            log.warn(`Auto-start next job failed: ${error.message}`);
+            return null;
+        }
+    }
+}
+
+export default JobOrchestrator;

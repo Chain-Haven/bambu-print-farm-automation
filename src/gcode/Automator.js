@@ -475,4 +475,26 @@ function buildSingleLoop(lines, insertionIdx, automationBlock) {
         const trimmed = lines[i].trim();
         // Comment out M73 P100 (progress=100%) to allow looping
         if (/^M73\s+P100\b/i.test(trimmed)) {
-            result.push(`; [AG_REMOVED] ${lines[
+            result.push(`; [AG_REMOVED] ${lines[i]}`);
+        } else {
+            result.push(lines[i]);
+        }
+    }
+
+    // 2) Comment out original end-gcode so the replacement block is authoritative.
+    for (let i = insertionIdx.line; i < lines.length; i++) {
+        const line = lines[i];
+        result.push(line.trim() ? `; [AG_END_REPLACED] ${line}` : line);
+    }
+
+    // 3) Append the generated automation block and preserve the execution terminator.
+    result.push(...automationBlock);
+    result.push('; EXECUTABLE_BLOCK_END');
+    return result;
+}
+
+function countNegativeZMoves(gcodeText) {
+    return gcodeText.split('\n').filter((line) => /\bG0?1\b/i.test(line) && /\bZ-\d/i.test(line)).length;
+}
+
+export default automate;

@@ -107,4 +107,19 @@ export function insertAutoEject(lines, profile, detection) {
         '',
         `G1 Z${zClear.toFixed(2)} F${fZ}`,
         `G1 X${parkX} Y${parkY} F${fXY}`,
-        ';============================  END AUTO-EJECT  =====================
+        ';============================  END AUTO-EJECT  ============================',
+        '',
+    ];
+
+    const insertionLine = detection?.insertionAnchor?.line ?? lines.length;
+    lines.splice(insertionLine, 0, ...ejectBlock);
+
+    return {
+        inserted: true,
+        line: insertionLine,
+        lines_added: ejectBlock.length,
+        z_clear_mm: zClear,
+        z_sweep_mm: zSweep,
+        cool_target_c: coolTarget,
+    };
+}

@@ -355,4 +355,16 @@ export class PrinterWorker {
     }
 
     /**
-   
+     * Request a fresh printer status report.
+     */
+    requestStatusRefresh() {
+        if (this.mockMode) {
+            this.latestStatus = { ...this.latestStatus, state: this.state, last_update: new Date().toISOString() };
+            if (this.onStatusUpdate) this.onStatusUpdate(this.latestStatus);
+            return true;
+        }
+        return this.mqttClient?.requestStatus?.() || false;
+    }
+}
+
+export default PrinterWorker;

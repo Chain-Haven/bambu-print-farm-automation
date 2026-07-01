@@ -329,4 +329,66 @@ function buildZip(parts) {
         lh.writeUInt32LE(entryCrc, 14);
         lh.writeUInt32LE(compressedSize, 18);
         lh.writeUInt32LE(uncompressedSize, 22);
-  
+        lh.writeUInt16LE(fileNameBuf.length, 26);
+        lh.writeUInt16LE(0, 28); // no extra field
+        fileNameBuf.copy(lh, 30);
+
+        const cd = Buffer.alloc(46 + fileNameBuf.length);
+        cd.writeUInt32LE(CENTRAL_DIR_SIG, 0);
+        cd.writeUInt16LE(20, 4);   // version made by
+        cd.writeUInt16LE(20, 6);   // version needed
+        cd.writeUInt16LE(0, 8);    // flags
+        cd.writeUInt16LE(part.compressionMethod, 10);
+        cd.writeUInt16LE(part.lastModTime || 0, 12);
+        cd.writeUInt16LE(part.lastModDate || 0, 14);
+        cd.writeUInt32LE(entryCrc, 16);
+        cd.writeUInt32LE(compressedSize, 20);
+        cd.writeUInt32LE(uncompressedSize, 24);
+        cd.writeUInt16LE(fileNameBuf.length, 28);
+        cd.writeUInt16LE(0, 30);   // extra field length
+        cd.writeUInt16LE(0, 32);   // comment length
+        cd.writeUInt16LE(0, 34);   // disk number
+        cd.writeUInt16LE(0, 36);   // internal attributes
+        cd.writeUInt32LE(part.externalAttrs || 0, 38);
+        cd.writeUInt32LE(offset, 42);
+        fileNameBuf.copy(cd, 46);
+
+        localHeaders.push(lh, compressedBuf);
+        centralDirs.push(cd);
+        offset += lh.length + compressedBuf.length;
+    }
+
+    const centralDirOffset = offset;
+    const centralDirSize = centralDirs.reduce((sum, buf) => sum + buf.length, 0);
+    const eocd = Buffer.alloc(22);
+    eocd.writeUInt32LE(EOCD_SIG, 0);
+    eocd.writeUInt16LE(0, 4); // disk number
+    eocd.writeUInt16LE(0, 6); // central directory disk
+    eocd.writeUInt16LE(parts.length, 8);
+    eocd.writeUInt16LE(parts.length, 10);
+    eocd.writeUInt32LE(centralDirSize, 12);
+    eocd.writeUInt32LE(centralDirOffset, 16);
+    eocd.writeUInt16LE(0, 20); // no zip comment
+
+    return Buffer.concat([...localHeaders, ...centralDirs, eocd]);
+}
+
+const CRC32_TABLE = (() => {
+    const table = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+        let value = i;
+        for (let bit = 0; bit < 8; bit++) {
+            value = (value & 1) ? (0xEDB88320 ^ (value >>> 1)) : (value >>> 1);
+        }
+        table[i] = value >>> 0;
+    }
+    return table;
+})();
+
+function crc32(buf) {
+    let crc = 0xFFFFFFFF;
+    for (const byte of buf) {
+        crc = CRC32_TABLE[(crc ^ byte) & 0xFF] ^ (crc >>> 8);
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+}

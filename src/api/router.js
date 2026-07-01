@@ -42,4 +42,7 @@ router.use('/commands', commandRoutes);
 router.use('/jobs', jobRoutes);
 router.use('/job-templates', jobTemplateRoutes);
 router.use('/gcode', gcodeRoutes);
-router.use('/slic
+router.use('/slice', sliceRoutes);
+router.use('/events', eventRoutes);
+
+export default router;

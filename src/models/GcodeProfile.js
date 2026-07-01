@@ -114,4 +114,6 @@ export class GcodeProfileModel {
     }
 }
 
-function _pj(v, fb) { if (!v) return fb; try { return JSON.parse(v); } catch { 
+function _pj(v, fb) { if (!v) return fb; try { return JSON.parse(v); } catch { return fb; } }
+
+export default GcodeProfileModel;
