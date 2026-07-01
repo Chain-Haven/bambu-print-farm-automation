@@ -1364,7 +1364,7 @@ async function handleDownloadNodePackage() {
       node_name: state.provisionedNode.name,
     },
   });
-  showToast('Windows ZIP downloaded');
+  showToast('Windows app downloaded — unzip and double-click Start Farm Node.bat (no install, no keys)');
 }
 
 async function handleNodeQuickstart(event) {

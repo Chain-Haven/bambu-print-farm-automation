@@ -78,7 +78,15 @@ async function main() {
         }]).catch((error) => log.warn(`Cloud alert forward failed: ${error.message}`));
     });
 
-    await sendHeartbeat(client, 'online', resultOutbox);
+    // A failed first heartbeat must NOT kill the node: local printer control and
+    // the dashboard have to keep running even when the cloud is briefly
+    // unreachable (results spool to the outbox and flush on reconnect). The
+    // interval below and the agent's own retry loop handle recovery.
+    try {
+        await sendHeartbeat(client, 'online', resultOutbox);
+    } catch (error) {
+        log.warn(`Initial cloud heartbeat failed (will keep retrying): ${error.message}`);
+    }
     const heartbeatTimer = setInterval(() => {
         sendHeartbeat(client, 'online', resultOutbox).catch((error) => {
             log.warn(`Cloud heartbeat failed: ${error.message}`);

@@ -8,6 +8,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "local-node": "node src/cloud/runLocalNode.js",
+    "build:node": "node scripts/build-windows-node.mjs",
+    "build:node:exe": "node scripts/build-windows-node.mjs --exe",
     "test": "vitest run",
     "test:cloud": "vitest run tests/cloud",
     "e2e:live": "npx --yes --package=playwright node scripts/live-e2e-test.mjs",
@@ -47,6 +49,8 @@
     "serialport": "^12.0.0"
   },
   "devDependencies": {
+    "esbuild": "^0.28.1",
+    "postject": "^1.0.0-alpha.6",
     "vitest": "^3.0.5"
   }
 }

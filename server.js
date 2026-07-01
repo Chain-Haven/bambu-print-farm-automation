@@ -15,8 +15,14 @@ import { createAlertDispatcher } from './src/services/AlertDispatcher.js';
 import TunnelService from './src/services/TunnelService.js';
 import { errorHandler } from './src/api/middleware/errorHandler.js';
 import { createLogger } from './src/utils/logger.js';
+import { resolveAsset } from './src/utils/runtimePaths.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// import.meta.url is empty when this file is compiled into the portable CJS
+// bundle; fall back to the bundle asset root (or cwd) in that case.
+const __dirname = import.meta.url
+    ? path.dirname(fileURLToPath(import.meta.url))
+    : (process.env.PKX_ASSET_ROOT || process.cwd());
+const publicDir = resolveAsset('public', path.join(__dirname, 'public'));
 const log = createLogger('Server');
 
 const app = express();
@@ -36,18 +42,18 @@ app.use((req, res, next) => {
 });
 
 // Static files (frontend)
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(publicDir));
 
 app.get('/cloud', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'cloud.html'));
+    res.sendFile(path.join(publicDir, 'cloud.html'));
 });
 
 app.get('/merchant-onboarding', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'merchant-onboarding.html'));
+    res.sendFile(path.join(publicDir, 'merchant-onboarding.html'));
 });
 
 app.get('/admin-reset', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'admin-reset.html'));
+    res.sendFile(path.join(publicDir, 'admin-reset.html'));
 });
 
 // API routes
@@ -59,7 +65,7 @@ app.use(errorHandler);
 // SPA fallback
 app.get('*', (req, res) => {
     if (!req.path.startsWith('/api')) {
-        res.sendFile(path.join(__dirname, 'public', 'index.html'));
+        res.sendFile(path.join(publicDir, 'index.html'));
     }
 });
 

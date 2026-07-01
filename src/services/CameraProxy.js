@@ -15,7 +15,18 @@
 import { spawn } from 'child_process';
 import * as tls from 'tls';
 import * as net from 'net';
-import { path as ffmpegPath } from '@ffmpeg-installer/ffmpeg';
+// ffmpeg is only needed for X1 RTSP interleaved streams (A1/P1 use JPEG framing
+// with no ffmpeg). Load it lazily so importing this module — and bundling the
+// portable Windows node — never pulls in the platform-specific ffmpeg binary at
+// startup. It is resolved on first X1 stream request instead.
+let _ffmpegPath = null;
+async function resolveFfmpegPath() {
+    if (_ffmpegPath) return _ffmpegPath;
+    const mod = await import('@ffmpeg-installer/ffmpeg');
+    _ffmpegPath = mod.path || mod.default?.path || mod.default;
+    if (!_ffmpegPath) throw new Error('ffmpeg binary not available for X1 RTSP streaming');
+    return _ffmpegPath;
+}
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('CameraProxy');
@@ -401,7 +412,7 @@ class CameraProxyManager {
         log.info(`X1 RTSP PLAY started for ${printerId}`);
 
         // Pipe interleaved RTP to ffmpeg
-        this._startX1FfmpegBridge(printerId, state, socket);
+        await this._startX1FfmpegBridge(printerId, state, socket);
     }
 
     _readRtspResponse(socket, label) {
@@ -423,7 +434,8 @@ class CameraProxyManager {
         });
     }
 
-    _startX1FfmpegBridge(printerId, state, socket) {
+    async _startX1FfmpegBridge(printerId, state, socket) {
+        const ffmpegPath = await resolveFfmpegPath();
         const proc = spawn(ffmpegPath, [
             '-hide_banner', '-loglevel', 'warning',
             '-f', 'h264', '-i', 'pipe:0',

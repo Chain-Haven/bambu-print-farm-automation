@@ -6,9 +6,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLogger } from '../utils/logger.js';
+import { assetRoot, resolveAsset } from '../utils/runtimePaths.js';
 
 const log = createLogger('DB');
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// import.meta.url is empty in the portable CJS bundle; fall back to the bundle
+// asset root (or cwd) so migration lookups still resolve there.
+const __dirname = import.meta.url
+    ? path.dirname(fileURLToPath(import.meta.url))
+    : (process.env.PKX_ASSET_ROOT || process.cwd());
 
 let _db = null;
 let _dbPath = null;
@@ -34,7 +39,10 @@ export async function initDb() {
         log.info(`Created data directory: ${dir}`);
     }
 
-    const SQL = await initSqlJs();
+    // In the portable bundle, sql-wasm.wasm sits next to the executable rather
+    // than inside node_modules, so point sql.js at the asset root when set.
+    const root = assetRoot();
+    const SQL = await initSqlJs(root ? { locateFile: (file) => path.join(root, file) } : undefined);
 
     // Load existing database file if present
     if (fs.existsSync(_dbPath)) {
@@ -145,7 +153,7 @@ export function runMigrations() {
     );
   `);
 
-    const migrationsDir = path.join(__dirname, 'migrations');
+    const migrationsDir = resolveAsset('migrations', path.join(__dirname, 'migrations'));
     if (!fs.existsSync(migrationsDir)) {
         log.warn('No migrations directory found');
         return;
