@@ -119,6 +119,8 @@ describe('cloud dashboard assets', () => {
         expect(js).toContain("elements.filamentInventoryJson.addEventListener('input', markFarmAutomationMutation)");
         expect(js).toContain("elements.integrationsJson.addEventListener('input', markFarmAutomationMutation)");
         expect(js).toContain('if (requestSequence !== farmAutomationRequestSequence)');
+        expect(js).toContain('const mutationSequence = markFarmAutomationMutation();');
+        expect(js).toContain('if (mutationSequence === farmAutomationRequestSequence)');
     });
 
     it('makes Windows node onboarding one-click and exposes local printer sync commands', () => {

@@ -1375,7 +1375,7 @@ async function handleMerchantSettingsSubmit(event) {
 
 async function handleFarmAutomationSubmit(event) {
   event.preventDefault();
-  markFarmAutomationMutation();
+  const mutationSequence = markFarmAutomationMutation();
   const policy = {
     smart_queue_enabled: elements.smartQueueEnabled.checked,
     auto_eject_enabled: elements.autoEjectEnabled.checked,
@@ -1388,31 +1388,37 @@ async function handleFarmAutomationSubmit(event) {
     method: 'PATCH',
     body: { policy },
   });
-  renderFarmAutomation(payload.automation);
+  if (mutationSequence === farmAutomationRequestSequence) {
+    renderFarmAutomation(payload.automation);
+  }
   showToast('Farm automation policy saved');
 }
 
 async function handleFilamentInventorySubmit(event) {
   event.preventDefault();
-  markFarmAutomationMutation();
+  const mutationSequence = markFarmAutomationMutation();
   const inventory = parseJsonField(elements.filamentInventoryJson.value, { spools: [] });
   const payload = await apiRequest('/api/cloud/farm-automation', {
     method: 'PATCH',
     body: { inventory },
   });
-  renderFarmAutomation(payload.automation);
+  if (mutationSequence === farmAutomationRequestSequence) {
+    renderFarmAutomation(payload.automation);
+  }
   showToast('Filament inventory saved');
 }
 
 async function handleIntegrationsSubmit(event) {
   event.preventDefault();
-  markFarmAutomationMutation();
+  const mutationSequence = markFarmAutomationMutation();
   const integrations = parseJsonField(elements.integrationsJson.value, {});
   const payload = await apiRequest('/api/cloud/farm-automation', {
     method: 'PATCH',
     body: { integrations },
   });
-  renderFarmAutomation(payload.automation);
+  if (mutationSequence === farmAutomationRequestSequence) {
+    renderFarmAutomation(payload.automation);
+  }
   showToast('Farm integrations saved');
 }
 
