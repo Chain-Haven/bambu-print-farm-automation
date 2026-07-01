@@ -11,6 +11,13 @@ function requiredString(value, name) {
     return value.trim();
 }
 
+function requiredInternalString(value, name) {
+    if (typeof value !== 'string' || value.trim() === '') {
+        throw new Error(`${name} is required`);
+    }
+    return value.trim();
+}
+
 function requiredFileId(value) {
     return requiredString(value, 'file_id');
 }
@@ -59,7 +66,7 @@ function publicSlice(slice, artifact = undefined) {
     const provider = sliceProvider(slice);
     if (provider) response.provider = provider;
 
-    for (const key of ['file_id', 'created_at', 'updated_at', 'completed_at', 'canceled_at', 'error']) {
+    for (const key of ['file_id', 'created_at', 'updated_at', 'completed_at', 'canceled_at']) {
         if (slice[key] !== undefined && slice[key] !== null) response[key] = slice[key];
     }
     if (isPlainObject(slice.profile)) response.profile = slice.profile;
@@ -84,6 +91,35 @@ function artifactPayload(artifact) {
     const payload = publicArtifact(artifact) || {};
     if (artifact?.slice_job_id) payload.slice_id = artifact.slice_job_id;
     return payload;
+}
+
+function optionalString(value) {
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function buildArtifactRow({
+    scope,
+    artifact,
+    adapterResult,
+    sourceFile,
+    sliceJobId,
+}) {
+    if (!artifact) return null;
+
+    return {
+        ...scope,
+        artifact_id: requiredInternalString(artifact.artifact_id, 'artifact.artifact_id'),
+        job_id: artifact.job_id || null,
+        file_id: sourceFile.file_id,
+        artifact_type: 'sliced_model',
+        storage_path: optionalString(artifact.storage_path),
+        provider: artifact.provider || adapterResult.provider || 'mock',
+        payload: artifactPayload(artifact),
+        metadata: {
+            slice_job_id: sliceJobId,
+        },
+        created_at: artifact.created_at,
+    };
 }
 
 export function createSliceHandlers({
@@ -118,9 +154,19 @@ export function createSliceHandlers({
             profile,
             requirements,
         });
-        const sliceJobId = requiredSliceId(adapterResult.slice_job_id);
+        const sliceJobId = requiredInternalString(adapterResult.slice_job_id, 'adapter slice_job_id');
         const artifact = isPlainObject(adapterResult.artifact) ? adapterResult.artifact : null;
         const scope = merchantScope(merchant);
+        const artifactRow = buildArtifactRow({
+            scope,
+            artifact,
+            adapterResult,
+            sourceFile,
+            sliceJobId,
+        });
+        const storedArtifact = artifactRow
+            ? await store.createMerchantJobArtifact(artifactRow)
+            : null;
 
         const sliceJob = await store.createMerchantSliceJob({
             ...scope,
@@ -136,23 +182,6 @@ export function createSliceHandlers({
             created_at: adapterResult.created_at,
             updated_at: adapterResult.updated_at,
         });
-
-        let storedArtifact = null;
-        if (artifact) {
-            storedArtifact = await store.createMerchantJobArtifact({
-                ...scope,
-                artifact_id: requiredString(artifact.artifact_id, 'artifact.artifact_id'),
-                job_id: artifact.job_id || null,
-                file_id: sourceFile.file_id,
-                artifact_type: 'sliced_model',
-                provider: artifact.provider || adapterResult.provider || 'mock',
-                payload: artifactPayload(artifact),
-                metadata: {
-                    slice_job_id: sliceJobId,
-                },
-                created_at: artifact.created_at,
-            });
-        }
 
         return publicOk(publicSlice(sliceJob, publicArtifact(storedArtifact?.payload || artifact)), requestId);
     }

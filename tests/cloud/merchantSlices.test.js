@@ -134,6 +134,26 @@ async function importSlicesIndexRoute(store = createMockStore()) {
     return route.default;
 }
 
+async function importSliceDetailRoute(store = createMockStore()) {
+    vi.resetModules();
+    vi.doMock('../../src/cloud/supabaseRest.js', () => ({
+        createSupabaseRestClient: vi.fn(() => store),
+    }));
+    const route = await import('../../api/public/slices/[slice_id].js');
+    vi.doUnmock('../../src/cloud/supabaseRest.js');
+    return route.default;
+}
+
+async function importSliceCancelRoute(store = createMockStore()) {
+    vi.resetModules();
+    vi.doMock('../../src/cloud/supabaseRest.js', () => ({
+        createSupabaseRestClient: vi.fn(() => store),
+    }));
+    const route = await import('../../api/public/slices/[slice_id]/cancel.js');
+    vi.doUnmock('../../src/cloud/supabaseRest.js');
+    return route.default;
+}
+
 describe('merchant slicing API handlers', () => {
     it('creates, reads, and cancels merchant-scoped slice jobs', async () => {
         const {
@@ -184,6 +204,7 @@ describe('merchant slicing API handlers', () => {
             artifact_id: 'artifact1',
             file_id: 'source-file',
             artifact_type: 'sliced_model',
+            storage_path: 'internal/mock/path/part.gcode.3mf',
             provider: 'mock',
             payload: expect.objectContaining({
                 original_name: 'part.mock-sliced.gcode.3mf',
@@ -198,6 +219,9 @@ describe('merchant slicing API handlers', () => {
                 canceled_at: '2026-07-01T12:00:00.000Z',
             },
         });
+        expect(store.createMerchantJobArtifact.mock.invocationCallOrder[0]).toBeLessThan(
+            store.createMerchantSliceJob.mock.invocationCallOrder[0],
+        );
     });
 
     it('returns safe artifact metadata without storage paths or invented file ids', async () => {
@@ -221,6 +245,67 @@ describe('merchant slicing API handlers', () => {
         });
         expect(result.artifact).not.toHaveProperty('file_id');
         expect(JSON.stringify(result)).not.toContain('storage_path');
+    });
+
+    it('does not expose raw adapter or stored slice errors in public responses', async () => {
+        const rawError = 'internal://path node_id=printer-1 stack at secret.js:12';
+        const { createSlice } = createHandlers({
+            adapters: {
+                slicer: {
+                    createSliceJob: vi.fn().mockResolvedValue({
+                        provider: 'mock',
+                        slice_job_id: 'slice-failed',
+                        file_id: 'source-file',
+                        status: 'failed',
+                        error: rawError,
+                    }),
+                },
+            },
+        });
+        const getHandlers = createHandlers({
+            store: {
+                getMerchantSliceJob: vi.fn().mockResolvedValue({
+                    slice_job_id: 'slice-failed',
+                    org_id: 'org-1',
+                    merchant_id: 'merchant-1',
+                    file_id: 'source-file',
+                    status: 'failed',
+                    result: { provider: 'mock' },
+                    error: rawError,
+                }),
+            },
+        });
+
+        const createResult = await createSlice({
+            file_id: 'source-file',
+            profile: { quality: 'standard' },
+        });
+        const getResult = await getHandlers.getSlice({ slice_id: 'slice-failed' });
+
+        expect(JSON.stringify(createResult)).not.toContain('internal://path');
+        expect(JSON.stringify(createResult)).not.toContain('node_id=');
+        expect(JSON.stringify(createResult)).not.toContain('stack');
+        expect(JSON.stringify(getResult)).not.toContain('internal://path');
+        expect(JSON.stringify(getResult)).not.toContain('node_id=');
+        expect(JSON.stringify(getResult)).not.toContain('stack');
+        expect(createResult).not.toHaveProperty('error');
+        expect(getResult).not.toHaveProperty('error');
+    });
+
+    it('does not create slice rows when artifact persistence fails', async () => {
+        const { createSlice, store } = createHandlers({
+            store: {
+                createMerchantJobArtifact: vi.fn().mockRejectedValue(new Error('artifact insert failed')),
+            },
+        });
+
+        await expect(createSlice({
+            file_id: 'source-file',
+            profile: { quality: 'standard' },
+        })).rejects.toThrow('artifact insert failed');
+
+        expect(store.createMerchantJobArtifact).toHaveBeenCalled();
+        expect(store.createMerchantSliceJob).not.toHaveBeenCalled();
     });
 
     it('rejects ready-to-print files because slicing requires a source model', async () => {
@@ -302,6 +387,63 @@ describe('merchant slicing public routes', () => {
 
         expect(res.statusCode).toBe(401);
         expect(res.body).toMatchObject({
+            ok: false,
+            error: 'missing_api_key',
+            message: 'Merchant authentication failed',
+            request_id: expect.stringMatching(/^req_/),
+        });
+    });
+
+    it('returns v2 public error envelopes for detail and cancel route methods', async () => {
+        const detailHandler = await importSliceDetailRoute();
+        const cancelHandler = await importSliceCancelRoute();
+        const detailRes = createMockResponse();
+        const cancelRes = createMockResponse();
+
+        await detailHandler({ method: 'POST', headers: {}, query: { slice_id: 'slice1' } }, detailRes);
+        await cancelHandler({ method: 'GET', headers: {}, query: { slice_id: 'slice1' } }, cancelRes);
+
+        expect(detailRes.statusCode).toBe(405);
+        expect(detailRes.headers.Allow).toBe('GET');
+        expect(detailRes.body).toMatchObject({
+            ok: false,
+            error: 'method_not_allowed',
+            request_id: expect.stringMatching(/^req_/),
+        });
+        expect(cancelRes.statusCode).toBe(405);
+        expect(cancelRes.headers.Allow).toBe('POST');
+        expect(cancelRes.body).toMatchObject({
+            ok: false,
+            error: 'method_not_allowed',
+            request_id: expect.stringMatching(/^req_/),
+        });
+    });
+
+    it('returns v2 public auth envelopes for detail and cancel routes', async () => {
+        const originalPepper = process.env.NODE_TOKEN_PEPPER;
+        process.env.NODE_TOKEN_PEPPER = 'pepper';
+        const detailHandler = await importSliceDetailRoute();
+        const cancelHandler = await importSliceCancelRoute();
+        const detailRes = createMockResponse();
+        const cancelRes = createMockResponse();
+
+        try {
+            await detailHandler({ method: 'GET', headers: {}, query: { slice_id: 'slice1' } }, detailRes);
+            await cancelHandler({ method: 'POST', headers: {}, query: { slice_id: 'slice1' } }, cancelRes);
+        } finally {
+            if (originalPepper === undefined) delete process.env.NODE_TOKEN_PEPPER;
+            else process.env.NODE_TOKEN_PEPPER = originalPepper;
+        }
+
+        expect(detailRes.statusCode).toBe(401);
+        expect(detailRes.body).toMatchObject({
+            ok: false,
+            error: 'missing_api_key',
+            message: 'Merchant authentication failed',
+            request_id: expect.stringMatching(/^req_/),
+        });
+        expect(cancelRes.statusCode).toBe(401);
+        expect(cancelRes.body).toMatchObject({
             ok: false,
             error: 'missing_api_key',
             message: 'Merchant authentication failed',
