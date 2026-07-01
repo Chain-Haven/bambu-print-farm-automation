@@ -342,9 +342,15 @@ create table public.merchant_adapter_events (
 alter table public.merchants
   add constraint merchants_org_merchant_id_unique unique (org_id, merchant_id);
 
--- Existing print_jobs.merchant_id is nullable for non-merchant jobs. V2 rows
--- have non-null org_id and merchant_id, so this composite reference only
--- permits v2 rows to point at merchant-scoped jobs in the same organization.
+-- Existing print_jobs.merchant_id is nullable for non-merchant jobs. Postgres
+-- composite foreign keys use MATCH SIMPLE by default, so rows with null
+-- merchant_id pass the check, preserving non-merchant jobs while enforcing org/merchant pairing for merchant-scoped jobs. This is NOT VALID so rollout
+-- can audit legacy print_jobs data before validating the constraint.
+alter table public.print_jobs
+  add constraint print_jobs_merchant_scope_fk
+  foreign key (org_id, merchant_id) references public.merchants(org_id, merchant_id)
+  not valid;
+
 alter table public.print_jobs
   add constraint print_jobs_org_merchant_job_id_unique unique (org_id, merchant_id, job_id);
 

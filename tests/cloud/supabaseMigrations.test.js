@@ -99,6 +99,7 @@ describe('Supabase migrations', () => {
         }
 
         for (const constraintName of [
+            'print_jobs_merchant_scope_fk',
             'merchant_files_merchant_scope_fk',
             'merchant_slice_jobs_merchant_scope_fk',
             'merchant_orders_merchant_scope_fk',
@@ -158,6 +159,7 @@ describe('Supabase migrations', () => {
         }
 
         for (const foreignKey of [
+            'constraint print_jobs_merchant_scope_fk foreign key (org_id, merchant_id) references public.merchants(org_id, merchant_id) not valid',
             'foreign key (org_id, merchant_id) references public.merchants(org_id, merchant_id)',
             'foreign key (org_id, merchant_id, file_id) references public.merchant_files(org_id, merchant_id, file_id)',
             'foreign key (org_id, merchant_id, slice_job_id) references public.merchant_slice_jobs(org_id, merchant_id, slice_job_id)',
@@ -173,6 +175,7 @@ describe('Supabase migrations', () => {
         }
 
         expect(sql).toContain('Existing print_jobs.merchant_id is nullable for non-merchant jobs');
+        expect(compact).toContain('preserving non-merchant jobs while enforcing org/merchant pairing');
     });
 
     it('requires Merchant API v2 lifecycle statuses', () => {
