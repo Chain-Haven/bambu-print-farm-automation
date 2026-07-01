@@ -53,6 +53,22 @@ function markFarmAutomationMutation() {
   return farmAutomationRequestSequence;
 }
 
+function bindFarmAutomationEditorGuards() {
+  [
+    elements.smartQueueEnabled,
+    elements.autoEjectEnabled,
+    elements.failureDetectionEnabled,
+    elements.releaseTemperatureC,
+    elements.maxEjectAttempts,
+    elements.bedClearVerification,
+  ].forEach((element) => {
+    element.addEventListener('change', markFarmAutomationMutation);
+    element.addEventListener('input', markFarmAutomationMutation);
+  });
+  elements.filamentInventoryJson.addEventListener('input', markFarmAutomationMutation);
+  elements.integrationsJson.addEventListener('input', markFarmAutomationMutation);
+}
+
 const commandTemplates = {
   status: {
     commandType: 'printer.status',
@@ -1484,6 +1500,8 @@ function restoreSettings() {
 }
 
 function bindEvents() {
+  bindFarmAutomationEditorGuards();
+
   elements.adminLoginForm.addEventListener('submit', (event) => {
     handleAdminLogin(event).catch((error) => {
       setAdminAuthState('Login failed', 'missing-label');

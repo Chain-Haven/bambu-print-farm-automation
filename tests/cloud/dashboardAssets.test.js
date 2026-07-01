@@ -115,6 +115,9 @@ describe('cloud dashboard assets', () => {
 
         expect(js).toContain('farmAutomationRequestSequence');
         expect(js).toContain('markFarmAutomationMutation');
+        expect(js).toContain('bindFarmAutomationEditorGuards');
+        expect(js).toContain("elements.filamentInventoryJson.addEventListener('input', markFarmAutomationMutation)");
+        expect(js).toContain("elements.integrationsJson.addEventListener('input', markFarmAutomationMutation)");
         expect(js).toContain('if (requestSequence !== farmAutomationRequestSequence)');
     });
 
