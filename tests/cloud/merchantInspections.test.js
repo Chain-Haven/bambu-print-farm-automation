@@ -22,6 +22,16 @@ function createMockStore(overrides = {}) {
                     options: { storage_path: 'internal/job/path' },
                 }
         )),
+        getMerchantOrder: vi.fn().mockImplementation(async ({ orderId }) => (
+            orderId === 'missing-order'
+                ? null
+                : {
+                    order_id: orderId,
+                    org_id: 'org-1',
+                    merchant_id: 'merchant-1',
+                    status: 'awaiting_quality',
+                }
+        )),
         getMerchantInspectionByJob: vi.fn().mockResolvedValue(null),
         getMerchantInspection: vi.fn().mockImplementation(async ({ inspectionId }) => ({
             inspection_id: inspectionId,
@@ -55,6 +65,18 @@ function createMockStore(overrides = {}) {
             },
             ...fields,
         })),
+        updateMerchantInspectionIfDecisionOpen: vi.fn().mockImplementation(async ({ inspectionId, fields }) => ({
+            inspection_id: inspectionId,
+            org_id: 'org-1',
+            merchant_id: 'merchant-1',
+            job_id: 'job-1',
+            provider: 'mock',
+            metadata: {
+                note: 'merchant visible',
+                storage_path: 'internal/inspection/path',
+            },
+            ...fields,
+        })),
         recordMerchantJobEvent: vi.fn().mockImplementation(async (event) => event),
         ...overrides,
     };
@@ -73,6 +95,10 @@ function createHandlers(overrides = {}) {
                 findings: [{ code: 'ok' }],
                 metadata: {
                     note: 'merchant visible',
+                    printer_serial: 'printer-serial-secret',
+                    node_name: 'node-name-secret',
+                    spool_material: 'spool-material-secret',
+                    storage_bucket: 'storage-bucket-secret',
                     node_id: 'node-secret',
                     printer_id: 'printer-secret',
                     storage_path: 'internal/adapter/path',
@@ -169,6 +195,10 @@ describe('merchant inspection handlers', () => {
                 note: 'merchant visible',
                 summary: 'Layer lines look good',
                 findings: [{ code: 'ok' }],
+                printer_serial: 'printer-serial-secret',
+                node_name: 'node-name-secret',
+                spool_material: 'spool-material-secret',
+                storage_bucket: 'storage-bucket-secret',
                 node_id: 'node-secret',
                 printer_id: 'printer-secret',
                 signedUrl: 'https://signed.example/inspection',
@@ -220,6 +250,10 @@ describe('merchant inspection handlers', () => {
         ]);
         expect(JSON.stringify({ created, fetched, replayed })).not.toContain('org-1');
         expect(JSON.stringify({ created, fetched, replayed })).not.toContain('merchant-1');
+        expect(JSON.stringify({ created, fetched, replayed })).not.toContain('printer-serial-secret');
+        expect(JSON.stringify({ created, fetched, replayed })).not.toContain('node-name-secret');
+        expect(JSON.stringify({ created, fetched, replayed })).not.toContain('spool-material-secret');
+        expect(JSON.stringify({ created, fetched, replayed })).not.toContain('storage-bucket-secret');
         expect(JSON.stringify({ created, fetched, replayed })).not.toContain('node-secret');
         expect(JSON.stringify({ created, fetched, replayed })).not.toContain('printer-secret');
         expect(JSON.stringify({ created, fetched, replayed })).not.toContain('signed.example');
@@ -270,6 +304,35 @@ describe('merchant inspection handlers', () => {
         expect(store.createMerchantInspection).not.toHaveBeenCalled();
     });
 
+    it('verifies supplied order references before creating inspections and rejects detectable mismatches', async () => {
+        const { requestInspection, store } = createHandlers({
+            store: {
+                getMerchantPrintJob: vi.fn().mockResolvedValue({
+                    job_id: 'job-1',
+                    org_id: 'org-1',
+                    merchant_id: 'merchant-1',
+                    order_id: 'order-expected',
+                    status: 'completed',
+                }),
+                getMerchantOrder: vi.fn().mockImplementation(async ({ orderId }) => (
+                    orderId === 'missing-order'
+                        ? null
+                        : { order_id: orderId, status: 'awaiting_quality' }
+                )),
+            },
+        });
+
+        await expect(requestInspection({ job_id: 'job-1', order_id: 'missing-order' })).rejects.toMatchObject({
+            statusCode: 404,
+            code: 'order_not_found',
+        });
+        await expect(requestInspection({ job_id: 'job-1', order_id: 'order-unrelated' })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'inspection_reference_mismatch',
+        });
+        expect(store.createMerchantInspection).not.toHaveBeenCalled();
+    });
+
     it('sets merchant inspection decisions by inspection_id without exposing internal fields', async () => {
         const { acceptInspection, rejectInspection, manualReviewInspection, store } = createHandlers();
 
@@ -284,7 +347,7 @@ describe('merchant inspection handlers', () => {
             merchantId: 'merchant-1',
             inspectionId: 'inspection-1',
         });
-        expect(store.updateMerchantInspection.mock.calls.map(([call]) => call.fields)).toEqual([
+        expect(store.updateMerchantInspectionIfDecisionOpen.mock.calls.map(([call]) => call.fields)).toEqual([
             expect.objectContaining({ status: 'passed', decision: 'accepted' }),
             expect.objectContaining({ status: 'failed', decision: 'rejected' }),
             expect.objectContaining({ status: 'manual_review', decision: 'manual_review' }),
@@ -293,6 +356,58 @@ describe('merchant inspection handlers', () => {
         expect(JSON.stringify({ accepted, rejected, manualReview })).not.toContain('internal/inspection/path');
         expect(JSON.stringify({ accepted, rejected, manualReview })).not.toContain('org-1');
         expect(JSON.stringify({ accepted, rejected, manualReview })).not.toContain('merchant-1');
+    });
+
+    it('does not flip terminal inspection decisions and treats same-decision retries as replay-safe', async () => {
+        const { acceptInspection, rejectInspection, manualReviewInspection, store } = createHandlers({
+            store: {
+                getMerchantInspection: vi.fn()
+                    .mockResolvedValueOnce({
+                        inspection_id: 'inspection-accepted',
+                        job_id: 'job-1',
+                        provider: 'mock',
+                        status: 'passed',
+                        decision: 'accepted',
+                    })
+                    .mockResolvedValueOnce({
+                        inspection_id: 'inspection-accepted',
+                        job_id: 'job-1',
+                        provider: 'mock',
+                        status: 'passed',
+                        decision: 'accepted',
+                    })
+                    .mockResolvedValueOnce({
+                        inspection_id: 'inspection-manual',
+                        job_id: 'job-1',
+                        provider: 'mock',
+                        status: 'manual_review',
+                        decision: 'manual_review',
+                    })
+                    .mockResolvedValueOnce({
+                        inspection_id: 'inspection-stale',
+                        job_id: 'job-1',
+                        provider: 'mock',
+                        status: 'manual_review',
+                        decision: null,
+                    }),
+                updateMerchantInspectionIfDecisionOpen: vi.fn().mockResolvedValue(null),
+            },
+        });
+
+        const replay = await acceptInspection({ inspection_id: 'inspection-accepted' });
+        await expect(rejectInspection({ inspection_id: 'inspection-accepted' })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'inspection_transition_invalid',
+        });
+        const manualReplay = await manualReviewInspection({ inspection_id: 'inspection-manual' });
+        await expect(acceptInspection({ inspection_id: 'inspection-stale' })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'inspection_transition_invalid',
+        });
+
+        expect(replay).toMatchObject({ status: 'passed', decision: 'accepted' });
+        expect(manualReplay).toMatchObject({ status: 'manual_review', decision: 'manual_review' });
+        expect(store.updateMerchantInspectionIfDecisionOpen).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -330,6 +445,39 @@ describe('merchant inspection store helpers', () => {
         expect(listUrl.searchParams.get('order_id')).toBe('eq.order-1');
         expect(listUrl.searchParams.get('status')).toBe('eq.manual_review');
         expect(listUrl.searchParams.get('limit')).toBe('100');
+    });
+
+    it('conditionally updates inspection decisions only while open and undecided', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify([{ inspection_id: 'inspection-1', decision: 'accepted' }]),
+        });
+        const store = createSupabaseRestClient({
+            supabaseUrl: 'https://example.supabase.co',
+            serviceRoleKey: 'service_role',
+            fetchImpl,
+        });
+
+        await store.updateMerchantInspectionIfDecisionOpen({
+            merchantId: 'merchant-1',
+            inspectionId: 'inspection-1',
+            allowedStatuses: ['pending', 'manual_review'],
+            fields: { status: 'passed', decision: 'accepted' },
+        });
+
+        const [url, init] = fetchImpl.mock.calls[0];
+        const requestUrl = new URL(url);
+        expect(requestUrl.pathname).toBe('/rest/v1/merchant_inspections');
+        expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.merchant-1');
+        expect(requestUrl.searchParams.get('inspection_id')).toBe('eq.inspection-1');
+        expect(requestUrl.searchParams.get('status')).toBe('in.(pending,manual_review)');
+        expect(requestUrl.searchParams.get('decision')).toBe('is.null');
+        expect(init).toMatchObject({
+            method: 'PATCH',
+            headers: expect.objectContaining({ Prefer: 'return=representation' }),
+            body: JSON.stringify({ status: 'passed', decision: 'accepted' }),
+        });
     });
 });
 

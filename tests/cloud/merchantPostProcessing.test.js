@@ -39,6 +39,7 @@ function createMockStore(overrides = {}) {
                     job_id: jobId,
                     org_id: 'org-1',
                     merchant_id: 'merchant-1',
+                    order_id: 'order-1',
                     status: 'completed',
                     node_id: 'node-secret',
                     printer_id: 'printer-secret',
@@ -66,6 +67,7 @@ function createMockStore(overrides = {}) {
             taskId,
             fields,
         }) => taskRow({ task_id: taskId, ...fields })),
+        recordMerchantJobEvent: vi.fn().mockImplementation(async (event) => event),
         ...overrides,
     };
 }
@@ -157,6 +159,10 @@ describe('merchant post-processing handlers', () => {
             assigned_to: 'operator-1',
             metadata: {
                 note: 'merchant visible',
+                printer_serial: 'printer-serial-secret',
+                node_name: 'node-name-secret',
+                spool_material: 'spool-material-secret',
+                storage_bucket: 'storage-bucket-secret',
                 node_id: 'node-secret',
                 printer_id: 'printer-secret',
                 spool_id: 'spool-secret',
@@ -207,6 +213,11 @@ describe('merchant post-processing handlers', () => {
             task_type: 'support_removal',
             status: 'pending',
         }));
+        expect(store.recordMerchantJobEvent).toHaveBeenCalledWith(expect.objectContaining({
+            event_type: 'post_processing.created',
+            job_id: 'job-1',
+            order_id: 'order-1',
+        }));
         expect(store.listMerchantPostProcessingTasks).toHaveBeenCalledWith({
             merchantId: 'merchant-1',
             jobId: 'job-1',
@@ -216,6 +227,10 @@ describe('merchant post-processing handlers', () => {
         });
         expect(JSON.stringify({ created, listed, fetched })).not.toContain('org-1');
         expect(JSON.stringify({ created, listed, fetched })).not.toContain('merchant-1');
+        expect(JSON.stringify({ created, listed, fetched })).not.toContain('printer-serial-secret');
+        expect(JSON.stringify({ created, listed, fetched })).not.toContain('node-name-secret');
+        expect(JSON.stringify({ created, listed, fetched })).not.toContain('spool-material-secret');
+        expect(JSON.stringify({ created, listed, fetched })).not.toContain('storage-bucket-secret');
         expect(JSON.stringify({ created, listed, fetched })).not.toContain('node-secret');
         expect(JSON.stringify({ created, listed, fetched })).not.toContain('printer-secret');
         expect(JSON.stringify({ created, listed, fetched })).not.toContain('spool-secret');
@@ -230,6 +245,10 @@ describe('merchant post-processing handlers', () => {
             statusCode: 400,
             code: 'invalid_payload',
         });
+        await expect(createTask({ task_type: 'painting' })).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'invalid_payload',
+        });
         await expect(createTask({ task_type: 'packing', job_id: 'missing-job' })).rejects.toMatchObject({
             statusCode: 404,
             code: 'print_job_not_found',
@@ -237,6 +256,33 @@ describe('merchant post-processing handlers', () => {
         await expect(createTask({ task_type: 'packing', order_id: 'missing-order' })).rejects.toMatchObject({
             statusCode: 404,
             code: 'order_not_found',
+        });
+        expect(store.createMerchantPostProcessingTask).not.toHaveBeenCalled();
+    });
+
+    it('rejects detectable job/order relationship mismatches before creating tasks', async () => {
+        const { createTask, store } = createHandlers({
+            store: {
+                getMerchantPrintJob: vi.fn().mockResolvedValue({
+                    job_id: 'job-1',
+                    order_id: 'order-expected',
+                    status: 'completed',
+                }),
+                getMerchantOrder: vi.fn().mockResolvedValue({
+                    order_id: 'order-unrelated',
+                    job_id: 'other-job',
+                    status: 'post_processing',
+                }),
+            },
+        });
+
+        await expect(createTask({
+            task_type: 'packing',
+            job_id: 'job-1',
+            order_id: 'order-unrelated',
+        })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'post_processing_reference_mismatch',
         });
         expect(store.createMerchantPostProcessingTask).not.toHaveBeenCalled();
     });
@@ -285,7 +331,49 @@ describe('merchant post-processing handlers', () => {
             ['pending'],
             ['pending', 'running'],
         ]);
+        expect(store.recordMerchantJobEvent.mock.calls.map(([event]) => event.event_type)).toEqual([
+            'post_processing.started',
+            'post_processing.completed',
+            'post_processing.skipped',
+            'post_processing.failed',
+        ]);
         expect(JSON.stringify(failed)).not.toContain('signed.example');
+    });
+
+    it('keeps durable task state when post-processing event writes fail', async () => {
+        const { createTask, startTask, store } = createHandlers({
+            store: {
+                recordMerchantJobEvent: vi.fn().mockRejectedValue(new Error('event write failed')),
+            },
+        });
+
+        await expect(createTask({ task_type: 'packing', job_id: 'job-1' })).resolves.toMatchObject({
+            status: 'pending',
+            task_type: 'packing',
+        });
+        await expect(startTask({ task_id: 'task-1' })).resolves.toMatchObject({
+            status: 'running',
+        });
+        expect(store.recordMerchantJobEvent).toHaveBeenCalled();
+    });
+
+    it('replays same-state post-processing transitions without duplicate updates', async () => {
+        const { startTask, completeTask, skipTask, failTask, store } = createHandlers({
+            store: {
+                getMerchantPostProcessingTask: vi.fn()
+                    .mockResolvedValueOnce(taskRow({ task_id: 'task-started', status: 'running' }))
+                    .mockResolvedValueOnce(taskRow({ task_id: 'task-completed', status: 'completed' }))
+                    .mockResolvedValueOnce(taskRow({ task_id: 'task-skipped', status: 'skipped' }))
+                    .mockResolvedValueOnce(taskRow({ task_id: 'task-failed', status: 'failed' })),
+            },
+        });
+
+        await expect(startTask({ task_id: 'task-started' })).resolves.toMatchObject({ status: 'running' });
+        await expect(completeTask({ task_id: 'task-completed' })).resolves.toMatchObject({ status: 'completed' });
+        await expect(skipTask({ task_id: 'task-skipped' })).resolves.toMatchObject({ status: 'skipped' });
+        await expect(failTask({ task_id: 'task-failed' })).resolves.toMatchObject({ status: 'failed' });
+        expect(store.updateMerchantPostProcessingTaskIfStatus).not.toHaveBeenCalled();
+        expect(store.recordMerchantJobEvent).not.toHaveBeenCalled();
     });
 
     it('rejects invalid terminal transitions and stale conditional updates', async () => {

@@ -188,6 +188,7 @@ describe('Supabase migrations', () => {
             "check (status in ('reserved','released','expired','consumed'))",
             "check (status in ('queued','running','paused','completed','canceled','failed'))",
             "check (status in ('pending','passed','failed','manual_review'))",
+            "check (task_type in ('auto_eject','bed_clear','support_removal','packing','labeling'))",
             "check (status in ('pending','running','completed','skipped','failed'))",
             "check (status in ('created','label_requested','label_created','shipped','delivered','canceled'))",
             "check (status in ('draft','issued','void'))",

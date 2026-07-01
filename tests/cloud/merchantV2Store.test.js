@@ -33,6 +33,7 @@ const requiredMethods = [
     'getMerchantInspectionByJob',
     'listMerchantInspections',
     'updateMerchantInspection',
+    'updateMerchantInspectionIfDecisionOpen',
     'createMerchantPostProcessingTask',
     'getMerchantPostProcessingTask',
     'listMerchantPostProcessingTasks',

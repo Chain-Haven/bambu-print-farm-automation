@@ -184,7 +184,7 @@ create table public.merchant_post_processing_tasks (
   merchant_id uuid not null references public.merchants(merchant_id) on delete cascade,
   job_id uuid references public.print_jobs(job_id) on delete set null,
   order_id uuid references public.merchant_orders(order_id) on delete set null,
-  task_type text not null,
+  task_type text not null check (task_type in ('auto_eject','bed_clear','support_removal','packing','labeling')),
   status text not null default 'pending' check (status in ('pending','running','completed','skipped','failed')),
   assigned_to text,
   started_at timestamptz,

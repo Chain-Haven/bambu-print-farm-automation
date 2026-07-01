@@ -10,6 +10,7 @@ import {
 
 const INSPECTION_STATUSES = new Set(['pending', 'passed', 'failed', 'manual_review']);
 const INSPECTION_DECISIONS = new Set(['accepted', 'rejected', 'manual_review']);
+const OPEN_DECISION_STATUSES = ['pending', 'manual_review'];
 
 function requiredJobId(value) {
     return requiredString(value, 'job_id');
@@ -54,6 +55,14 @@ function publicInspection(inspection) {
     return response;
 }
 
+function relationId(source, keys) {
+    for (const key of keys) {
+        const value = optionalString(source?.[key]);
+        if (value) return value;
+    }
+    return null;
+}
+
 async function requireMerchantPrintJob(store, merchant, jobId) {
     const job = await store.getMerchantPrintJob({
         merchantId: merchant.merchant_id,
@@ -61,6 +70,29 @@ async function requireMerchantPrintJob(store, merchant, jobId) {
     });
     if (!job) throw createHttpError(404, 'print_job_not_found', 'Print job not found');
     return job;
+}
+
+async function validateInspectionOrderReference({ store, merchant, job, orderId }) {
+    if (!orderId) return null;
+    const order = await store.getMerchantOrder({
+        merchantId: merchant.merchant_id,
+        orderId,
+    });
+    if (!order) throw createHttpError(404, 'order_not_found', 'Order not found');
+
+    const jobOrderId = relationId(job, ['order_id'])
+        || relationId(safeObject(job.options), ['order_id'])
+        || relationId(safeObject(job.metadata), ['order_id']);
+    const orderJobId = relationId(order, ['job_id'])
+        || relationId(safeObject(order.metadata), ['job_id']);
+    if ((jobOrderId && jobOrderId !== orderId) || (orderJobId && orderJobId !== job.job_id)) {
+        throw createHttpError(
+            409,
+            'inspection_reference_mismatch',
+            'Inspection job and order references do not match',
+        );
+    }
+    return order;
 }
 
 function inspectionMetadata(adapterInspection) {
@@ -72,6 +104,23 @@ function inspectionMetadata(adapterInspection) {
         metadata.findings = adapterInspection.findings;
     }
     return metadata;
+}
+
+function isSameDecision(current, decision, status) {
+    return current?.decision === decision && current?.status === status;
+}
+
+function isDecisionOpen(current) {
+    return current?.decision === null
+        && OPEN_DECISION_STATUSES.includes(String(current?.status || '').toLowerCase());
+}
+
+function inspectionTransitionInvalid() {
+    throw createHttpError(
+        409,
+        'inspection_transition_invalid',
+        'Inspection decision cannot transition from its current state',
+    );
 }
 
 async function runInspectionAdapter({ adapters, merchant, job, now }) {
@@ -163,6 +212,8 @@ export function createInspectionHandlers({
         const source = safeObject(body);
         const jobId = requiredJobId(source.job_id);
         const job = await requireMerchantPrintJob(store, merchant, jobId);
+        const orderId = optionalString(source.order_id) || optionalString(job.order_id);
+        await validateInspectionOrderReference({ store, merchant, job, orderId });
         const current = await store.getMerchantInspectionByJob({
             merchantId: merchant.merchant_id,
             jobId,
@@ -176,7 +227,7 @@ export function createInspectionHandlers({
             ...scope,
             inspection_id: crypto.randomUUID(),
             job_id: job.job_id,
-            order_id: optionalString(source.order_id) || optionalString(job.order_id),
+            order_id: orderId,
             provider: adapterInspection.provider,
             status: adapterInspection.status,
             decision: adapterInspection.decision || null,
@@ -233,11 +284,14 @@ export function createInspectionHandlers({
             inspectionId,
         });
         if (!current) throw createHttpError(404, 'inspection_not_found', 'Inspection not found');
+        if (isSameDecision(current, decision, status)) return publicOk(publicInspection(current), requestId);
+        if (!isDecisionOpen(current)) inspectionTransitionInvalid();
 
         const timestamp = now().toISOString();
-        const inspection = await store.updateMerchantInspection({
+        const inspection = await store.updateMerchantInspectionIfDecisionOpen({
             merchantId: merchant.merchant_id,
             inspectionId,
+            allowedStatuses: OPEN_DECISION_STATUSES,
             fields: {
                 status,
                 decision,
@@ -245,7 +299,7 @@ export function createInspectionHandlers({
                 updated_at: timestamp,
             },
         });
-        if (!inspection) throw createHttpError(404, 'inspection_not_found', 'Inspection not found');
+        if (!inspection) inspectionTransitionInvalid();
         await recordInspectionEventBestEffort({
             store,
             scope: merchantScope(merchant),

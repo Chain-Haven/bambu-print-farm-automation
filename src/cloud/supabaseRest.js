@@ -1187,6 +1187,28 @@ export function createSupabaseRestClient({
             });
         },
 
+        async updateMerchantInspectionIfDecisionOpen({
+            merchantId,
+            inspectionId,
+            allowedStatuses = [],
+            fields = {},
+        }) {
+            const rows = await request(merchantV2ConditionalResourcePath('merchant_inspections', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_inspections,
+                id: inspectionId,
+                filters: [
+                    `status=${statusInFilter(allowedStatuses)}`,
+                    'decision=is.null',
+                ],
+            }), {
+                method: 'PATCH',
+                headers: { Prefer: 'return=representation' },
+                body: fields,
+            });
+            return firstRow(rows);
+        },
+
         async createMerchantPostProcessingTask(task) {
             return createMerchantV2Row('merchant_post_processing_tasks', task);
         },
