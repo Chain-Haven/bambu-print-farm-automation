@@ -1354,6 +1354,25 @@ export function createSupabaseRestClient({
             });
         },
 
+        async updateMerchantShipmentIfClaimStatus({
+            merchantId,
+            shipmentId,
+            allowedStatuses = [],
+            fields = {},
+        }) {
+            const rows = await request(merchantV2ConditionalResourcePath('merchant_shipments', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_shipments,
+                id: shipmentId,
+                filters: [`metadata->>shipment_claim_status=${statusInFilter(allowedStatuses)}`],
+            }), {
+                method: 'PATCH',
+                headers: { Prefer: 'return=representation' },
+                body: fields,
+            });
+            return firstRow(rows);
+        },
+
         async createMerchantShippingLabel(label) {
             return createMerchantV2Row('merchant_shipping_labels', label);
         },

@@ -103,6 +103,59 @@ function assertIdempotentShipmentMatches(shipment, expectedRequest) {
     }
 }
 
+function shipmentClaimStatus(shipment) {
+    return optionalString(safeObject(shipment?.metadata).shipment_claim_status);
+}
+
+function shipmentFailureStage(shipment) {
+    return optionalString(safeObject(safeObject(shipment?.metadata).adapter_failure).stage);
+}
+
+function isUsableShipment(shipment) {
+    return Boolean(
+        shipmentClaimStatus(shipment) === 'completed'
+        || optionalString(shipment?.tracking_number)
+        || ['label_created', 'shipped', 'delivered'].includes(optionalString(shipment?.status)),
+    );
+}
+
+function shipmentClaimInProgressError() {
+    throw createHttpError(409, 'shipment_claim_in_progress', 'Shipment claim is still in progress');
+}
+
+function shipmentClaimFailedError() {
+    throw createHttpError(409, 'shipment_claim_failed', 'Shipment claim could not be completed');
+}
+
+function pendingShipmentMetadata(shipment) {
+    const metadata = { ...safeObject(shipment?.metadata), shipment_claim_status: 'pending' };
+    delete metadata.adapter_failure;
+    return metadata;
+}
+
+function completedShipmentMetadata(shipment, adapterShipment) {
+    const metadata = {
+        ...safeObject(shipment.metadata),
+        provider: optionalString(adapterShipment.provider) || 'mock',
+        shipment_claim_status: 'completed',
+    };
+    delete metadata.adapter_failure;
+    return metadata;
+}
+
+function failedShipmentMetadata(shipment, { timestamp }) {
+    return {
+        ...safeObject(shipment?.metadata),
+        provider: safeObject(shipment?.metadata).provider || 'pending',
+        shipment_claim_status: 'failed',
+        adapter_failure: {
+            stage: 'adapter',
+            message: 'Shipping adapter failed',
+            failed_at: timestamp,
+        },
+    };
+}
+
 function shipmentClaimPayload({
     merchant,
     source,
@@ -127,6 +180,7 @@ function shipmentClaimPayload({
         metadata: {
             ...redactPublicValue(safeObject(source.metadata)),
             provider: 'pending',
+            shipment_claim_status: 'pending',
             idempotency_request: expectedRequest,
         },
         created_at: timestamp,
@@ -147,10 +201,7 @@ function shipmentFinalFields({
         packages: Array.isArray(adapterShipment.packages)
             ? redactPublicValue(adapterShipment.packages)
             : expectedRequest.packages,
-        metadata: {
-            ...safeObject(shipment.metadata),
-            provider: optionalString(adapterShipment.provider) || 'mock',
-        },
+        metadata: completedShipmentMetadata(shipment, adapterShipment),
     };
 }
 
@@ -237,6 +288,10 @@ async function replayIdempotentShipment({
     requestId,
 }) {
     assertIdempotentShipmentMatches(shipment, expectedRequest);
+    if (!isUsableShipment(shipment)) {
+        if (shipmentClaimStatus(shipment) === 'failed') shipmentClaimFailedError();
+        shipmentClaimInProgressError();
+    }
     const label = await getExistingShipmentLabel(store, merchant, shipment.shipment_id);
     return withHttpStatus(publicOk(publicShipment(shipment, label), requestId), 200);
 }
@@ -247,6 +302,63 @@ async function findShipmentByIdempotencyKey(store, merchant, idempotencyKey) {
         merchantId: merchant.merchant_id,
         idempotencyKey,
     });
+}
+
+async function reclaimFailedShipment({ store, merchant, shipment, timestamp }) {
+    if (shipmentFailureStage(shipment) && shipmentFailureStage(shipment) !== 'adapter') {
+        shipmentClaimFailedError();
+    }
+    if (typeof store.updateMerchantShipmentIfClaimStatus !== 'function') {
+        shipmentClaimFailedError();
+    }
+    const claimedShipment = await store.updateMerchantShipmentIfClaimStatus({
+        merchantId: merchant.merchant_id,
+        shipmentId: shipment.shipment_id,
+        allowedStatuses: ['failed'],
+        fields: {
+            status: 'label_requested',
+            carrier: null,
+            tracking_number: null,
+            metadata: pendingShipmentMetadata(shipment),
+        },
+    });
+    if (!claimedShipment) shipmentClaimInProgressError();
+    return claimedShipment;
+}
+
+async function useExistingIdempotentShipment({
+    store,
+    merchant,
+    shipment,
+    expectedRequest,
+    timestamp,
+    requestId,
+}) {
+    assertIdempotentShipmentMatches(shipment, expectedRequest);
+    if (isUsableShipment(shipment)) {
+        return {
+            shipment: null,
+            replay: await replayIdempotentShipment({
+                store,
+                merchant,
+                shipment,
+                expectedRequest,
+                requestId,
+            }),
+        };
+    }
+    if (shipmentClaimStatus(shipment) === 'failed') {
+        return {
+            shipment: await reclaimFailedShipment({
+                store,
+                merchant,
+                shipment,
+                timestamp,
+            }),
+            replay: null,
+        };
+    }
+    shipmentClaimInProgressError();
 }
 
 async function claimIdempotentShipment({
@@ -261,16 +373,14 @@ async function claimIdempotentShipment({
 }) {
     const existingShipment = await findShipmentByIdempotencyKey(store, merchant, idempotencyKey);
     if (existingShipment) {
-        return {
-            shipment: null,
-            replay: await replayIdempotentShipment({
-                store,
-                merchant,
-                shipment: existingShipment,
-                expectedRequest,
-                requestId,
-            }),
-        };
+        return useExistingIdempotentShipment({
+            store,
+            merchant,
+            shipment: existingShipment,
+            expectedRequest,
+            timestamp,
+            requestId,
+        });
     }
 
     try {
@@ -288,22 +398,20 @@ async function claimIdempotentShipment({
     } catch (error) {
         const replayShipment = await findShipmentByIdempotencyKey(store, merchant, idempotencyKey);
         if (replayShipment) {
-            return {
-                shipment: null,
-                replay: await replayIdempotentShipment({
-                    store,
-                    merchant,
-                    shipment: replayShipment,
-                    expectedRequest,
-                    requestId,
-                }),
-            };
+            return useExistingIdempotentShipment({
+                store,
+                merchant,
+                shipment: replayShipment,
+                expectedRequest,
+                timestamp,
+                requestId,
+            });
         }
         throw error;
     }
 }
 
-async function markShipmentAdapterFailure({ store, merchant, shipment, error, timestamp }) {
+async function markShipmentAdapterFailure({ store, merchant, shipment, timestamp }) {
     if (typeof store.updateMerchantShipmentStatus !== 'function') return;
     try {
         await store.updateMerchantShipmentStatus({
@@ -311,14 +419,7 @@ async function markShipmentAdapterFailure({ store, merchant, shipment, error, ti
             shipmentId: shipment.shipment_id,
             status: 'label_requested',
             fields: {
-                metadata: {
-                    ...safeObject(shipment.metadata),
-                    provider: safeObject(shipment.metadata).provider || 'pending',
-                    adapter_failure: {
-                        message: error instanceof Error ? error.message : 'Shipping adapter failed',
-                        failed_at: timestamp,
-                    },
-                },
+                metadata: failedShipmentMetadata(shipment, { timestamp }),
             },
         });
     } catch {
@@ -626,17 +727,16 @@ export function createShippingHandlers({
                 packages: expectedRequest.packages,
                 serviceLevel: expectedRequest.service_level,
             });
-        } catch (error) {
+        } catch {
             if (shipment) {
                 await markShipmentAdapterFailure({
                     store,
                     merchant,
                     shipment,
-                    error,
                     timestamp,
                 });
             }
-            throw error;
+            throw createHttpError(502, 'shipment_provider_failed', 'Shipping provider failed');
         }
         const finalStatus = normalizeShipmentStatus(adapterShipment.status) || 'label_requested';
         if (shipment) {
@@ -722,6 +822,16 @@ export function createShippingHandlers({
                 packages: Array.isArray(shipment.packages) ? shipment.packages : [],
             });
         } catch {
+            await markClaimedLabelFailed({
+                store,
+                merchant,
+                label: labelClaim.label,
+                stage: 'adapter',
+                timestamp,
+            });
+            throw createHttpError(502, 'label_provider_failed', 'Shipping label provider failed');
+        }
+        if (!adapterShipment?.label) {
             await markClaimedLabelFailed({
                 store,
                 merchant,

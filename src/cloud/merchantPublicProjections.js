@@ -50,6 +50,7 @@ const INTERNAL_KEY_PATTERNS = [
     'href',
     'idempotency',
     'keyhash',
+    'claimstatus',
     'localprinter',
     'merchantsecret',
     'node',

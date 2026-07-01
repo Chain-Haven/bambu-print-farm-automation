@@ -28,9 +28,9 @@ function shipmentRow(overrides = {}) {
         merchant_id: 'merchant-1',
         order_id: overrides.order_id ?? 'order-1',
         status: overrides.status || 'label_created',
-        carrier: overrides.carrier || 'mock_carrier',
-        service_level: overrides.service_level || 'mock_ground',
-        tracking_number: overrides.tracking_number || 'track-1',
+        carrier: overrides.carrier ?? 'mock_carrier',
+        service_level: overrides.service_level ?? 'mock_ground',
+        tracking_number: overrides.tracking_number ?? 'track-1',
         ship_to: overrides.ship_to || { name: 'Ada Lovelace', country: 'US' },
         packages: overrides.packages || [{ weight_grams: 250 }],
         metadata: overrides.metadata || {
@@ -195,6 +195,10 @@ function createMockStore(overrides = {}) {
         updateMerchantShipmentStatus: vi.fn().mockImplementation(async ({ shipmentId, status }) => (
             shipmentRow({ shipment_id: shipmentId, status })
         )),
+        updateMerchantShipmentIfClaimStatus: vi.fn().mockImplementation(async ({ shipmentId, fields }) => shipmentRow({
+            shipment_id: shipmentId,
+            ...fields,
+        })),
         createMerchantShippingLabel: vi.fn().mockImplementation(async (label) => labelRow(label)),
         updateMerchantShippingLabel: vi.fn().mockImplementation(async ({ labelId, fields }) => labelRow({
             label_id: labelId,
@@ -580,7 +584,7 @@ describe('merchant shipping public handlers', () => {
         expect(JSON.stringify(result)).not.toContain('idempotency');
     });
 
-    it('replays a raced idempotency claim without calling the shipping adapter', async () => {
+    it('rejects a raced pending idempotency claim without calling the shipping adapter', async () => {
         const idempotencyRequest = {
             order_id: 'order-1',
             service_level: 'mock_ground',
@@ -591,11 +595,10 @@ describe('merchant shipping public handlers', () => {
             shipment_id: 'shipment-race',
             idempotency_key: 'idem-race',
             status: 'label_requested',
+            carrier: null,
+            tracking_number: null,
             metadata: {
-                adapter_failure: {
-                    message: 'provider timeout detail',
-                    failed_at: '2026-07-01T12:00:00.000Z',
-                },
+                shipment_claim_status: 'pending',
                 idempotency_request: idempotencyRequest,
             },
         });
@@ -612,22 +615,165 @@ describe('merchant shipping public handlers', () => {
             },
         });
 
-        const result = await createShipment({
+        await expect(createShipment({
             ...idempotencyRequest,
             idempotency_key: 'idem-race',
+        })).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'shipment_claim_in_progress',
         });
-
-        expect(result).toMatchObject({
-            ok: true,
-            shipment_id: 'shipment-race',
-            status: 'label_requested',
-        });
-        expect(result._http_status).toBe(200);
         expect(adapters.shipping.createShipment).not.toHaveBeenCalled();
         expect(store.createMerchantShipment).toHaveBeenCalledTimes(1);
-        expect(JSON.stringify(result)).not.toContain('idempotency');
-        expect(JSON.stringify(result)).not.toContain('adapter_failure');
-        expect(JSON.stringify(result)).not.toContain('provider timeout detail');
+    });
+
+    it('marks idempotent shipment adapter failures safely and retries the failed claim', async () => {
+        const operations = [];
+        const idempotencyRequest = {
+            order_id: 'order-1',
+            service_level: 'mock_ground',
+            ship_to: { name: 'Ada Lovelace', country: 'US' },
+            packages: [{ weight_grams: 250 }],
+        };
+        let storedShipment = null;
+        const {
+            createShipment,
+            store,
+            adapters,
+        } = createHandlers(createShippingHandlers, {
+            store: {
+                findMerchantShipmentByIdempotencyKey: vi.fn().mockImplementation(async () => storedShipment),
+                createMerchantShipment: vi.fn().mockImplementation(async (shipment) => {
+                    operations.push(`claim:${shipment.status}`);
+                    storedShipment = shipmentRow({
+                        ...shipment,
+                        shipment_id: 'shipment-retry',
+                        carrier: null,
+                        tracking_number: null,
+                    });
+                    return storedShipment;
+                }),
+                updateMerchantShipmentStatus: vi.fn().mockImplementation(async ({ shipmentId, status, fields }) => {
+                    operations.push(fields?.metadata?.shipment_claim_status === 'failed'
+                        ? 'mark-failed'
+                        : `finalize:${status}`);
+                    storedShipment = shipmentRow({
+                        ...storedShipment,
+                        shipment_id: shipmentId,
+                        status,
+                        carrier: fields?.carrier ?? storedShipment?.carrier ?? null,
+                        tracking_number: fields?.tracking_number ?? storedShipment?.tracking_number ?? null,
+                        metadata: fields?.metadata ?? storedShipment?.metadata,
+                        ship_to: fields?.ship_to ?? storedShipment?.ship_to,
+                        packages: fields?.packages ?? storedShipment?.packages,
+                    });
+                    return storedShipment;
+                }),
+                updateMerchantShipmentIfClaimStatus: vi.fn().mockImplementation(async ({ fields }) => {
+                    operations.push(`reclaim:${fields.metadata.shipment_claim_status}`);
+                    storedShipment = shipmentRow({
+                        ...storedShipment,
+                        status: fields.status,
+                        carrier: null,
+                        tracking_number: null,
+                        metadata: fields.metadata,
+                    });
+                    return storedShipment;
+                }),
+                createMerchantShippingLabel: vi.fn().mockImplementation(async (label) => labelRow({
+                    ...label,
+                    label_id: 'label-retry-shipment',
+                })),
+            },
+            adapters: {
+                shipping: {
+                    createShipment: vi.fn()
+                        .mockImplementationOnce(async () => {
+                            operations.push('adapter-fail');
+                            throw new Error('provider secret exploded');
+                        })
+                        .mockImplementationOnce(async () => {
+                            operations.push('adapter-success');
+                            return {
+                                provider: 'mock',
+                                shipment_id: 'provider-shipment-id',
+                                status: 'label_created',
+                                carrier: 'mock_carrier',
+                                service_level: 'mock_ground',
+                                tracking_number: 'mock-track-retry',
+                                label: {
+                                    provider: 'mock',
+                                    label_url: 'mock://shipments/shipment-retry/label.pdf',
+                                    tracking_number: 'mock-track-retry',
+                                    format: 'pdf',
+                                },
+                            };
+                        }),
+                },
+            },
+        });
+
+        let firstError;
+        try {
+            await createShipment({
+                ...idempotencyRequest,
+                idempotency_key: 'idem-retry-shipment',
+            });
+        } catch (error) {
+            firstError = error;
+        }
+
+        expect(firstError).toMatchObject({
+            statusCode: 502,
+            code: 'shipment_provider_failed',
+            message: 'Shipping provider failed',
+        });
+        expect(JSON.stringify(firstError)).not.toContain('provider secret exploded');
+        expect(store.updateMerchantShipmentStatus).toHaveBeenCalledWith(expect.objectContaining({
+            merchantId: 'merchant-1',
+            shipmentId: 'shipment-retry',
+            status: 'label_requested',
+            fields: expect.objectContaining({
+                metadata: expect.objectContaining({
+                    shipment_claim_status: 'failed',
+                    adapter_failure: expect.objectContaining({
+                        stage: 'adapter',
+                        message: 'Shipping adapter failed',
+                    }),
+                }),
+            }),
+        }));
+        expect(JSON.stringify(store.updateMerchantShipmentStatus.mock.calls)).not.toContain('provider secret exploded');
+
+        const retried = await createShipment({
+            ...idempotencyRequest,
+            idempotency_key: 'idem-retry-shipment',
+        });
+
+        expect(operations).toEqual([
+            'claim:label_requested',
+            'adapter-fail',
+            'mark-failed',
+            'reclaim:pending',
+            'adapter-success',
+            'finalize:label_created',
+        ]);
+        expect(retried).toMatchObject({
+            ok: true,
+            shipment_id: 'shipment-retry',
+            status: 'label_created',
+            tracking_number: 'mock-track-retry',
+            label: { label_id: 'label-retry-shipment' },
+        });
+        expect(adapters.shipping.createShipment).toHaveBeenCalledTimes(2);
+        expect(store.createMerchantShipment).toHaveBeenCalledTimes(1);
+        expect(store.updateMerchantShipmentIfClaimStatus).toHaveBeenCalledWith(expect.objectContaining({
+            merchantId: 'merchant-1',
+            shipmentId: 'shipment-retry',
+            allowedStatuses: ['failed'],
+        }));
+        expect(JSON.stringify(retried)).not.toContain('shipment_claim_status');
+        expect(JSON.stringify(retried)).not.toContain('adapter_failure');
+        expect(JSON.stringify(retried)).not.toContain('provider secret exploded');
     });
 
     it('replays an existing label when label insert loses a race', async () => {
@@ -872,6 +1018,136 @@ describe('merchant shipping public handlers', () => {
         expect(adapters.shipping.createShipment).toHaveBeenCalledTimes(1);
         expect(JSON.stringify(result)).not.toContain('adapter_failure');
         expect(JSON.stringify(result)).not.toContain('label_claim_status');
+    });
+
+    it('marks missing adapter labels failed and allows retry through the same label row', async () => {
+        const operations = [];
+        let storedLabel = null;
+        const {
+            createLabel,
+            store,
+            adapters,
+        } = createHandlers(createShippingHandlers, {
+            store: {
+                getMerchantShippingLabelByShipment: vi.fn().mockImplementation(async () => storedLabel),
+                createMerchantShippingLabel: vi.fn().mockImplementation(async (label) => {
+                    operations.push('claim-label');
+                    storedLabel = labelRow({
+                        ...label,
+                        label_id: 'label-missing-retry',
+                        label_url: null,
+                        tracking_number: null,
+                        metadata: { label_claim_status: 'pending' },
+                    });
+                    return storedLabel;
+                }),
+                updateMerchantShippingLabel: vi.fn().mockImplementation(async ({ labelId, fields }) => {
+                    operations.push(fields.metadata?.label_claim_status === 'failed' ? 'mark-label-failed' : 'finalize-label');
+                    storedLabel = labelRow({
+                        ...storedLabel,
+                        label_id: labelId,
+                        label_url: fields.label_url ?? storedLabel?.label_url ?? null,
+                        tracking_number: fields.tracking_number ?? storedLabel?.tracking_number ?? null,
+                        metadata: fields.metadata ?? storedLabel?.metadata,
+                    });
+                    return storedLabel;
+                }),
+                updateMerchantShippingLabelIfClaimStatus: vi.fn().mockImplementation(async ({ fields }) => {
+                    operations.push(`reclaim-label:${fields.metadata.label_claim_status}`);
+                    storedLabel = labelRow({
+                        ...storedLabel,
+                        label_url: null,
+                        tracking_number: null,
+                        metadata: fields.metadata,
+                    });
+                    return storedLabel;
+                }),
+            },
+            adapters: {
+                shipping: {
+                    createShipment: vi.fn()
+                        .mockImplementationOnce(async () => {
+                            operations.push('adapter-missing-label');
+                            return {
+                                provider: 'mock',
+                                tracking_number: 'missing-label-track',
+                                provider_response: { detail: 'provider missing label secret' },
+                            };
+                        })
+                        .mockImplementationOnce(async () => {
+                            operations.push('adapter-label-success');
+                            return {
+                                provider: 'mock',
+                                tracking_number: 'retry-label-track',
+                                label: {
+                                    provider: 'mock',
+                                    label_url: 'mock://shipments/shipment-1/retry-label.pdf',
+                                    tracking_number: 'retry-label-track',
+                                    format: 'pdf',
+                                },
+                            };
+                        }),
+                },
+            },
+        });
+
+        let firstError;
+        try {
+            await createLabel({ shipment_id: 'shipment-1' });
+        } catch (error) {
+            firstError = error;
+        }
+
+        expect(firstError).toMatchObject({
+            statusCode: 502,
+            code: 'label_provider_failed',
+            message: 'Shipping label provider failed',
+        });
+        expect(JSON.stringify(firstError)).not.toContain('provider missing label secret');
+        expect(store.updateMerchantShippingLabel).toHaveBeenCalledWith(expect.objectContaining({
+            merchantId: 'merchant-1',
+            labelId: 'label-missing-retry',
+            fields: expect.objectContaining({
+                metadata: expect.objectContaining({
+                    label_claim_status: 'failed',
+                    adapter_failure: expect.objectContaining({
+                        stage: 'adapter',
+                        message: 'Shipping label adapter failed',
+                    }),
+                }),
+            }),
+        }));
+        expect(JSON.stringify(store.updateMerchantShippingLabel.mock.calls)).not.toContain('provider missing label secret');
+
+        const retried = await createLabel({ shipment_id: 'shipment-1' });
+
+        expect(operations).toEqual([
+            'claim-label',
+            'adapter-missing-label',
+            'mark-label-failed',
+            'reclaim-label:pending',
+            'adapter-label-success',
+            'finalize-label',
+        ]);
+        expect(retried).toMatchObject({
+            ok: true,
+            label: {
+                label_id: 'label-missing-retry',
+                shipment_id: 'shipment-1',
+                label_url: 'mock://shipments/shipment-1/retry-label.pdf',
+                tracking_number: 'retry-label-track',
+            },
+        });
+        expect(adapters.shipping.createShipment).toHaveBeenCalledTimes(2);
+        expect(store.createMerchantShippingLabel).toHaveBeenCalledTimes(1);
+        expect(store.updateMerchantShippingLabelIfClaimStatus).toHaveBeenCalledWith(expect.objectContaining({
+            merchantId: 'merchant-1',
+            labelId: 'label-missing-retry',
+            allowedStatuses: ['failed'],
+        }));
+        expect(JSON.stringify(retried)).not.toContain('label_claim_status');
+        expect(JSON.stringify(retried)).not.toContain('adapter_failure');
+        expect(JSON.stringify(retried)).not.toContain('provider missing label secret');
     });
 
     it('does not return placeholder success when label finalization fails', async () => {
