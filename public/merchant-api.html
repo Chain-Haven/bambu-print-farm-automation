@@ -124,7 +124,7 @@
         <li>The merchant exchanges that setup token at <code>POST /api/public/api-keys</code> for a live <code>pkx_live_...</code> API key, or an admin issues a live key with <code>POST /api/cloud/merchant-api-keys</code>.</li>
       </ol>
       <p>Full-auto merchant signup exists as an admin option, but <code>full_auto_merchant_mode</code> defaults to disabled.</p>
-      <p>The Vercel farm admin at <code>/cloud</code> also manages smart material queueing, filament/AMS inventory, auto-eject policy, failure-detection hooks, and integrations for alerts, ecommerce, shipping, and remote access.</p>
+      <p>The Vercel farm admin at <code>/cloud</code> also manages smart material queueing, filament/AMS inventory, auto-eject policy, failure-detection hooks, and integrations for alerts, ecommerce, shipping, and remote access through <code>GET/PATCH /api/cloud/farm-automation</code>.</p>
     </section>
 
     <section>

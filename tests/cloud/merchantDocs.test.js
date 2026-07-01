@@ -7,6 +7,7 @@ describe('merchant API docs', () => {
         const spec = JSON.parse(fs.readFileSync('public/openapi/merchant-api-v1.json', 'utf8'));
 
         expect(html).toContain('/api/public/merchants/signup');
+        expect(html).toContain('/api/cloud/farm-automation');
         expect(html).toContain('approval-required by default');
         expect(html).toContain('pkx_live_');
         expect(spec.openapi).toBe('3.1.0');
