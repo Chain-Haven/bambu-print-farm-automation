@@ -127,6 +127,14 @@ function shipmentClaimFailedError() {
     throw createHttpError(409, 'shipment_claim_failed', 'Shipment claim could not be completed');
 }
 
+function shipmentClaimStateFailedError() {
+    throw createHttpError(
+        500,
+        'shipment_claim_state_failed',
+        'Shipment claim failure state could not be persisted',
+    );
+}
+
 function pendingShipmentMetadata(shipment) {
     const metadata = { ...safeObject(shipment?.metadata), shipment_claim_status: 'pending' };
     delete metadata.adapter_failure;
@@ -412,18 +420,33 @@ async function claimIdempotentShipment({
 }
 
 async function markShipmentAdapterFailure({ store, merchant, shipment, timestamp }) {
-    if (typeof store.updateMerchantShipmentStatus !== 'function') return;
+    if (
+        typeof store.updateMerchantShipmentIfClaimStatus !== 'function'
+        && typeof store.updateMerchantShipmentStatus !== 'function'
+    ) {
+        shipmentClaimStateFailedError();
+    }
+    const fields = {
+        status: 'label_requested',
+        metadata: failedShipmentMetadata(shipment, { timestamp }),
+    };
     try {
-        await store.updateMerchantShipmentStatus({
-            merchantId: merchant.merchant_id,
-            shipmentId: shipment.shipment_id,
-            status: 'label_requested',
-            fields: {
-                metadata: failedShipmentMetadata(shipment, { timestamp }),
-            },
-        });
+        const markedShipment = typeof store.updateMerchantShipmentIfClaimStatus === 'function'
+            ? await store.updateMerchantShipmentIfClaimStatus({
+                merchantId: merchant.merchant_id,
+                shipmentId: shipment.shipment_id,
+                allowedStatuses: ['pending'],
+                fields,
+            })
+            : await store.updateMerchantShipmentStatus({
+                merchantId: merchant.merchant_id,
+                shipmentId: shipment.shipment_id,
+                status: 'label_requested',
+                fields: { metadata: fields.metadata },
+            });
+        if (!markedShipment) shipmentClaimStateFailedError();
     } catch {
-        // The idempotency claim is already durable; failure metadata is best-effort.
+        shipmentClaimStateFailedError();
     }
 }
 
@@ -489,6 +512,14 @@ function labelClaimInProgressError() {
 
 function labelClaimFailedError() {
     throw createHttpError(409, 'label_claim_failed', 'Shipping label claim could not be completed');
+}
+
+function labelClaimStateFailedError() {
+    throw createHttpError(
+        500,
+        'label_claim_state_failed',
+        'Label claim failure state could not be persisted',
+    );
 }
 
 function pendingLabelMetadata(label) {
@@ -623,17 +654,35 @@ async function markClaimedLabelFailed({
     stage,
     timestamp,
 }) {
-    if (!label || typeof store.updateMerchantShippingLabel !== 'function') return null;
+    if (
+        !label
+        || (
+            typeof store.updateMerchantShippingLabelIfClaimStatus !== 'function'
+            && typeof store.updateMerchantShippingLabel !== 'function'
+        )
+    ) {
+        labelClaimStateFailedError();
+    }
+    const fields = {
+        metadata: failedLabelMetadata(label, { stage, timestamp }),
+    };
     try {
-        return await store.updateMerchantShippingLabel({
-            merchantId: merchant.merchant_id,
-            labelId: label.label_id,
-            fields: {
-                metadata: failedLabelMetadata(label, { stage, timestamp }),
-            },
-        });
+        const markedLabel = typeof store.updateMerchantShippingLabelIfClaimStatus === 'function'
+            ? await store.updateMerchantShippingLabelIfClaimStatus({
+                merchantId: merchant.merchant_id,
+                labelId: label.label_id,
+                allowedStatuses: ['pending'],
+                fields,
+            })
+            : await store.updateMerchantShippingLabel({
+                merchantId: merchant.merchant_id,
+                labelId: label.label_id,
+                fields,
+            });
+        if (!markedLabel) labelClaimStateFailedError();
+        return markedLabel;
     } catch {
-        return null;
+        labelClaimStateFailedError();
     }
 }
 
