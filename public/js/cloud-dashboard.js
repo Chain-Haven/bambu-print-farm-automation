@@ -203,6 +203,21 @@ const elements = {
   detailBody: $('#detail-body'),
   closeDetail: $('#close-detail'),
   toast: $('#toast'),
+  // Login gate
+  loginView: $('#login-view'),
+  consoleView: $('#console-view'),
+  logoutBtn: $('#logout-btn'),
+  adminEmailDisplay: $('#admin-email-display'),
+  loginError: $('#login-error'),
+  toggleFirstSetup: $('#toggle-first-setup'),
+  toggleReset: $('#toggle-reset'),
+  firstSetupCard: $('#first-setup-card'),
+  resetCard: $('#reset-card'),
+  firstSetupForm: $('#first-setup-form'),
+  setupBootstrapToken: $('#setup-bootstrap-token'),
+  setupEmail: $('#setup-email'),
+  setupNewPassword: $('#setup-new-password'),
+  firstSetupOutput: $('#first-setup-output'),
 };
 
 function setApiState(label, mode = '') {
@@ -1094,16 +1109,114 @@ async function refreshDashboard() {
 
 async function handleAdminLogin(event) {
   event.preventDefault();
+  if (elements.loginError) elements.loginError.hidden = true;
   const email = elements.adminLoginEmail.value.trim();
   const password = elements.adminLoginPassword.value;
-  const payload = await postJson('/api/cloud/admin/login', { email, password });
+  try {
+    const payload = await postJson('/api/cloud/admin/login', { email, password });
+    elements.adminToken.value = payload.admin_session_token;
+    window.localStorage.setItem(storageKeys.token, payload.admin_session_token);
+    elements.adminLoginPassword.value = '';
+    setAdminAuthState(payload.admin?.email || 'Signed in', 'ready-label');
+    showConsole(payload.admin?.email || email);
+    showToast('Signed in');
+    await refreshDashboard();
+  } catch (error) {
+    if (elements.loginError) {
+      elements.loginError.hidden = false;
+      elements.loginError.textContent = /invalid_admin_credentials/.test(error.message)
+        ? 'Incorrect email or password.'
+        : error.message;
+    } else {
+      showToast(error.message);
+    }
+  }
+}
 
-  elements.adminToken.value = payload.admin_session_token;
-  window.localStorage.setItem(storageKeys.token, payload.admin_session_token);
-  elements.adminLoginPassword.value = '';
-  setAdminAuthState(payload.admin?.email || 'Signed in', 'ready-label');
-  showToast('Admin signed in');
-  await refreshDashboard();
+// ===== Login gate =====
+function showLogin() {
+  if (elements.consoleView) elements.consoleView.hidden = true;
+  if (elements.loginView) elements.loginView.hidden = false;
+  if (elements.logoutBtn) elements.logoutBtn.hidden = true;
+  if (elements.adminEmailDisplay) elements.adminEmailDisplay.hidden = true;
+  setApiState('Not signed in');
+}
+
+function showConsole(email) {
+  if (elements.loginView) elements.loginView.hidden = true;
+  if (elements.consoleView) elements.consoleView.hidden = false;
+  if (elements.logoutBtn) elements.logoutBtn.hidden = false;
+  if (email && elements.adminEmailDisplay) {
+    elements.adminEmailDisplay.hidden = false;
+    elements.adminEmailDisplay.textContent = email;
+  }
+}
+
+function handleLogout() {
+  window.localStorage.removeItem(storageKeys.token);
+  elements.adminToken.value = '';
+  showLogin();
+  showToast('Signed out');
+}
+
+// Decide the initial view: validate a stored session, else show the login screen.
+async function initView() {
+  const token = getAdminToken();
+  if (!token) { showLogin(); return; }
+  try {
+    const payload = await apiRequest('/api/cloud/admin/me');
+    showConsole(payload.admin?.email || payload.auth_type || 'Admin');
+    await refreshDashboard();
+  } catch {
+    // Stale/invalid token — drop it and show login.
+    window.localStorage.removeItem(storageKeys.token);
+    elements.adminToken.value = '';
+    showLogin();
+  }
+}
+
+// First-time setup / password recovery: create the operator account with the
+// server's CLOUD_ADMIN_TOKEN, then set a password — so daily use needs no token.
+async function handleFirstSetup(event) {
+  event.preventDefault();
+  const bootstrapToken = elements.setupBootstrapToken.value.trim();
+  const email = elements.setupEmail.value.trim().toLowerCase();
+  const password = elements.setupNewPassword.value;
+  const out = elements.firstSetupOutput;
+  try {
+    const bootstrapRes = await fetch('/api/cloud/admin/bootstrap', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bootstrapToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ issue_reset_tokens: true }),
+    });
+    const bootstrap = await bootstrapRes.json();
+    if (!bootstrapRes.ok || bootstrap.ok === false) {
+      throw new Error(bootstrap.error === 'invalid_admin_token'
+        ? 'That CLOUD_ADMIN_TOKEN is not correct.'
+        : (bootstrap.message || bootstrap.error || 'Bootstrap failed'));
+    }
+    const link = (bootstrap.reset_links || []).find((l) => (l.email || '').toLowerCase() === email);
+    if (!link) {
+      throw new Error(`${email} is not an authorized operator email for this deployment.`);
+    }
+    const setRes = await fetch('/api/cloud/admin/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reset_token: link.reset_token, password }),
+    });
+    const set = await setRes.json();
+    if (!setRes.ok || set.ok === false) {
+      throw new Error(set.message || set.error || 'Could not set password');
+    }
+    elements.setupBootstrapToken.value = '';
+    elements.setupNewPassword.value = '';
+    if (out) { out.hidden = false; out.textContent = `Account ready for ${email}. Sign in above.`; }
+    elements.adminLoginEmail.value = email;
+    showToast('Account created — sign in now');
+  } catch (error) {
+    if (out) { out.hidden = false; out.textContent = `Setup failed: ${error.message}`; }
+    showToast(error.message);
+  }
 }
 
 async function handleAdminMe() {
@@ -1531,6 +1644,25 @@ function bindEvents() {
     });
   });
 
+  if (elements.logoutBtn) elements.logoutBtn.addEventListener('click', handleLogout);
+  if (elements.firstSetupForm) {
+    elements.firstSetupForm.addEventListener('submit', (event) => {
+      handleFirstSetup(event).catch((error) => showToast(error.message));
+    });
+  }
+  if (elements.toggleFirstSetup) {
+    elements.toggleFirstSetup.addEventListener('click', () => {
+      if (elements.firstSetupCard) elements.firstSetupCard.hidden = !elements.firstSetupCard.hidden;
+    });
+  }
+  if (elements.toggleReset) {
+    // Recovery uses the same bootstrap-token setup card (the reset-link flow itself
+    // requires an admin token, which a locked-out operator won't have).
+    elements.toggleReset.addEventListener('click', () => {
+      if (elements.firstSetupCard) elements.firstSetupCard.hidden = false;
+    });
+  }
+
   elements.saveToken.addEventListener('click', () => {
     window.localStorage.setItem(storageKeys.token, getAdminToken());
     window.localStorage.setItem(storageKeys.orgId, getOrgId());
@@ -1677,9 +1809,5 @@ bindEvents();
 renderOverview();
 renderMerchantSettings(state.merchantSettings);
 
-if (getAdminToken()) {
-  refreshDashboard().catch((error) => {
-    setApiState('Error', 'error');
-    showToast(error.message);
-  });
-}
+// Gate the console behind admin login: validate any stored session, else show login.
+initView().catch(() => showLogin());

@@ -340,6 +340,32 @@
           <pre id="api-key-secret" class="secret"></pre>
           <button id="copy-api-key" type="button" class="secondary">Copy Key</button>
         </div>
+
+        <form id="send-print-form">
+          <h2>Send a print file</h2>
+          <p>No code required — paste your <code>pkx_live_</code> key, pick a sliced file
+            (<code>.gcode.3mf</code> / <code>.3mf</code> / <code>.gcode</code>) and submit it to the farm.</p>
+          <label>
+            <span>API key</span>
+            <input id="print-api-key" type="password" autocomplete="off" placeholder="pkx_live_...">
+          </label>
+          <label>
+            <span>Print file</span>
+            <input id="print-file" type="file" accept=".gcode,.3mf,.gcode.3mf">
+          </label>
+          <div class="split">
+            <label>
+              <span>Material (optional)</span>
+              <input id="print-material" type="text" placeholder="PLA">
+            </label>
+            <label>
+              <span>Color (optional)</span>
+              <input id="print-color" type="text" placeholder="#000000 or Black">
+            </label>
+          </div>
+          <button type="submit">Submit Print</button>
+          <div id="print-result" class="status-card hidden"></div>
+        </form>
       </aside>
     </section>
   </main>
@@ -417,6 +443,8 @@
         });
         apiKeySecret.textContent = payload.api_key_secret || 'pkx_live_...';
         apiKeyResult.classList.remove('hidden');
+        // Pre-fill the manual "send a print file" form so they can submit immediately.
+        if (payload.api_key_secret) document.querySelector('#print-api-key').value = payload.api_key_secret;
         setStatus('ready', 'Live key created', 'Use Authorization: Bearer pkx_live_... when submitting jobs to /api/public/print-jobs.');
       } catch (error) {
         setStatus('error', 'Key creation failed', error.message);
@@ -429,6 +457,64 @@
       await navigator.clipboard.writeText(apiKeySecret.textContent.trim());
       copyApiKey.textContent = 'Copied';
       setTimeout(() => { copyApiKey.textContent = 'Copy Key'; }, 1200);
+    });
+
+    // ===== Manual "send a print file" (no code) =====
+    const sendPrintForm = document.querySelector('#send-print-form');
+    const printResult = document.querySelector('#print-result');
+
+    function readFileAsBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',').pop()); // strip data: prefix
+        reader.onerror = () => reject(new Error('Could not read the file'));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function setPrintResult(kind, title, body) {
+      printResult.className = `status-card ${kind || ''}`.trim();
+      printResult.classList.remove('hidden');
+      printResult.innerHTML = `<h3>${title}</h3><p>${body}</p>`;
+    }
+
+    sendPrintForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const key = document.querySelector('#print-api-key').value.trim();
+      const fileInput = document.querySelector('#print-file');
+      const file = fileInput.files && fileInput.files[0];
+      const material = document.querySelector('#print-material').value.trim();
+      const color = document.querySelector('#print-color').value.trim();
+      const button = sendPrintForm.querySelector('button[type="submit"]');
+
+      if (!key) return setPrintResult('error', 'API key required', 'Paste your pkx_live_ key.');
+      if (!file) return setPrintResult('error', 'File required', 'Choose a sliced print file to send.');
+
+      button.disabled = true;
+      setPrintResult('', 'Uploading', `Sending ${file.name} to the farm…`);
+      try {
+        const base64 = await readFileAsBase64(file);
+        const requirements = {};
+        if (material) requirements.material = material;
+        if (color) requirements.colors = [color];
+        const payload = await requestJson('/api/public/print-jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+          body: JSON.stringify({
+            file: { name: file.name, base64 },
+            requirements,
+          }),
+        });
+        const job = payload.job || payload.print_job || payload;
+        setPrintResult('ready', 'Print submitted',
+          `Job <code>${job.job_id || job.id || '—'}</code> — status <strong>${job.status || 'submitted'}</strong>. ` +
+          `Track it via GET /api/public/print-jobs/status.`);
+        fileInput.value = '';
+      } catch (error) {
+        setPrintResult('error', 'Submission failed', error.message);
+      } finally {
+        button.disabled = false;
+      }
     });
   </script>
 </body>
