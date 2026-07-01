@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PrintKinetix Admin Reset</title>
+  <link rel="icon"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23146c5a'/%3E%3Cpath d='M8 10h16v4H8zM8 18h10v4H8z' fill='white'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f4;
+      --ink: #17201b;
+      --muted: #5f6d66;
+      --line: #d9ded8;
+      --panel: #fff;
+      --accent: #146c5a;
+      --accent-strong: #0d4f43;
+      --danger: #b3261e;
+      --shadow: 0 10px 24px rgba(24, 36, 31, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    main {
+      width: min(560px, 100%);
+      margin: 0 auto;
+      padding: 32px 20px;
+    }
+
+    header {
+      margin-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 18px;
+    }
+
+    h1, h2, p { margin-top: 0; }
+
+    h1 {
+      margin-bottom: 8px;
+      font-size: 2.3rem;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    p { color: var(--muted); }
+
+    .eyebrow {
+      margin-bottom: 6px;
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    form,
+    .panel {
+      display: grid;
+      gap: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+    }
+
+    label span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    input {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 9px 10px;
+      font: inherit;
+    }
+
+    button,
+    a.button {
+      min-height: 42px;
+      border: 1px solid var(--accent-strong);
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      padding: 10px 14px;
+      text-align: center;
+      text-decoration: none;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.65;
+    }
+
+    .status {
+      border-left: 4px solid var(--accent);
+      border-radius: 6px;
+      background: #f0faf6;
+      padding: 12px;
+    }
+
+    .status.error {
+      border-left-color: var(--danger);
+      background: #fff4f3;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Cloud admin</p>
+      <h1>Set Admin Password</h1>
+      <p>Create or reset a PrintKinetix super-admin password, then sign in from the cloud console.</p>
+    </header>
+
+    <form id="reset-form">
+      <label>
+        <span>Reset token</span>
+        <input id="reset-token" name="reset_token" type="password" autocomplete="off" required placeholder="pkx_admin_reset_...">
+      </label>
+      <label>
+        <span>New password</span>
+        <input id="password" name="password" type="password" autocomplete="new-password" minlength="12" required>
+      </label>
+      <button type="submit">Set Password</button>
+      <div id="status" class="status" hidden></div>
+      <a id="cloud-link" class="button" href="/cloud" hidden>Open Cloud Console</a>
+    </form>
+  </main>
+
+  <script>
+    const form = document.querySelector('#reset-form');
+    const statusBox = document.querySelector('#status');
+    const cloudLink = document.querySelector('#cloud-link');
+    const tokenInput = document.querySelector('#reset-token');
+    const passwordInput = document.querySelector('#password');
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (token) tokenInput.value = token;
+
+    function setStatus(message, isError = false) {
+      statusBox.hidden = false;
+      statusBox.className = `status ${isError ? 'error' : ''}`.trim();
+      statusBox.textContent = message;
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = form.querySelector('button[type="submit"]');
+      button.disabled = true;
+      cloudLink.hidden = true;
+      try {
+        const response = await fetch('/api/cloud/admin/password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reset_token: tokenInput.value.trim(),
+            password: passwordInput.value,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.ok === false) {
+          throw new Error(payload.message || payload.error || `Request failed (${response.status})`);
+        }
+        setStatus(`Password set for ${payload.admin?.email || 'admin'}.`);
+        cloudLink.hidden = false;
+        passwordInput.value = '';
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -20,6 +20,14 @@
     {
       "source": "/cloud",
       "destination": "/cloud.html"
+    },
+    {
+      "source": "/merchant-onboarding",
+      "destination": "/merchant-onboarding.html"
+    },
+    {
+      "source": "/admin-reset",
+      "destination": "/admin-reset.html"
     }
   ]
 }

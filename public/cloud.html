@@ -22,7 +22,7 @@
 
     <form id="access-form" class="control-band" aria-label="Cloud access">
       <label>
-        <span>Admin token</span>
+        <span>Admin session or bootstrap token</span>
         <input id="admin-token" type="password" autocomplete="off">
       </label>
       <label>
@@ -38,6 +38,40 @@
         <button id="refresh" type="button">Refresh</button>
       </div>
     </form>
+
+    <section class="auth-grid" aria-label="Admin auth">
+      <form id="admin-login-form" class="panel compact-panel">
+        <div class="panel-heading">
+          <h2>Admin Login</h2>
+          <span id="admin-auth-state">Session auth</span>
+        </div>
+        <label>
+          <span>Email</span>
+          <input id="admin-login-email" type="email" autocomplete="username" placeholder="info@chainhaven.co">
+        </label>
+        <label>
+          <span>Password</span>
+          <input id="admin-login-password" type="password" autocomplete="current-password">
+        </label>
+        <div class="button-row">
+          <button type="submit">Sign In</button>
+          <button id="admin-me" type="button" class="ghost-button">Check</button>
+        </div>
+      </form>
+
+      <form id="admin-reset-request-form" class="panel compact-panel">
+        <div class="panel-heading">
+          <h2>Admin Reset</h2>
+          <span>Password setup</span>
+        </div>
+        <label>
+          <span>Email</span>
+          <input id="admin-reset-email" type="email" autocomplete="email" placeholder="ianmebert@gmail.com">
+        </label>
+        <button type="submit">Issue Reset Link</button>
+        <pre id="admin-reset-output" class="secret-output" hidden></pre>
+      </form>
+    </section>
 
     <section id="setup-status" class="setup-status" aria-label="Backend Setup" hidden>
       <div class="panel-heading">

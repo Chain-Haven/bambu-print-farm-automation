@@ -9,6 +9,18 @@ describe('Vercel cloud node package config', () => {
             source: '/',
             destination: '/index.html',
         });
+        expect(config.rewrites).toContainEqual({
+            source: '/cloud',
+            destination: '/cloud.html',
+        });
+        expect(config.rewrites).toContainEqual({
+            source: '/merchant-onboarding',
+            destination: '/merchant-onboarding.html',
+        });
+        expect(config.rewrites).toContainEqual({
+            source: '/admin-reset',
+            destination: '/admin-reset.html',
+        });
         expect(config.functions['server.js']).toMatchObject({
             maxDuration: 30,
         });

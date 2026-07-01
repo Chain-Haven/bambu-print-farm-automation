@@ -69,7 +69,15 @@ const $ = (selector) => document.querySelector(selector);
 
 const elements = {
   apiState: $('#api-state'),
+  adminAuthState: $('#admin-auth-state'),
   adminToken: $('#admin-token'),
+  adminLoginForm: $('#admin-login-form'),
+  adminLoginEmail: $('#admin-login-email'),
+  adminLoginPassword: $('#admin-login-password'),
+  adminMe: $('#admin-me'),
+  adminResetRequestForm: $('#admin-reset-request-form'),
+  adminResetEmail: $('#admin-reset-email'),
+  adminResetOutput: $('#admin-reset-output'),
   orgId: $('#org-id'),
   rowLimit: $('#row-limit'),
   saveToken: $('#save-token'),
@@ -138,6 +146,12 @@ function setApiState(label, mode = '') {
   elements.apiState.className = `state-pill ${mode}`.trim();
 }
 
+function setAdminAuthState(label, mode = '') {
+  if (!elements.adminAuthState) return;
+  elements.adminAuthState.textContent = label;
+  elements.adminAuthState.className = mode;
+}
+
 function showToast(message) {
   elements.toast.textContent = message;
   elements.toast.hidden = false;
@@ -182,6 +196,22 @@ async function apiRequest(path, { method = 'GET', body = null } = {}) {
       'Content-Type': 'application/json',
     },
     body: body === null ? undefined : JSON.stringify(body),
+  });
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : {};
+
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.message || payload.error || `Request failed with ${response.status}`);
+  }
+
+  return payload;
+}
+
+async function postJson(path, body) {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
   const text = await response.text();
   const payload = text ? JSON.parse(text) : {};
@@ -823,6 +853,44 @@ async function refreshDashboard() {
   setApiState('Connected', 'online');
 }
 
+async function handleAdminLogin(event) {
+  event.preventDefault();
+  const email = elements.adminLoginEmail.value.trim();
+  const password = elements.adminLoginPassword.value;
+  const payload = await postJson('/api/cloud/admin/login', { email, password });
+
+  elements.adminToken.value = payload.admin_session_token;
+  window.localStorage.setItem(storageKeys.token, payload.admin_session_token);
+  elements.adminLoginPassword.value = '';
+  setAdminAuthState(payload.admin?.email || 'Signed in', 'ready-label');
+  showToast('Admin signed in');
+  await refreshDashboard();
+}
+
+async function handleAdminMe() {
+  const payload = await apiRequest('/api/cloud/admin/me');
+  setAdminAuthState(payload.admin?.email || payload.auth_type || 'Admin', 'ready-label');
+  showToast(`Admin: ${payload.admin?.email || payload.auth_type}`);
+}
+
+async function handleAdminResetRequest(event) {
+  event.preventDefault();
+  const email = elements.adminResetEmail.value.trim();
+  const payload = await apiRequest('/api/cloud/admin/password-reset', {
+    method: 'POST',
+    body: { email },
+  });
+
+  elements.adminResetOutput.hidden = false;
+  elements.adminResetOutput.textContent = [
+    `EMAIL=${payload.admin?.email || email}`,
+    `RESET_URL=${payload.reset_url}`,
+    `RESET_TOKEN=${payload.reset_token}`,
+    `EXPIRES_AT=${payload.expires_at}`,
+  ].join('\n');
+  showToast('Admin reset link issued');
+}
+
 function syncOrgFields() {
   const orgId = getOrgId();
   if (orgId && !elements.nodeOrgId.value.trim()) {
@@ -1075,6 +1143,29 @@ function restoreSettings() {
 }
 
 function bindEvents() {
+  elements.adminLoginForm.addEventListener('submit', (event) => {
+    handleAdminLogin(event).catch((error) => {
+      setAdminAuthState('Login failed', 'missing-label');
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+
+  elements.adminMe.addEventListener('click', () => {
+    handleAdminMe().catch((error) => {
+      setAdminAuthState('Check failed', 'missing-label');
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+
+  elements.adminResetRequestForm.addEventListener('submit', (event) => {
+    handleAdminResetRequest(event).catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+
   elements.saveToken.addEventListener('click', () => {
     window.localStorage.setItem(storageKeys.token, getAdminToken());
     window.localStorage.setItem(storageKeys.orgId, getOrgId());

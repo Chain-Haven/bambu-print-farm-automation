@@ -37,6 +37,18 @@ app.use((req, res, next) => {
 // Static files (frontend)
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.get('/cloud', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'cloud.html'));
+});
+
+app.get('/merchant-onboarding', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'merchant-onboarding.html'));
+});
+
+app.get('/admin-reset', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'admin-reset.html'));
+});
+
 // API routes
 app.use('/api', apiRouter);
 

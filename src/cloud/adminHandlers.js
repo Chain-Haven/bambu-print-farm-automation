@@ -1,4 +1,5 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
+import { AdminAuthError, authenticateCloudAdmin } from './adminAuth.js';
 import { hashNodeToken, parseJsonBody } from './agentProtocol.js';
 import {
     buildMerchantApiKeyRecord,
@@ -35,27 +36,6 @@ function methodNotAllowed(res, methods) {
         res.setHeader('Allow', methods);
     }
     return sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
-}
-
-function getAdminToken(headers = {}) {
-    const direct = headers['x-cloud-admin-token'] || headers['X-Cloud-Admin-Token'];
-    if (typeof direct === 'string' && direct.trim()) return direct.trim();
-
-    const authorization = headers.authorization || headers.Authorization;
-    if (typeof authorization !== 'string') return null;
-
-    const match = authorization.match(/^Bearer\s+(.+)$/i);
-    return match ? match[1].trim() : null;
-}
-
-function tokensMatch(received, expected) {
-    if (!received || !expected) return false;
-
-    const receivedBytes = Buffer.from(received);
-    const expectedBytes = Buffer.from(expected);
-    if (receivedBytes.length !== expectedBytes.length) return false;
-
-    return timingSafeEqual(receivedBytes, expectedBytes);
 }
 
 function normalizeRequiredString(value, name) {
@@ -256,24 +236,26 @@ function buildSetupEnvStatus(env, adminToken) {
     ];
 }
 
-async function authenticateAdmin(req, res, adminToken) {
-    const provided = getAdminToken(req.headers || {});
-    if (!provided) {
-        sendJson(res, 401, { ok: false, error: 'missing_admin_token' });
-        return false;
-    }
-
+async function authenticateAdmin(req, res, adminToken, store) {
     if (!adminToken) {
         sendJson(res, 500, { ok: false, error: 'cloud_not_configured' });
         return false;
     }
 
-    if (!tokensMatch(provided, adminToken)) {
-        sendJson(res, 403, { ok: false, error: 'invalid_admin_token' });
-        return false;
+    try {
+        await authenticateCloudAdmin(req, {
+            store,
+            bootstrapToken: adminToken,
+            pepper: process.env.ADMIN_SESSION_PEPPER || process.env.NODE_TOKEN_PEPPER,
+        });
+        return true;
+    } catch (error) {
+        if (error instanceof AdminAuthError) {
+            sendJson(res, error.statusCode, { ok: false, error: error.code });
+            return false;
+        }
+        throw error;
     }
-
-    return true;
 }
 
 export function createCloudSetupStatusHandler({
@@ -289,7 +271,7 @@ export function createCloudSetupStatusHandler({
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
 
             const envStatus = buildSetupEnvStatus(env, adminToken);
             const missing = envStatus.filter((item) => !item.present).map((item) => item.key);
@@ -342,7 +324,7 @@ export function createCloudOverviewHandler({ store, adminToken = process.env.CLO
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
 
             const overview = await store.getCloudOverview({
                 orgId: normalizeOptionalString((req.query || {}).org_id),
@@ -369,7 +351,7 @@ export function createCloudCommandHandler({ store, adminToken = process.env.CLOU
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
 
             const command = await store.createNodeCommand(normalizeCloudCommand(parseJsonBody(req.body)));
             return sendJson(res, 201, { ok: true, command });
@@ -392,7 +374,7 @@ export function createCloudOrganizationHandler({ store, adminToken = process.env
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
 
             const organization = await store.createOrganization(normalizeOrganization(parseJsonBody(req.body)));
             return sendJson(res, 201, { ok: true, organization });
@@ -420,7 +402,7 @@ export function createCloudNodeProvisionHandler({
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
             if (!pepper) {
                 return sendJson(res, 500, { ok: false, error: 'cloud_not_configured' });
             }
@@ -450,6 +432,7 @@ export function createCloudNodeProvisionHandler({
 }
 
 export function createCloudNodePackageHandler({
+    store = null,
     adminToken = process.env.CLOUD_ADMIN_TOKEN,
     rootDir = process.cwd(),
     packageBuilder = buildWindowsNodePackage,
@@ -460,7 +443,7 @@ export function createCloudNodePackageHandler({
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
 
             const request = normalizeNodePackageRequest(parseJsonBody(req.body), req);
             const zipBuffer = packageBuilder({
@@ -509,7 +492,7 @@ export function createCloudFarmAutomationHandler({
     return async function cloudFarmAutomationHandler(req, res) {
         if (req.method === 'GET') {
             try {
-                if (!(await authenticateAdmin(req, res, adminToken))) return null;
+                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
                 const automation = await loadAutomation({
                     orgId: normalizeOptionalString((req.query || {}).org_id),
                     limit: parseLimit(req.query || {}),
@@ -529,7 +512,7 @@ export function createCloudFarmAutomationHandler({
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
             const body = parseJsonBody(req.body);
             const current = await loadAutomation({
                 orgId: normalizeOptionalString((req.query || {}).org_id),
@@ -578,7 +561,7 @@ export function createCloudMerchantsHandler({
     return async function cloudMerchantsHandler(req, res) {
         if (req.method === 'GET') {
             try {
-                if (!(await authenticateAdmin(req, res, adminToken))) return null;
+                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
                 const merchants = await store.listMerchants({
                     status: normalizeOptionalString((req.query || {}).status),
                     limit: parseLimit(req.query || {}),
@@ -598,7 +581,7 @@ export function createCloudMerchantsHandler({
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
 
             const action = normalizeMerchantAction(parseJsonBody(req.body));
             const timestamp = now().toISOString();
@@ -665,7 +648,7 @@ export function createCloudMerchantSetupTokenHandler({
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
             const body = parseJsonBody(req.body);
             const merchantId = normalizeRequiredString(body.merchant_id, 'merchant_id');
             const merchant = await store.findMerchantById(merchantId);
@@ -705,7 +688,7 @@ export function createCloudMerchantApiKeysHandler({
     return async function cloudMerchantApiKeysHandler(req, res) {
         if (req.method === 'GET') {
             try {
-                if (!(await authenticateAdmin(req, res, adminToken))) return null;
+                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
                 const merchantId = normalizeRequiredString((req.query || {}).merchant_id, 'merchant_id');
                 const apiKeys = await store.listMerchantApiKeys(merchantId);
                 return sendJson(res, 200, {
@@ -723,7 +706,7 @@ export function createCloudMerchantApiKeysHandler({
 
         if (req.method === 'POST') {
             try {
-                if (!(await authenticateAdmin(req, res, adminToken))) return null;
+                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
                 const request = normalizeMerchantKeyRequest(parseJsonBody(req.body), req.query || {});
                 const merchant = await store.findMerchantById(request.merchantId);
                 const apiKey = await issueMerchantApiKey({
@@ -750,7 +733,7 @@ export function createCloudMerchantApiKeysHandler({
 
         if (req.method === 'DELETE') {
             try {
-                if (!(await authenticateAdmin(req, res, adminToken))) return null;
+                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
                 const request = normalizeMerchantKeyRequest(parseJsonBody(req.body), req.query || {});
                 if (!request.keyId) throw new Error('key_id is required');
                 const revoked = await store.revokeMerchantApiKey({
@@ -789,7 +772,7 @@ export function createCloudMerchantSettingsHandler({
     return async function cloudMerchantSettingsHandler(req, res) {
         if (req.method === 'GET') {
             try {
-                if (!(await authenticateAdmin(req, res, adminToken))) return null;
+                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
                 const fullAuto = await store.getPlatformSetting('full_auto_merchant_mode', { enabled: false });
                 return sendJson(res, 200, {
                     ok: true,
@@ -809,7 +792,7 @@ export function createCloudMerchantSettingsHandler({
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
             const body = parseJsonBody(req.body);
             const enabled = normalizeBoolean(
                 body.full_auto_merchant_mode ?? body.enabled,
@@ -843,7 +826,7 @@ export function createCloudMerchantJobsHandler({
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
             const jobs = await store.listMerchantPrintJobs({
                 merchantId: normalizeRequiredString((req.query || {}).merchant_id, 'merchant_id'),
                 limit: parseLimit(req.query || {}),
@@ -871,7 +854,7 @@ export function createCloudMerchantUsageHandler({
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken))) return null;
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
             const usage = await store.listMerchantUsageEvents({
                 merchantId: normalizeRequiredString((req.query || {}).merchant_id, 'merchant_id'),
                 limit: parseLimit(req.query || {}),

@@ -25,6 +25,9 @@ describe('supabase REST cloud admin methods', () => {
         expect(status.checks).toEqual([
             { name: 'organizations_table', ok: true },
             { name: 'platform_settings_table', ok: true },
+            { name: 'platform_admin_users_table', ok: true },
+            { name: 'platform_admin_sessions_table', ok: true },
+            { name: 'platform_admin_password_resets_table', ok: true },
             { name: 'merchants_table', ok: true },
             { name: 'merchant_api_keys_table', ok: true },
             { name: 'merchant_setup_tokens_table', ok: true },
@@ -41,6 +44,9 @@ describe('supabase REST cloud admin methods', () => {
         expect(fetchImpl.mock.calls.map(([url]) => new URL(url).pathname)).toEqual([
             '/rest/v1/organizations',
             '/rest/v1/platform_settings',
+            '/rest/v1/platform_admin_users',
+            '/rest/v1/platform_admin_sessions',
+            '/rest/v1/platform_admin_password_resets',
             '/rest/v1/merchants',
             '/rest/v1/merchant_api_keys',
             '/rest/v1/merchant_setup_tokens',
@@ -237,5 +243,55 @@ describe('supabase REST cloud admin methods', () => {
         expect(fetchImpl.mock.calls[1][0]).toContain('/rest/v1/print_jobs?');
         expect(fetchImpl.mock.calls[1][0]).toContain('merchant_id=eq.merchant-1');
         expect(fetchImpl.mock.calls[1][0]).toContain('options-%3E%3Eidempotency_key=eq.idem-1');
+    });
+
+    it('manages platform admin users, reset tokens, and sessions through service-role REST calls', async () => {
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse([{ admin_user_id: 'admin-1', email: 'info@chainhaven.co' }]))
+            .mockResolvedValueOnce(jsonResponse([{ admin_user_id: 'admin-1', email: 'info@chainhaven.co', password_hash: 'hash' }]))
+            .mockResolvedValueOnce(jsonResponse([{ admin_user_id: 'admin-1', email: 'info@chainhaven.co' }]))
+            .mockResolvedValueOnce(jsonResponse([{ reset_token_id: 'reset-1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ reset_token_id: 'reset-1', token_hash: 'reset-hash' }]))
+            .mockResolvedValueOnce(jsonResponse([{ reset_token_id: 'reset-1', used_at: '2026-07-01T12:00:00.000Z' }]))
+            .mockResolvedValueOnce(jsonResponse([{ session_id: 'session-1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ session_id: 'session-1', token_hash: 'session-hash' }]))
+            .mockResolvedValueOnce(jsonResponse([{ session_id: 'session-1', last_used_at: '2026-07-01T12:00:00.000Z' }]))
+            .mockResolvedValueOnce(jsonResponse(null, 204))
+            .mockResolvedValueOnce(jsonResponse([{ admin_user_id: 'admin-1', last_login_at: '2026-07-01T12:00:00.000Z' }]));
+        const client = createSupabaseRestClient({
+            url: 'https://example.supabase.co',
+            serviceKey: 'service-key',
+            fetchImpl,
+        });
+
+        await client.upsertPlatformAdminUser({ email: 'info@chainhaven.co', role: 'super_admin', status: 'active' });
+        await client.findPlatformAdminByEmail('info@chainhaven.co');
+        await client.updatePlatformAdminPassword('admin-1', 'bcrypt-hash');
+        await client.createAdminPasswordResetToken({ admin_user_id: 'admin-1', token_prefix: 'pkx_admin_reset_', token_hash: 'reset-hash', expires_at: '2026-07-01T13:00:00.000Z' });
+        await client.findAdminPasswordResetTokenByHash('reset-hash');
+        await client.markAdminPasswordResetTokenUsed('reset-1', '2026-07-01T12:00:00.000Z');
+        await client.createAdminSession({ admin_user_id: 'admin-1', token_prefix: 'pkx_admin_session_', token_hash: 'session-hash', expires_at: '2026-07-08T12:00:00.000Z' });
+        await client.findAdminSessionByHash('session-hash');
+        await client.touchAdminSession('session-1', '2026-07-01T12:00:00.000Z');
+        await client.revokeAdminSessions('admin-1', '2026-07-01T12:00:00.000Z');
+        await client.updatePlatformAdminLastLogin('admin-1', '2026-07-01T12:00:00.000Z');
+
+        const urls = fetchImpl.mock.calls.map(([url]) => url);
+        expect(urls[0]).toContain('/rest/v1/platform_admin_users?on_conflict=email&select=');
+        expect(fetchImpl.mock.calls[0][1].headers).toMatchObject({
+            Prefer: 'resolution=merge-duplicates,return=representation',
+        });
+        expect(urls[1]).toContain('/rest/v1/platform_admin_users?email=eq.info%40chainhaven.co');
+        expect(urls[2]).toContain('/rest/v1/platform_admin_users?admin_user_id=eq.admin-1');
+        expect(fetchImpl.mock.calls[2][1].body).toBe(JSON.stringify({ password_hash: 'bcrypt-hash' }));
+        expect(urls[3]).toContain('/rest/v1/platform_admin_password_resets?select=');
+        expect(urls[4]).toContain('token_hash=eq.reset-hash');
+        expect(urls[5]).toContain('reset_token_id=eq.reset-1');
+        expect(urls[6]).toContain('/rest/v1/platform_admin_sessions?select=');
+        expect(urls[7]).toContain('token_hash=eq.session-hash');
+        expect(urls[8]).toContain('session_id=eq.session-1');
+        expect(urls[9]).toContain('admin_user_id=eq.admin-1');
+        expect(urls[9]).toContain('revoked_at=is.null');
+        expect(urls[10]).toContain('admin_user_id=eq.admin-1');
     });
 });

@@ -21,6 +21,8 @@ describe('cloud dashboard assets', () => {
         const css = fs.readFileSync('public/css/cloud.css', 'utf8');
 
         for (const id of [
+            'admin-login-form',
+            'admin-reset-request-form',
             'farm-automation-form',
             'filament-inventory-form',
             'integrations-form',
@@ -43,6 +45,9 @@ describe('cloud dashboard assets', () => {
         }
 
         for (const endpoint of [
+            '/api/cloud/admin/login',
+            '/api/cloud/admin/me',
+            '/api/cloud/admin/password-reset',
             '/api/cloud/farm-automation',
             '/api/cloud/merchant-settings',
             '/api/cloud/merchants',
@@ -57,6 +62,8 @@ describe('cloud dashboard assets', () => {
         }
 
         for (const functionName of [
+            'handleAdminLogin',
+            'handleAdminResetRequest',
             'refreshFarmAutomation',
             'handleFarmAutomationSubmit',
             'handleFilamentInventorySubmit',

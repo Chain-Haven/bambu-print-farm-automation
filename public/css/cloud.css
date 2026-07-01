@@ -171,12 +171,23 @@ h2 {
 }
 
 .control-band,
+.auth-grid,
 .setup-status,
 .metrics,
 .admin-layout,
 .work-grid,
 .table-stack {
   margin-top: 20px;
+}
+
+.auth-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.compact-panel {
+  align-content: start;
 }
 
 .control-band {
@@ -622,6 +633,7 @@ th {
 
 @media (max-width: 980px) {
   .control-band,
+  .auth-grid,
   .admin-layout,
   .work-grid,
   .metrics,

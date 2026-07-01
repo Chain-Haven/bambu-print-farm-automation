@@ -27,6 +27,9 @@ function encodeStoragePath(path) {
 const SETUP_CHECKS = [
     { name: 'organizations_table', path: '/rest/v1/organizations?select=org_id&limit=1' },
     { name: 'platform_settings_table', path: '/rest/v1/platform_settings?select=key&limit=1' },
+    { name: 'platform_admin_users_table', path: '/rest/v1/platform_admin_users?select=admin_user_id&limit=1' },
+    { name: 'platform_admin_sessions_table', path: '/rest/v1/platform_admin_sessions?select=session_id&limit=1' },
+    { name: 'platform_admin_password_resets_table', path: '/rest/v1/platform_admin_password_resets?select=reset_token_id&limit=1' },
     { name: 'merchants_table', path: '/rest/v1/merchants?select=merchant_id&limit=1' },
     { name: 'merchant_api_keys_table', path: '/rest/v1/merchant_api_keys?select=key_id&limit=1' },
     { name: 'merchant_setup_tokens_table', path: '/rest/v1/merchant_setup_tokens?select=setup_token_id&limit=1' },
@@ -63,6 +66,38 @@ const MERCHANT_SELECT = [
     'rejected_at',
     'created_at',
     'updated_at',
+].join(',');
+
+const PLATFORM_ADMIN_USER_SELECT = [
+    'admin_user_id',
+    'email',
+    'role',
+    'status',
+    'password_hash',
+    'last_login_at',
+    'created_at',
+    'updated_at',
+].join(',');
+
+const PLATFORM_ADMIN_SESSION_SELECT = [
+    'session_id',
+    'admin_user_id',
+    'token_prefix',
+    'token_hash',
+    'last_used_at',
+    'revoked_at',
+    'expires_at',
+    'created_at',
+].join(',');
+
+const PLATFORM_ADMIN_PASSWORD_RESET_SELECT = [
+    'reset_token_id',
+    'admin_user_id',
+    'token_prefix',
+    'token_hash',
+    'used_at',
+    'expires_at',
+    'created_at',
 ].join(',');
 
 const MERCHANT_API_KEY_SELECT = [
@@ -223,6 +258,129 @@ export function createSupabaseRestClient({
                 },
             );
             return firstRow(rows);
+        },
+
+        async upsertPlatformAdminUser(adminUser) {
+            const rows = await request(
+                `/rest/v1/platform_admin_users?on_conflict=email&select=${PLATFORM_ADMIN_USER_SELECT}`,
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+                    body: adminUser,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async findPlatformAdminByEmail(email) {
+            const rows = await request(
+                `/rest/v1/platform_admin_users?email=eq.${encodeURIComponent(requireValue(email, 'admin email'))}&select=${PLATFORM_ADMIN_USER_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async findPlatformAdminById(adminUserId) {
+            const rows = await request(
+                `/rest/v1/platform_admin_users?admin_user_id=eq.${encodeURIComponent(requireValue(adminUserId, 'admin_user_id'))}&select=${PLATFORM_ADMIN_USER_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async updatePlatformAdminPassword(adminUserId, passwordHash) {
+            const rows = await request(
+                `/rest/v1/platform_admin_users?admin_user_id=eq.${encodeURIComponent(requireValue(adminUserId, 'admin_user_id'))}&select=${PLATFORM_ADMIN_USER_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: { password_hash: requireValue(passwordHash, 'password_hash') },
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async updatePlatformAdminLastLogin(adminUserId, lastLoginAt = new Date().toISOString()) {
+            const rows = await request(
+                `/rest/v1/platform_admin_users?admin_user_id=eq.${encodeURIComponent(requireValue(adminUserId, 'admin_user_id'))}&select=${PLATFORM_ADMIN_USER_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: { last_login_at: lastLoginAt },
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async createAdminPasswordResetToken(resetToken) {
+            const rows = await request(
+                `/rest/v1/platform_admin_password_resets?select=${PLATFORM_ADMIN_PASSWORD_RESET_SELECT}`,
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'return=representation' },
+                    body: resetToken,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async findAdminPasswordResetTokenByHash(tokenHash) {
+            const rows = await request(
+                `/rest/v1/platform_admin_password_resets?token_hash=eq.${encodeURIComponent(requireValue(tokenHash, 'token_hash'))}&select=${PLATFORM_ADMIN_PASSWORD_RESET_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async markAdminPasswordResetTokenUsed(resetTokenId, usedAt = new Date().toISOString()) {
+            const rows = await request(
+                `/rest/v1/platform_admin_password_resets?reset_token_id=eq.${encodeURIComponent(requireValue(resetTokenId, 'reset_token_id'))}&select=${PLATFORM_ADMIN_PASSWORD_RESET_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: { used_at: usedAt },
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async createAdminSession(session) {
+            const rows = await request(
+                `/rest/v1/platform_admin_sessions?select=${PLATFORM_ADMIN_SESSION_SELECT}`,
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'return=representation' },
+                    body: session,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async findAdminSessionByHash(tokenHash) {
+            const rows = await request(
+                `/rest/v1/platform_admin_sessions?token_hash=eq.${encodeURIComponent(requireValue(tokenHash, 'token_hash'))}&select=${PLATFORM_ADMIN_SESSION_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async touchAdminSession(sessionId, usedAt = new Date().toISOString()) {
+            const rows = await request(
+                `/rest/v1/platform_admin_sessions?session_id=eq.${encodeURIComponent(requireValue(sessionId, 'session_id'))}&select=${PLATFORM_ADMIN_SESSION_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: { last_used_at: usedAt },
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async revokeAdminSessions(adminUserId, revokedAt = new Date().toISOString()) {
+            await request(
+                `/rest/v1/platform_admin_sessions?admin_user_id=eq.${encodeURIComponent(requireValue(adminUserId, 'admin_user_id'))}&revoked_at=is.null`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=minimal' },
+                    body: { revoked_at: revokedAt },
+                },
+            );
         },
 
         async getCloudSetupStatus() {
