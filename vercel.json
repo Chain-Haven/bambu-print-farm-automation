@@ -8,6 +8,10 @@
       "maxDuration": 30,
       "includeFiles": "{package.json,package-lock.json,server.js,Start Cloud Node.bat,fix_network_access.bat,allow_remote_access.bat,src/**,public/**}"
     },
+    "api/cloud/admin/migrations.js": {
+      "maxDuration": 30,
+      "includeFiles": "{supabase/migrations/20260701050000_merchant_api_v2_adapter_backbone.sql,supabase/migrations/20260701153253_merchant_shipping_claims.sql}"
+    },
     "api/**/*.js": {
       "maxDuration": 30
     }

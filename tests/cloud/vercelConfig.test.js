@@ -40,4 +40,18 @@ describe('Vercel cloud node package config', () => {
         expect(config.functions['api/cloud/node-package.js'].includeFiles).toContain('src/**');
         expect(config.functions['api/cloud/node-package.js'].includeFiles).toContain('public/**');
     });
+
+    it('bundles allowlisted Supabase SQL migrations for the admin migration endpoint', () => {
+        const config = JSON.parse(fs.readFileSync('vercel.json', 'utf8'));
+
+        expect(config.functions['api/cloud/admin/migrations.js']).toMatchObject({
+            maxDuration: 30,
+        });
+        expect(config.functions['api/cloud/admin/migrations.js'].includeFiles).toContain(
+            'supabase/migrations/20260701050000_merchant_api_v2_adapter_backbone.sql',
+        );
+        expect(config.functions['api/cloud/admin/migrations.js'].includeFiles).toContain(
+            'supabase/migrations/20260701153253_merchant_shipping_claims.sql',
+        );
+    });
 });
