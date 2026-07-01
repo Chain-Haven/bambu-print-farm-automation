@@ -41,6 +41,60 @@ router.get('/discover', requireAuth, asyncHandler(async (req, res) => {
     res.json(supervisor.discovery.getDiscovered());
 }));
 
+// Fleet filament — aggregate AMS/loaded filament across every printer, optionally
+// filtered by material/color (for routing a color-critical job to a ready printer).
+// NOTE: registered before '/:id' so it isn't captured as a printer id.
+router.get('/ams', requireAuth, asyncHandler(async (req, res) => {
+    const { material, color } = req.query;
+    const m = material ? String(material).toUpperCase() : null;
+    const c = color ? String(color).toUpperCase() : null;
+    const fleet = PrinterRegistry.findAll().map((p) => {
+        let ams = null;
+        try { ams = AmsService.getFullStatus(p.printer_id); } catch { ams = null; }
+        return { printer_id: p.printer_id, name: p.name, model: p.model, ams };
+    });
+    const matches = (f) => (f.ams?.slots || []).some((s) => {
+        const sm = String(s.live_type || s.configured_material || '').toUpperCase();
+        const sc = String(s.live_color || s.configured_color || '').toUpperCase();
+        return (!m || sm.includes(m)) && (!c || sc.includes(c));
+    });
+    const printers = (m || c) ? fleet.filter(matches) : fleet;
+    res.json({ count: printers.length, printers });
+}));
+
+// Bulk control across the fleet — pause-all / resume-all / stop-all / clear-all-errors
+// / lights. Body: { action, printer_ids? (default all), params? }.
+router.post('/bulk/control', requireAdmin, asyncHandler(async (req, res) => {
+    const { RuntimeSupervisor } = await import('../../runtime/RuntimeSupervisor.js');
+    const supervisor = RuntimeSupervisor.getInstance();
+    const { action } = req.body || {};
+    if (!action) return res.status(400).json({ error: 'action is required' });
+    const ids = Array.isArray(req.body?.printer_ids) && req.body.printer_ids.length
+        ? req.body.printer_ids
+        : PrinterRegistry.findAll().map((p) => p.printer_id);
+    const results = [];
+    for (const id of ids) {
+        const worker = supervisor?.getWorker(id);
+        if (!worker?.canControl?.()) { results.push({ printer_id: id, ok: false, error: 'not_controllable' }); continue; }
+        try {
+            let ok;
+            switch (action) {
+                case 'pause':       ok = !!worker._pausePrint(); break;
+                case 'resume':      ok = !!worker._resumePrint(); break;
+                case 'stop':        ok = !!worker._stopPrint(); break;
+                case 'clear_error': ok = worker.clearPrintError() !== false; break;
+                case 'light_on':    ok = worker.mqttClient?.setLight(true) ?? false; break;
+                case 'light_off':   ok = worker.mqttClient?.setLight(false) ?? false; break;
+                default: return res.status(400).json({ error: `Unsupported bulk action: ${action}` });
+            }
+            results.push({ printer_id: id, ok: !!ok });
+        } catch (err) {
+            results.push({ printer_id: id, ok: false, error: err.message });
+        }
+    }
+    res.json({ action, total: ids.length, succeeded: results.filter((r) => r.ok).length, results });
+}));
+
 // Get single printer with full detail
 router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
     const printer = PrinterRegistry.getFullDetail(req.params.id);
@@ -224,9 +278,23 @@ router.get('/:id/diagnostics', requireAuth, asyncHandler(async (req, res) => {
     if (diag.sd_health.hms_errors.length > 0) {
         for (const h of diag.sd_health.hms_errors) {
             const code = h.attr?.toString(16) || '';
-            const msg = h.code || '';
-            if (code.includes('0300') || msg.toLowerCase().includes('sd') || msg.toLowerCase().includes('storage')) {
+            const msg = String(h.code ?? '').toLowerCase(); // numeric on Bambu — coerce before string ops
+            if (code.includes('0300') || msg.includes('sd') || msg.includes('storage')) {
                 diag.sd_health.has_sd_error = true;
+            }
+        }
+    }
+    // Also flag an SD fault from a standing print_error (e.g. 0x0500C010 MicroSD
+    // read/write). The HMS list is often empty while print_error persists.
+    {
+        const pe = worker?.latestStatus?.print_error;
+        if (pe) {
+            const { decodePrintError } = await import('../../utils/PrinterErrors.js');
+            const decoded = decodePrintError(pe);
+            const hex = (decoded?.hex || '').toLowerCase();
+            if (hex.includes('0500c01') || /sd|storage|micro/i.test(decoded?.message || '')) {
+                diag.sd_health.has_sd_error = true;
+                diag.sd_health.print_error = { code: pe, formatted: decoded?.formatted, message: decoded?.message };
             }
         }
     }
@@ -302,18 +370,30 @@ router.post('/:id/control', requireAdmin, asyncHandler(async (req, res) => {
     const { RuntimeSupervisor } = await import('../../runtime/RuntimeSupervisor.js');
     const supervisor = RuntimeSupervisor.getInstance();
     const worker = supervisor?.getWorker(req.params.id);
-    if (!worker?.mqttClient?.connected) {
+    if (!worker?.canControl?.()) {
         return res.status(503).json({ error: 'Printer MQTT not connected' });
     }
 
-    const mqtt = worker.mqttClient;
     const { action } = req.body;
+
+    // Job-lifecycle controls go through the worker so its state machine stays in
+    // sync with the cloud/CommandBus path (avoids UI vs. real-state drift).
+    if (action === 'pause' || action === 'resume' || action === 'stop') {
+        const result = action === 'pause' ? worker._pausePrint()
+            : action === 'resume' ? worker._resumePrint()
+                : worker._stopPrint();
+        return res.json({ ok: true, action, ...result });
+    }
+    if (action === 'clear_error') {
+        const ok = worker.clearPrintError();
+        return res.json({ ok: ok !== false, action });
+    }
+
+    const mqtt = worker.mqttClient;
+    if (!mqtt) return res.status(503).json({ error: 'Printer MQTT not connected' });
     let ok = false;
 
     switch (action) {
-        case 'pause':     ok = mqtt.pausePrint(); break;
-        case 'resume':    ok = mqtt.resumePrint(); break;
-        case 'stop':      ok = mqtt.stopPrint(); break;
         case 'light_on':  ok = mqtt.setLight(true); break;
         case 'light_off': ok = mqtt.setLight(false); break;
         case 'set_fan':   ok = mqtt.setFan(req.body.fan || 1, req.body.speed ?? 128); break;

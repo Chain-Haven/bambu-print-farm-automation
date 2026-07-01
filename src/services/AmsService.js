@@ -187,7 +187,10 @@ export class AmsService {
                 live_type: liveSlot?.type || null,
                 live_color: liveSlot?.color || null,
                 live_remaining: liveSlot?.remaining ?? null,
-                in_sync: cfg ? (liveSlot?.type === cfg.material) : true,
+                // Compare the configured material's BASE tray type (e.g. "PLA Silk"
+                // -> "PLA") to the live tray type, not the raw material string —
+                // otherwise every subtype is falsely flagged out-of-sync.
+                in_sync: AmsService._configMatchesLive(cfg, liveSlot),
             });
         }
 
@@ -198,6 +201,16 @@ export class AmsService {
             filament_types: FILAMENT_TYPES.map(f => f.material),
             color_palette: COLOR_PALETTE,
         };
+    }
+
+    /** True when the loaded (live) tray type matches the configured material's base type. */
+    static _configMatchesLive(cfg, liveSlot) {
+        if (!cfg) return true;                 // nothing configured — nothing to mismatch
+        const live = liveSlot?.type;
+        if (!live) return true;                // no live reading to compare against
+        const entry = FILAMENT_TYPES.find(f => f.material === cfg.material);
+        const expected = entry?.trayType || cfg.material;
+        return String(expected).toUpperCase() === String(live).toUpperCase();
     }
 }
 

@@ -25,7 +25,11 @@ export class PrinterWorker {
         this.state = 'unknown';
         this.connected = false;
         this.mqttClient = null;
-        this.latestStatus = {};
+        // Seed from the persisted snapshot so a restart doesn't re-log already-known
+        // HMS/print_error state as brand-new error events (phantom spam).
+        this.latestStatus = (printer.status_snapshot && typeof printer.status_snapshot === 'object')
+            ? { ...printer.status_snapshot }
+            : {};
         this.onStatusUpdate = null; // callback
         this.onAlert = null; // callback(alert) — fired on detected failures (set by supervisor)
         this.mockMode = process.env.MOCK_MODE === 'true';
@@ -82,8 +86,11 @@ export class PrinterWorker {
         if (hms && Array.isArray(hms) && hms.length > 0) {
             for (const h of hms) {
                 const code = h.attr?.toString(16) || '';
-                const msg = h.code || '';
-                if (code.includes('0300') || msg.toLowerCase().includes('sd') || msg.toLowerCase().includes('storage') || msg.toLowerCase().includes('micro')) {
+                // h.code is numeric on Bambu HMS reports; coerce before string ops
+                // (otherwise .toLowerCase() throws and 500s preflight/diagnostics
+                // exactly when an HMS error is present).
+                const msg = String(h.code ?? '').toLowerCase();
+                if (code.includes('0300') || msg.includes('sd') || msg.includes('storage') || msg.includes('micro')) {
                     errors.push(`SD/Storage error detected: HMS ${code} — Format SD in printer or replace card`);
                 }
             }
@@ -153,6 +160,11 @@ export class PrinterWorker {
             this.mqttClient = null;
         }
         this.connected = false;
+    }
+
+    /** Whether the printer can currently accept control commands (mock-aware). */
+    canControl() {
+        return this.mockMode || !!(this.mqttClient && this.mqttClient.connected);
     }
 
     /**
