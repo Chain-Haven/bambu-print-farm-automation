@@ -46,6 +46,7 @@ describe('merchant API docs', () => {
         const nodeGuideMarkdown = fs.readFileSync('docs/windows-local-node.md', 'utf8');
 
         expect(onboarding).toContain('id="merchant-signup-form"');
+        expect(onboarding).toContain('rel="icon"');
         expect(onboarding).toContain('/api/public/merchants/signup');
         expect(onboarding).toContain('/api/public/api-keys');
         expect(onboarding).toContain('pkx_live_');
@@ -57,6 +58,14 @@ describe('merchant API docs', () => {
         expect(nodeGuideMarkdown).toContain('HTTPS outbound');
         expect(nodeGuideMarkdown).toContain('Start Cloud Node.bat');
         expect(nodeGuideMarkdown).toContain('cloud.print.ready');
+    });
+
+    it('declares inline favicons on public merchant pages so browser smoke tests do not hit favicon fallback errors', () => {
+        for (const file of ['public/merchant-onboarding.html', 'public/merchant-api.html', 'public/windows-node-guide.html']) {
+            const html = fs.readFileSync(file, 'utf8');
+            expect(html).toContain('rel="icon"');
+            expect(html).toContain('data:image/svg+xml');
+        }
     });
 
     it('keeps the local controller shell bootable with API and app scripts', () => {

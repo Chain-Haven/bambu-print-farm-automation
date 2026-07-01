@@ -10,6 +10,7 @@
     "local-node": "node src/cloud/runLocalNode.js",
     "test": "vitest run",
     "test:cloud": "vitest run tests/cloud",
+    "e2e:live": "npx --yes --package=playwright node scripts/live-e2e-test.mjs",
     "test:watch": "vitest",
     "cloud:smoke": "node scripts/cloud-smoke-test.js",
     "cli": "node src/gcode/cli.js"

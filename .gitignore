@@ -9,3 +9,5 @@ supabase/.temp/
 .env.local
 .env.*.local
 .vercel
+.playwright-cli/
+output/playwright/
