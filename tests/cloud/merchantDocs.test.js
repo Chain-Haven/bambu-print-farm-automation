@@ -58,4 +58,21 @@ describe('merchant API docs', () => {
         expect(html).toContain('value="cloud.print.ready"');
         expect(html.match(/id="command-payload"/g)).toHaveLength(1);
     });
+
+    it('documents the platform roadmap from cloud control plane to Windows edge execution', () => {
+        const roadmap = fs.readFileSync('docs/print-farm-platform-roadmap.md', 'utf8');
+        const cloudControl = fs.readFileSync('docs/cloud-control-plane.md', 'utf8');
+
+        for (const term of [
+            'Fleet Hub',
+            'Bambu Connect',
+            'LAN Developer Mode',
+            'Windows edge agent',
+            'durable command intents',
+            'model-aware adapter strategy',
+        ]) {
+            expect(roadmap).toContain(term);
+        }
+        expect(cloudControl).toContain('docs/print-farm-platform-roadmap.md');
+    });
 });

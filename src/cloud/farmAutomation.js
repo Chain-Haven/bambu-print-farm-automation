@@ -1,4 +1,5 @@
 import { routeMerchantPrintJob } from './merchantRouting.js';
+import { buildPlatformStrategy } from './platformStrategy.js';
 
 const ACTIVE_JOB_STATUSES = new Set([
     'queued',
@@ -465,22 +466,29 @@ export function buildFarmAutomationPlan({
         .filter((spool) => spool.grams_remaining <= spool.reorder_threshold_grams)
         .length;
 
-    return {
-        feature_map: buildFeatureMap(normalizedSettings),
-        summary: {
-            nodes_total: nodes.length,
-            nodes_online: nodes.filter((node) => String(node.status || '').toLowerCase() === 'online').length,
-            printers_total: printers.length,
-            printers_online: printers.filter((printer) => String(printer.status || '').toLowerCase() === 'online').length,
-            active_job_count: jobs.filter(isActiveJob).length,
-            spools_total: normalizedSettings.inventory.spools.length,
-            low_spool_count: lowSpoolCount,
-            auto_eject_ready_count: ejectionQueue.filter((item) => item.action === 'auto_eject').length,
-            alert_count: alerts.length,
-        },
+    const featureMap = buildFeatureMap(normalizedSettings);
+    const summary = {
+        nodes_total: nodes.length,
+        nodes_online: nodes.filter((node) => String(node.status || '').toLowerCase() === 'online').length,
+        printers_total: printers.length,
+        printers_online: printers.filter((printer) => String(printer.status || '').toLowerCase() === 'online').length,
+        active_job_count: jobs.filter(isActiveJob).length,
+        spools_total: normalizedSettings.inventory.spools.length,
+        low_spool_count: lowSpoolCount,
+        auto_eject_ready_count: ejectionQueue.filter((item) => item.action === 'auto_eject').length,
+        alert_count: alerts.length,
+    };
+    const automationPlan = {
+        feature_map: featureMap,
+        summary,
         printers: printerPlans,
         job_recommendations: jobRecommendations,
         ejection_queue: ejectionQueue,
         alerts,
+    };
+
+    return {
+        ...automationPlan,
+        platform_strategy: buildPlatformStrategy({ overview, automationPlan }),
     };
 }

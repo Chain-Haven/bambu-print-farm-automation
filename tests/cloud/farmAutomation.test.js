@@ -136,6 +136,25 @@ describe('farm automation planner', () => {
                 spool_id: 'spool-orange-petg',
             }),
         ]));
+        expect(plan.platform_strategy).toMatchObject({
+            integration_modes: expect.arrayContaining([
+                expect.objectContaining({ mode: 'fleet_hub' }),
+                expect.objectContaining({ mode: 'bambu_connect' }),
+                expect.objectContaining({ mode: 'lan_developer_mode' }),
+            ]),
+            printer_adapters: expect.arrayContaining([
+                expect.objectContaining({
+                    printer_id: 'printer-ready',
+                    model_family: 'a1_series',
+                }),
+            ]),
+            readiness: expect.arrayContaining([
+                expect.objectContaining({
+                    gate: 'edge_agent_online',
+                    status: 'ready',
+                }),
+            ]),
+        });
     });
 
     it('uses assigned filament inventory for smart routing when live AMS telemetry is unavailable', () => {

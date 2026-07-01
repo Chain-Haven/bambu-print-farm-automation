@@ -26,6 +26,9 @@ describe('cloud dashboard assets', () => {
             'integrations-form',
             'farm-automation-plan',
             'automation-alerts-table',
+            'platform-strategy-table',
+            'readiness-gates-table',
+            'roadmap-phases-table',
             'merchant-settings-form',
             'merchant-list-form',
             'merchant-action-form',
@@ -59,6 +62,8 @@ describe('cloud dashboard assets', () => {
             'handleFilamentInventorySubmit',
             'handleIntegrationsSubmit',
             'renderFarmAutomation',
+            'renderPlatformStrategy',
+            'flattenPlatformStrategyRows',
             'refreshMerchantSettings',
             'refreshMerchants',
             'handleMerchantAction',
@@ -73,6 +78,7 @@ describe('cloud dashboard assets', () => {
         expect(css).toContain('.admin-layout');
         expect(css).toContain('.automation-grid');
         expect(css).toContain('.alert-list');
+        expect(css).toContain('.strategy-grid');
         expect(css).toContain('.detail-drawer');
         expect(css).toContain('.toolbar');
     });

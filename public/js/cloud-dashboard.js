@@ -544,6 +544,45 @@ function renderMerchantOperationalTables() {
   ], state.merchantUsage, 'No usage loaded.');
 }
 
+function flattenPlatformStrategyRows(strategy = {}) {
+  return (strategy.printer_adapters || []).map((row) => ({
+    type: 'printer',
+    target: row.name || row.local_printer_id || shortId(row.printer_id),
+    model: row.model || row.model_family || '-',
+    status: row.recommended_mode || 'unknown',
+    detail: `${row.fallback_mode || '-'} fallback`,
+    risk: row.risk_level || 'unknown',
+    raw: row,
+  }));
+}
+
+function renderPlatformStrategy(strategy = {}) {
+  const adapterRows = flattenPlatformStrategyRows(strategy);
+
+  renderTable('#platform-strategy-table', [
+    { label: 'Target', value: (row) => row.target },
+    { label: 'Model', value: (row) => row.model },
+    { label: 'Mode', value: (row) => makeStatus(row.status) },
+    { label: 'Fallback', value: (row) => row.detail },
+    { label: 'Risk', value: (row) => makeStatus(row.risk) },
+    { label: 'Open', value: (row) => makeDetailButton('Open', `Adapter ${row.target}`, row.raw) },
+  ], adapterRows, 'No printer adapter recommendations yet.');
+
+  renderTable('#readiness-gates-table', [
+    { label: 'Gate', value: (row) => row.label || row.gate || '-' },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    { label: 'Next Action', value: (row) => row.next_action || '-' },
+    { label: 'Open', value: (row) => makeDetailButton('Open', `Gate ${row.gate || ''}`.trim(), row) },
+  ], strategy.readiness || [], 'No readiness gates reported.');
+
+  renderTable('#roadmap-phases-table', [
+    { label: 'Phase', value: (row) => row.label || row.phase || '-' },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    { label: 'Scope', value: (row) => row.scope || '-' },
+    { label: 'Open', value: (row) => makeDetailButton('Open', `Phase ${row.phase || ''}`.trim(), row) },
+  ], strategy.roadmap_phases || [], 'No roadmap phases reported.');
+}
+
 function renderFarmAutomation(automation) {
   if (automation) state.farmAutomation = automation;
   const settings = state.farmAutomation.settings || {};
@@ -599,6 +638,8 @@ function renderFarmAutomation(automation) {
     { label: 'Target', value: (row) => row.spool_id || row.printer_id || row.job_id || '-' },
     { label: 'Open', value: (row) => makeDetailButton('Open', `Alert ${row.type || ''}`.trim(), row) },
   ], plan.alerts || [], 'No automation alerts.');
+
+  renderPlatformStrategy(plan.platform_strategy || {});
 }
 
 function renderOverview() {

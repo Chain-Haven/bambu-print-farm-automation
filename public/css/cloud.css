@@ -258,7 +258,8 @@ h2 {
 
 .control-stack,
 .operations-stack,
-.table-grid {
+.table-grid,
+.strategy-grid {
   display: grid;
   gap: 16px;
 }
@@ -437,6 +438,10 @@ h2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.strategy-grid {
+  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr) minmax(320px, 1.15fr);
+}
+
 .table-panel {
   padding: 14px;
   overflow: hidden;
@@ -530,14 +535,32 @@ th {
 }
 
 .status.enabled,
-.status.available {
+.status.available,
+.status.low,
+.status.lan_developer_mode,
+.status.fleet_hub {
   background: #dff4eb;
   color: var(--accent-strong);
 }
 
-.status.off {
+.status.off,
+.status.needs_configuration,
+.status.bambu_connect {
   background: #eef2ef;
   color: var(--muted);
+}
+
+.status.medium,
+.status.community_lan,
+.status.in_progress {
+  background: #fff4df;
+  color: var(--warn);
+}
+
+.status.high,
+.status.blocked {
+  background: #fff0ef;
+  color: var(--danger);
 }
 
 .row-actions {
@@ -604,6 +627,7 @@ th {
   .metrics,
   .merchant-grid,
   .automation-grid,
+  .strategy-grid,
   .table-grid,
   .setup-grid,
   .setup-checks {

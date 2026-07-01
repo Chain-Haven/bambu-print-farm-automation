@@ -2,6 +2,8 @@
 
 This review captures the competitor feature set we want PrintKinetix to cover while keeping the implementation native to the Vercel/Supabase cloud control plane and the Windows local-node agent.
 
+For the broader platform architecture, model-aware Bambu adapter strategy, and Windows edge-agent roadmap, see `docs/print-farm-platform-roadmap.md`.
+
 ## 3DQue Feature Targets
 
 3DQue's AutoFarm3D page positions the product around a centralized queue, smart dispatch, farm-wide stats, and self-managing print-farm workflow:
@@ -32,6 +34,7 @@ Implemented in this slice:
 - Ecommerce and shipping integration metadata so merchant/order systems can be connected without schema churn.
 - Remote-access integration metadata for secure operator tunnels.
 - Admin-visible feature map, ejection queue, material routing recommendations, low-spool alerts, dry-filament alerts, offline-printer alerts, and manual-bed-clear alerts.
+- Model-aware platform strategy output for Fleet Hub, Bambu Connect, LAN Developer Mode, and community LAN adapter risk planning.
 
 Next implementation candidates:
 

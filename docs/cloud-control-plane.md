@@ -196,3 +196,4 @@ Supported cloud command types in this slice:
 For the operator-facing setup path, see `docs/windows-local-node.md` or `/windows-node-guide.html`.
 
 For the farm-manager automation target list, including the 3DQue/AutoFarm3D feature review, see `docs/farm-automation-feature-review.md`.
+For the broader Bambu/Vercel/Supabase/Windows edge roadmap, see `docs/print-farm-platform-roadmap.md`.
