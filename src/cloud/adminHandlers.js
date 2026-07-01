@@ -7,6 +7,7 @@ import {
     generateMerchantApiKey,
     generateMerchantSetupToken,
 } from './merchantAuth.js';
+import { redactPublicValue } from './merchantPublicProjections.js';
 import { buildWindowsNodePackage, getNodePackageFileName } from './nodePackage.js';
 import { buildFarmAutomationPlan, normalizeFarmAutomationSettings } from './farmAutomation.js';
 
@@ -217,6 +218,197 @@ function redactMerchantApiKey(apiKey) {
         revoked_at,
         created_at,
     }).filter(([, value]) => value !== undefined));
+}
+
+const MERCHANT_V2_ADMIN_PROJECTIONS = {
+    orders: {
+        fields: [
+            'order_id',
+            'org_id',
+            'merchant_id',
+            'external_order_id',
+            'status',
+            'totals',
+            'due_at',
+            'submitted_at',
+            'completed_at',
+            'canceled_at',
+            'metadata',
+            'created_at',
+            'updated_at',
+        ],
+        redactNested: new Set(['totals', 'metadata']),
+    },
+    files: {
+        fields: [
+            'file_id',
+            'org_id',
+            'merchant_id',
+            'original_name',
+            'content_type',
+            'byte_size',
+            'checksum_sha256',
+            'file_mode',
+            'status',
+            'completed_at',
+            'deleted_at',
+            'rejected_at',
+            'metadata',
+            'created_at',
+            'updated_at',
+        ],
+        redactNested: new Set(['metadata']),
+    },
+    slices: {
+        fields: [
+            'slice_job_id',
+            'org_id',
+            'merchant_id',
+            'file_id',
+            'profile',
+            'requirements',
+            'result',
+            'status',
+            'started_at',
+            'completed_at',
+            'canceled_at',
+            'metadata',
+            'created_at',
+            'updated_at',
+        ],
+        redactNested: new Set(['profile', 'requirements', 'result', 'metadata']),
+    },
+    batches: {
+        fields: [
+            'batch_id',
+            'org_id',
+            'merchant_id',
+            'name',
+            'strategy',
+            'status',
+            'settings',
+            'started_at',
+            'paused_at',
+            'completed_at',
+            'canceled_at',
+            'metadata',
+            'created_at',
+            'updated_at',
+        ],
+        redactNested: new Set(['settings', 'metadata']),
+    },
+    reservations: {
+        fields: [
+            'reservation_id',
+            'org_id',
+            'merchant_id',
+            'order_id',
+            'batch_id',
+            'file_id',
+            'job_id',
+            'material',
+            'color',
+            'grams',
+            'status',
+            'expires_at',
+            'released_at',
+            'consumed_at',
+            'metadata',
+            'created_at',
+            'updated_at',
+        ],
+        redactNested: new Set(['metadata']),
+    },
+    shipments: {
+        fields: [
+            'shipment_id',
+            'org_id',
+            'merchant_id',
+            'order_id',
+            'status',
+            'carrier',
+            'service_level',
+            'tracking_number',
+            'shipped_at',
+            'delivered_at',
+            'metadata',
+            'created_at',
+            'updated_at',
+        ],
+        redactNested: new Set(['metadata']),
+    },
+    invoices: {
+        fields: [
+            'invoice_id',
+            'org_id',
+            'merchant_id',
+            'status',
+            'period_start',
+            'period_end',
+            'currency',
+            'subtotal',
+            'total',
+            'issued_at',
+            'voided_at',
+            'metadata',
+            'created_at',
+            'updated_at',
+        ],
+        redactNested: new Set(['metadata']),
+    },
+    webhook_deliveries: {
+        fields: [
+            'delivery_id',
+            'org_id',
+            'merchant_id',
+            'webhook_id',
+            'event_type',
+            'status',
+            'response_status',
+            'attempt_count',
+            'next_retry_at',
+            'delivered_at',
+            'metadata',
+            'created_at',
+            'updated_at',
+        ],
+        redactNested: new Set(['metadata']),
+    },
+    adapter_events: {
+        fields: [
+            'adapter_event_id',
+            'org_id',
+            'merchant_id',
+            'adapter_name',
+            'event_type',
+            'resource_type',
+            'resource_id',
+            'payload',
+            'metadata',
+            'created_at',
+            'updated_at',
+        ],
+        redactNested: new Set(['payload', 'metadata']),
+    },
+};
+
+function projectAdminMerchantV2Row(resourceName, row) {
+    if (!isPlainObject(row)) return {};
+    const projection = MERCHANT_V2_ADMIN_PROJECTIONS[resourceName];
+    if (!projection) return {};
+
+    const output = {};
+    for (const field of projection.fields) {
+        if (row[field] === undefined) continue;
+        output[field] = projection.redactNested.has(field)
+            ? redactPublicValue(row[field])
+            : row[field];
+    }
+    return output;
+}
+
+function projectAdminMerchantV2Rows(resourceName, rows) {
+    return (Array.isArray(rows) ? rows : []).map((row) => projectAdminMerchantV2Row(resourceName, row));
 }
 
 function hasEnvValue(env, key) {
@@ -918,15 +1110,15 @@ export function createCloudMerchantV2Handler({
             return sendJson(res, 200, {
                 ok: true,
                 v2: {
-                    orders,
-                    files,
-                    slices,
-                    batches,
-                    reservations,
-                    shipments,
-                    invoices,
-                    webhook_deliveries: webhookDeliveries,
-                    adapter_events: adapterEvents,
+                    orders: projectAdminMerchantV2Rows('orders', orders),
+                    files: projectAdminMerchantV2Rows('files', files),
+                    slices: projectAdminMerchantV2Rows('slices', slices),
+                    batches: projectAdminMerchantV2Rows('batches', batches),
+                    reservations: projectAdminMerchantV2Rows('reservations', reservations),
+                    shipments: projectAdminMerchantV2Rows('shipments', shipments),
+                    invoices: projectAdminMerchantV2Rows('invoices', invoices),
+                    webhook_deliveries: projectAdminMerchantV2Rows('webhook_deliveries', webhookDeliveries),
+                    adapter_events: projectAdminMerchantV2Rows('adapter_events', adapterEvents),
                 },
             });
         } catch (error) {
