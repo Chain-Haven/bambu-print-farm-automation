@@ -42,6 +42,7 @@ const requiredMethods = [
     'updateMerchantPostProcessingTask',
     'updateMerchantPostProcessingTaskIfStatus',
     'createMerchantShipment',
+    'findMerchantShipmentByIdempotencyKey',
     'listMerchantShipments',
     'getMerchantShipment',
     'updateMerchantShipmentStatus',
@@ -256,6 +257,7 @@ describe('merchant API v2 store surface', () => {
     it('lists shipments, labels, and label lookups with merchant-scoped filters', async () => {
         const fetchImpl = vi.fn()
             .mockResolvedValueOnce(jsonResponse([{ shipment_id: 's1', merchant_id: 'm1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ shipment_id: 's2', metadata: { idempotency_key: 'idem-ship' } }]))
             .mockResolvedValueOnce(jsonResponse([{ label_id: 'l1', shipment_id: 's1' }]))
             .mockResolvedValueOnce(jsonResponse([{ label_id: 'l2', shipment_id: 's1' }]))
             .mockResolvedValueOnce(jsonResponse([{ shipment_id: 's1', status: 'shipped' }]));
@@ -267,6 +269,7 @@ describe('merchant API v2 store surface', () => {
             status: 'label_created',
             limit: 2,
         });
+        await store.findMerchantShipmentByIdempotencyKey({ merchantId: 'm1', idempotencyKey: 'idem-ship' });
         await store.listMerchantShippingLabels({ merchantId: 'm1', shipmentId: 's1', limit: 3 });
         await store.getMerchantShippingLabelByShipment({ merchantId: 'm1', shipmentId: 's1' });
         await store.updateMerchantShipmentStatus({
@@ -284,19 +287,25 @@ describe('merchant API v2 store surface', () => {
         expect(shipmentsUrl.searchParams.get('order')).toBe('created_at.desc');
         expect(shipmentsUrl.searchParams.get('limit')).toBe('2');
 
-        const labelsUrl = new URL(fetchImpl.mock.calls[1][0]);
+        const idempotencyUrl = new URL(fetchImpl.mock.calls[1][0]);
+        expect(idempotencyUrl.pathname).toBe('/rest/v1/merchant_shipments');
+        expect(idempotencyUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(idempotencyUrl.searchParams.get('metadata->>idempotency_key')).toBe('eq.idem-ship');
+        expect(idempotencyUrl.searchParams.get('limit')).toBe('1');
+
+        const labelsUrl = new URL(fetchImpl.mock.calls[2][0]);
         expect(labelsUrl.pathname).toBe('/rest/v1/merchant_shipping_labels');
         expect(labelsUrl.searchParams.get('merchant_id')).toBe('eq.m1');
         expect(labelsUrl.searchParams.get('shipment_id')).toBe('eq.s1');
         expect(labelsUrl.searchParams.get('limit')).toBe('3');
 
-        const labelLookupUrl = new URL(fetchImpl.mock.calls[2][0]);
+        const labelLookupUrl = new URL(fetchImpl.mock.calls[3][0]);
         expect(labelLookupUrl.pathname).toBe('/rest/v1/merchant_shipping_labels');
         expect(labelLookupUrl.searchParams.get('merchant_id')).toBe('eq.m1');
         expect(labelLookupUrl.searchParams.get('shipment_id')).toBe('eq.s1');
         expect(labelLookupUrl.searchParams.get('limit')).toBe('1');
 
-        const [updateUrl, updateInit] = fetchImpl.mock.calls[3];
+        const [updateUrl, updateInit] = fetchImpl.mock.calls[4];
         const shipmentUpdateUrl = new URL(updateUrl);
         expect(shipmentUpdateUrl.pathname).toBe('/rest/v1/merchant_shipments');
         expect(shipmentUpdateUrl.searchParams.get('merchant_id')).toBe('eq.m1');

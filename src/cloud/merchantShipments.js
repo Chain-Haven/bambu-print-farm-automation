@@ -19,6 +19,31 @@ function withHttpStatus(payload, statusCode) {
     return payload;
 }
 
+function getHeader(headers = {}, name) {
+    const expected = name.toLowerCase();
+    for (const [key, value] of Object.entries(headers || {})) {
+        if (String(key).toLowerCase() !== expected) continue;
+        return Array.isArray(value) ? value[0] : value;
+    }
+    return null;
+}
+
+function stableJsonValue(value) {
+    if (Array.isArray(value)) return value.map(stableJsonValue);
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value)
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([key, child]) => [key, stableJsonValue(child)]),
+        );
+    }
+    return value;
+}
+
+function stableJsonString(value) {
+    return JSON.stringify(stableJsonValue(value));
+}
+
 function requiredShipmentId(value) {
     return requiredString(value, 'shipment_id');
 }
@@ -43,6 +68,39 @@ function normalizePackages(value) {
         throw createHttpError(400, 'invalid_payload', 'packages must be an array');
     }
     return value.map((item) => redactPublicValue(safeObject(item)));
+}
+
+function shipmentIdempotencyKey(source, request) {
+    return optionalString(getHeader(request?.headers, 'idempotency-key'))
+        || optionalString(source.idempotency_key);
+}
+
+function normalizedShipmentRequest({ orderId, source, order }) {
+    return {
+        order_id: orderId,
+        service_level: optionalString(source.service_level),
+        ship_to: redactPublicValue(
+            Object.keys(safeObject(source.ship_to)).length > 0
+                ? safeObject(source.ship_to)
+                : safeObject(order.shipping_address),
+        ),
+        packages: normalizePackages(source.packages),
+    };
+}
+
+function idempotencyConflict() {
+    throw createHttpError(
+        409,
+        'idempotency_conflict',
+        'Idempotency key was already used with different shipment details',
+    );
+}
+
+function assertIdempotentShipmentMatches(shipment, expectedRequest) {
+    const storedRequest = safeObject(shipment?.metadata).idempotency_request;
+    if (!storedRequest || stableJsonString(storedRequest) !== stableJsonString(expectedRequest)) {
+        idempotencyConflict();
+    }
 }
 
 function safePublicLabelUrl(value) {
@@ -112,6 +170,34 @@ async function getCurrentShipment(store, merchant, shipmentId) {
     return shipment;
 }
 
+async function getExistingShipmentLabel(store, merchant, shipmentId) {
+    if (typeof store.getMerchantShippingLabelByShipment !== 'function') return null;
+    return store.getMerchantShippingLabelByShipment({
+        merchantId: merchant.merchant_id,
+        shipmentId,
+    });
+}
+
+async function replayIdempotentShipment({
+    store,
+    merchant,
+    shipment,
+    expectedRequest,
+    requestId,
+}) {
+    assertIdempotentShipmentMatches(shipment, expectedRequest);
+    const label = await getExistingShipmentLabel(store, merchant, shipment.shipment_id);
+    return withHttpStatus(publicOk(publicShipment(shipment, label), requestId), 200);
+}
+
+async function findShipmentByIdempotencyKey(store, merchant, idempotencyKey) {
+    if (!idempotencyKey || typeof store.findMerchantShipmentByIdempotencyKey !== 'function') return null;
+    return store.findMerchantShipmentByIdempotencyKey({
+        merchantId: merchant.merchant_id,
+        idempotencyKey,
+    });
+}
+
 async function recordShipmentEvent({
     store,
     merchant,
@@ -161,7 +247,7 @@ async function persistAdapterLabel({
     timestamp,
 }) {
     if (!adapterLabel || typeof store.createMerchantShippingLabel !== 'function') return null;
-    return store.createMerchantShippingLabel({
+    const payload = {
         ...merchantScope(merchant),
         label_id: optionalString(adapterLabel.label_id) || crypto.randomUUID(),
         shipment_id: shipment.shipment_id,
@@ -173,7 +259,14 @@ async function persistAdapterLabel({
             format: optionalString(adapterLabel.format),
         },
         created_at: optionalString(adapterLabel.created_at) || timestamp,
-    });
+    };
+    try {
+        return await store.createMerchantShippingLabel(payload);
+    } catch (error) {
+        const existingLabel = await getExistingShipmentLabel(store, merchant, shipment.shipment_id);
+        if (existingLabel) return existingLabel;
+        throw error;
+    }
 }
 
 export function createShippingHandlers({
@@ -201,25 +294,31 @@ export function createShippingHandlers({
         const source = safeObject(body);
         const orderId = requiredOrderId(source.order_id);
         const order = await requireMerchantOrder(store, merchant, orderId);
+        const idempotencyKey = shipmentIdempotencyKey(source, request);
+        const expectedRequest = normalizedShipmentRequest({ orderId, source, order });
+        const existingShipment = await findShipmentByIdempotencyKey(store, merchant, idempotencyKey);
+        if (existingShipment) {
+            return replayIdempotentShipment({
+                store,
+                merchant,
+                shipment: existingShipment,
+                expectedRequest,
+                requestId,
+            });
+        }
         if (!adapters?.shipping || typeof adapters.shipping.createShipment !== 'function') {
             throw new Error('shipping adapter is required');
         }
 
         const timestamp = now().toISOString();
-        const packages = normalizePackages(source.packages);
-        const shipTo = redactPublicValue(
-            Object.keys(safeObject(source.ship_to)).length > 0
-                ? safeObject(source.ship_to)
-                : safeObject(order.shipping_address),
-        );
         const adapterShipment = await adapters.shipping.createShipment({
             merchant,
             order,
-            address: shipTo,
-            packages,
-            serviceLevel: optionalString(source.service_level),
+            address: expectedRequest.ship_to,
+            packages: expectedRequest.packages,
+            serviceLevel: expectedRequest.service_level,
         });
-        const shipment = await store.createMerchantShipment({
+        const shipmentPayload = {
             ...merchantScope(merchant),
             shipment_id: optionalString(adapterShipment.shipment_id) || crypto.randomUUID(),
             order_id: order.order_id,
@@ -227,18 +326,40 @@ export function createShippingHandlers({
             carrier: optionalString(adapterShipment.carrier),
             service_level: optionalString(adapterShipment.service_level) || optionalString(source.service_level),
             tracking_number: optionalString(adapterShipment.tracking_number),
-            ship_to: redactPublicValue(safeObject(adapterShipment.ship_to || shipTo)),
+            ship_to: redactPublicValue(safeObject(adapterShipment.ship_to || expectedRequest.ship_to)),
             packages: Array.isArray(adapterShipment.packages)
                 ? redactPublicValue(adapterShipment.packages)
-                : packages,
+                : expectedRequest.packages,
             shipped_at: null,
             delivered_at: null,
             metadata: {
                 ...redactPublicValue(safeObject(source.metadata)),
                 provider: optionalString(adapterShipment.provider) || 'mock',
+                ...(idempotencyKey
+                    ? {
+                        idempotency_key: idempotencyKey,
+                        idempotency_request: expectedRequest,
+                    }
+                    : {}),
             },
             created_at: optionalString(adapterShipment.created_at) || timestamp,
-        });
+        };
+        let shipment;
+        try {
+            shipment = await store.createMerchantShipment(shipmentPayload);
+        } catch (error) {
+            const replayShipment = await findShipmentByIdempotencyKey(store, merchant, idempotencyKey);
+            if (replayShipment) {
+                return replayIdempotentShipment({
+                    store,
+                    merchant,
+                    shipment: replayShipment,
+                    expectedRequest,
+                    requestId,
+                });
+            }
+            throw error;
+        }
         const label = await persistAdapterLabel({
             store,
             merchant,
@@ -270,17 +391,14 @@ export function createShippingHandlers({
         const merchant = await getAuthenticatedMerchant(authenticateMerchant, request);
         const shipmentId = requiredShipmentId(safeObject(body).shipment_id);
         const shipment = await getCurrentShipment(store, merchant, shipmentId);
-        const existingLabel = typeof store.getMerchantShippingLabelByShipment === 'function'
-            ? await store.getMerchantShippingLabelByShipment({
-                merchantId: merchant.merchant_id,
-                shipmentId,
-            })
-            : null;
+        const existingLabel = await getExistingShipmentLabel(store, merchant, shipmentId);
         if (existingLabel) return publicOk({ label: publicLabel(existingLabel) }, requestId);
         if (!adapters?.shipping || typeof adapters.shipping.createShipment !== 'function') {
             throw new Error('shipping adapter is required');
         }
 
+        // Check-before-call plus insert-failure replay keeps mock/local retries idempotent and
+        // minimizes duplicate persisted labels when an external provider purchase races.
         const order = shipment.order_id
             ? await store.getMerchantOrder({ merchantId: merchant.merchant_id, orderId: shipment.order_id })
             : null;

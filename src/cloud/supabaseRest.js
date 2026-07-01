@@ -1306,6 +1306,15 @@ export function createSupabaseRestClient({
             return createMerchantV2Row('merchant_shipments', shipment);
         },
 
+        async findMerchantShipmentByIdempotencyKey({ merchantId, idempotencyKey }) {
+            const rows = await request(merchantV2ListPath('merchant_shipments', {
+                merchantId,
+                filters: [`metadata->>idempotency_key=${eqFilter(idempotencyKey, 'idempotency_key')}`],
+                limit: 1,
+            }));
+            return firstRow(rows);
+        },
+
         async listMerchantShipments({
             merchantId,
             orderId = null,

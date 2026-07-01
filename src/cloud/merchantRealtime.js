@@ -47,15 +47,31 @@ function normalizeTtlSeconds(source) {
     return Math.max(MIN_TTL_SECONDS, Math.min(parsed, MAX_TTL_SECONDS));
 }
 
-function channelForScope(merchant, scope) {
+function channelForScope(tokenId, scope) {
     const resource = scope.split(':')[0];
-    return `merchant:${merchant.merchant_id}:${resource}`;
+    const tokenSegment = String(tokenId || '')
+        .replace(/[^A-Za-z0-9]/g, '')
+        .slice(0, 16)
+        .toLowerCase();
+    const opaqueSegment = tokenSegment || crypto.randomUUID().replaceAll('-', '').slice(0, 16);
+    return `pkx_rt_${opaqueSegment}_${resource}`;
 }
 
 function hashRealtimeToken(token, pepper = '') {
     if (!token || typeof token !== 'string') throw new Error('realtime token is required');
     const input = pepper ? `${pepper}:${token}` : token;
     return crypto.createHash('sha256').update(input, 'utf8').digest('hex');
+}
+
+function boundedExpiresAt({ issuedAt, adapterExpiresAt, expiresInSeconds }) {
+    const issuedTime = Date.parse(issuedAt);
+    const safeIssuedTime = Number.isNaN(issuedTime) ? Date.now() : issuedTime;
+    const maxExpiryTime = safeIssuedTime + expiresInSeconds * 1000;
+    const adapterExpiryTime = Date.parse(adapterExpiresAt);
+    if (!Number.isNaN(adapterExpiryTime)) {
+        return new Date(Math.min(adapterExpiryTime, maxExpiryTime)).toISOString();
+    }
+    return new Date(maxExpiryTime).toISOString();
 }
 
 function publicTokenRecord(record) {
@@ -94,21 +110,24 @@ export function createRealtimeHandlers({
         const source = safeObject(body);
         const scopes = normalizeScopes(source.scopes);
         const expiresInSeconds = normalizeTtlSeconds(source);
-        const channelNames = scopes.map((scope) => channelForScope(merchant, scope));
         const adapterToken = await adapters.realtime.createMerchantToken({
             merchant,
             scopes,
             expiresInSeconds,
-            channelNames,
         });
         const rawToken = optionalString(adapterToken.token);
         if (!rawToken) throw createHttpError(502, 'realtime_token_unavailable', 'Realtime token could not be created');
+        const tokenId = optionalString(adapterToken.token_id) || crypto.randomUUID();
+        const channelNames = scopes.map((scope) => channelForScope(tokenId, scope));
         const issuedAt = optionalString(adapterToken.issued_at) || now().toISOString();
-        const expiresAt = optionalString(adapterToken.expires_at)
-            || new Date(new Date(issuedAt).getTime() + expiresInSeconds * 1000).toISOString();
+        const expiresAt = boundedExpiresAt({
+            issuedAt,
+            adapterExpiresAt: optionalString(adapterToken.expires_at),
+            expiresInSeconds,
+        });
         const tokenRecord = await store.createMerchantRealtimeToken({
             ...merchantScope(merchant),
-            token_id: optionalString(adapterToken.token_id) || crypto.randomUUID(),
+            token_id: tokenId,
             token_prefix: rawToken.slice(0, 18),
             token_hash: hashRealtimeToken(rawToken, tokenPepper),
             scopes,
