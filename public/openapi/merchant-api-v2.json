@@ -1,0 +1,1017 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PrintKinetix Merchant API v2",
+    "version": "2.0.0",
+    "summary": "Adapter-first merchant automation for files, slicing, orders, routing, reservations, batches, shipping, billing, realtime, and webhooks.",
+    "description": "Merchant API v2 records production-shaped workflow data through deterministic mock adapter implementations unless production slicer, shipping, billing, inspection, and realtime adapters are configured. Live merchant calls require a pkx_live API key. Production webhook setup requires MERCHANT_WEBHOOK_SIGNING_SECRET_KEY."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "security": [
+    {
+      "MerchantApiKey": []
+    }
+  ],
+  "tags": [
+    { "name": "Onboarding" },
+    { "name": "Files" },
+    { "name": "Slices" },
+    { "name": "Orders" },
+    { "name": "Routing" },
+    { "name": "Print Jobs" },
+    { "name": "Inspection" },
+    { "name": "Post Processing" },
+    { "name": "Materials" },
+    { "name": "Batches" },
+    { "name": "Shipping" },
+    { "name": "Billing" },
+    { "name": "Realtime" },
+    { "name": "Webhooks" }
+  ],
+  "paths": {
+    "/api/public/openapi-v2": {
+      "get": {
+        "tags": ["Onboarding"],
+        "summary": "Serve the Merchant API v2 OpenAPI JSON document",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OpenAPI v2 document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["openapi", "paths"],
+                  "properties": {
+                    "openapi": { "const": "3.1.0" },
+                    "paths": { "type": "object", "additionalProperties": true }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/public/merchants/signup": {
+      "post": {
+        "tags": ["Onboarding"],
+        "summary": "Create a merchant signup request",
+        "security": [],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "201": { "$ref": "#/components/responses/Ok" }, "409": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/public/api-keys": {
+      "get": {
+        "tags": ["Onboarding"],
+        "summary": "List live merchant API keys without raw secrets",
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      },
+      "post": {
+        "tags": ["Onboarding"],
+        "summary": "Exchange a setup token or create an additional live merchant API key",
+        "description": "Setup-token exchange can use X-Merchant-Setup-Token. Live merchant calls use Authorization: Bearer pkx_live_....",
+        "security": [{ "MerchantApiKey": [] }, { "MerchantSetupToken": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "201": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/public/api-keys/revoke": {
+      "post": {
+        "tags": ["Onboarding"],
+        "summary": "Revoke a merchant API key",
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/public/merchant/me": {
+      "get": {
+        "tags": ["Onboarding"],
+        "summary": "Read the authenticated merchant account",
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/public/farm/capabilities": {
+      "get": {
+        "tags": ["Routing"],
+        "summary": "Read public farm capabilities",
+        "security": [],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/public/farm/filaments": {
+      "get": {
+        "tags": ["Materials"],
+        "summary": "Read public aggregate material and color availability",
+        "security": [],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/public/integrations": {
+      "get": {
+        "tags": ["Onboarding"],
+        "summary": "List supported merchant integrations",
+        "security": [],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/public/quotes": {
+      "post": {
+        "tags": ["Routing"],
+        "summary": "Estimate legacy v1 print-job price, material, queue, and lead time",
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/public/print-jobs": {
+      "get": {
+        "tags": ["Print Jobs"],
+        "summary": "List merchant print jobs",
+        "parameters": [{ "$ref": "#/components/parameters/Limit" }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      },
+      "post": {
+        "tags": ["Print Jobs"],
+        "summary": "Submit a ready print file through the v1 print-job API",
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "201": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/public/print-jobs/status": {
+      "get": {
+        "tags": ["Print Jobs"],
+        "summary": "Read one print-job status by job_id query parameter",
+        "parameters": [{ "$ref": "#/components/parameters/JobIdQuery" }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/public/print-jobs/preflight": {
+      "post": {
+        "tags": ["Print Jobs"],
+        "summary": "Validate print-job requirements before upload",
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/public/print-jobs/approve": {
+      "post": {
+        "tags": ["Print Jobs"],
+        "summary": "Approve an approval-required print job",
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/public/print-jobs/cancel": {
+      "post": {
+        "tags": ["Print Jobs"],
+        "summary": "Cancel a v1 print job",
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/public/print-jobs/reprint": {
+      "post": {
+        "tags": ["Print Jobs"],
+        "summary": "Request a reprint from an existing print job",
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "201": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/public/files": {
+      "get": {
+        "tags": ["Files"],
+        "summary": "Reserved v2 file-list path",
+        "description": "The public v2 docs reserve GET /api/public/files for merchant file listing. Current route implementation accepts POST for create and exposes individual reads at /api/public/files/{file_id}.",
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      },
+      "post": {
+        "tags": ["Files"],
+        "summary": "Create a merchant file record",
+        "description": "Stores merchant file metadata and returns a v2 File record. Actual object storage and later processing may be handled by deterministic mock adapters in non-production mode.",
+        "requestBody": { "$ref": "#/components/requestBodies/FileCreate" },
+        "responses": { "201": { "$ref": "#/components/responses/File" } }
+      }
+    },
+    "/api/public/files/{file_id}": {
+      "get": {
+        "tags": ["Files"],
+        "summary": "Read one merchant file",
+        "parameters": [{ "$ref": "#/components/parameters/FileId" }],
+        "responses": { "200": { "$ref": "#/components/responses/File" }, "404": { "$ref": "#/components/responses/Error" } }
+      },
+      "delete": {
+        "tags": ["Files"],
+        "summary": "Delete one merchant file",
+        "parameters": [{ "$ref": "#/components/parameters/FileId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/public/files/{file_id}/complete": {
+      "post": {
+        "tags": ["Files"],
+        "summary": "Mark a merchant file upload complete",
+        "parameters": [{ "$ref": "#/components/parameters/FileId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/File" } }
+      }
+    },
+    "/api/public/slices": {
+      "post": {
+        "tags": ["Slices"],
+        "summary": "Create a slice job for a source file",
+        "description": "Creates a slice record and calls the configured slicer adapter. By default this is a deterministic mock adapter that records provider: mock and produces mock-sliced output metadata.",
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "201": { "$ref": "#/components/responses/Slice" } }
+      }
+    },
+    "/api/public/slices/{slice_id}": {
+      "get": {
+        "tags": ["Slices"],
+        "summary": "Read one slice job",
+        "parameters": [{ "$ref": "#/components/parameters/SliceId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Slice" }, "404": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/public/slices/{slice_id}/cancel": {
+      "post": {
+        "tags": ["Slices"],
+        "summary": "Cancel one slice job",
+        "parameters": [{ "$ref": "#/components/parameters/SliceId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/Slice" } }
+      }
+    },
+    "/api/public/orders": {
+      "get": {
+        "tags": ["Orders"],
+        "summary": "Reserved v2 order-list path",
+        "description": "The public v2 docs reserve GET /api/public/orders for merchant order listing. Current route implementation accepts POST for create and exposes individual reads at /api/public/orders/{order_id}.",
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      },
+      "post": {
+        "tags": ["Orders"],
+        "summary": "Create an order from merchant files and requirements",
+        "description": "Creates order records and adapter-backed workflow records. Source-model files may trigger deterministic mock slicing unless a production slicer adapter is configured.",
+        "requestBody": { "$ref": "#/components/requestBodies/OrderCreate" },
+        "responses": { "201": { "$ref": "#/components/responses/Order" } }
+      }
+    },
+    "/api/public/orders/{order_id}": {
+      "get": {
+        "tags": ["Orders"],
+        "summary": "Read one order",
+        "parameters": [{ "$ref": "#/components/parameters/OrderId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Order" }, "404": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/public/orders/{order_id}/cancel": {
+      "post": {
+        "tags": ["Orders"],
+        "summary": "Cancel one order",
+        "parameters": [{ "$ref": "#/components/parameters/OrderId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/Order" } }
+      }
+    },
+    "/api/public/routing/estimate": {
+      "post": {
+        "tags": ["Routing"],
+        "summary": "Estimate v2 routing, cost, capacity, and lead time",
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/RoutingEstimate" } }
+      }
+    },
+    "/api/public/routing/options": {
+      "get": {
+        "tags": ["Routing"],
+        "summary": "List supported v2 routing options",
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/public/print-jobs/{job_id}/events": {
+      "get": {
+        "tags": ["Print Jobs"],
+        "summary": "List timeline events for one print job",
+        "parameters": [{ "$ref": "#/components/parameters/JobId" }],
+        "responses": { "200": { "$ref": "#/components/responses/JobEvents" } }
+      }
+    },
+    "/api/public/print-jobs/{job_id}/artifacts": {
+      "get": {
+        "tags": ["Print Jobs"],
+        "summary": "List artifacts for one print job",
+        "parameters": [{ "$ref": "#/components/parameters/JobId" }],
+        "responses": { "200": { "$ref": "#/components/responses/JobArtifacts" } }
+      }
+    },
+    "/api/public/print-jobs/{job_id}/inspection": {
+      "get": {
+        "tags": ["Inspection"],
+        "summary": "Read inspection state for one print job",
+        "parameters": [{ "$ref": "#/components/parameters/JobId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Inspection" } }
+      },
+      "post": {
+        "tags": ["Inspection"],
+        "summary": "Request inspection for one print job",
+        "description": "Uses the configured inspection adapter; default development behavior records deterministic mock adapter results.",
+        "parameters": [{ "$ref": "#/components/parameters/JobId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "201": { "$ref": "#/components/responses/Inspection" } }
+      }
+    },
+    "/api/public/inspections/{inspection_id}/accept": {
+      "post": {
+        "tags": ["Inspection"],
+        "summary": "Accept an inspection result",
+        "parameters": [{ "$ref": "#/components/parameters/InspectionId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Inspection" } }
+      }
+    },
+    "/api/public/inspections/{inspection_id}/reject": {
+      "post": {
+        "tags": ["Inspection"],
+        "summary": "Reject an inspection result",
+        "parameters": [{ "$ref": "#/components/parameters/InspectionId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/Inspection" } }
+      }
+    },
+    "/api/public/inspections/{inspection_id}/manual-review": {
+      "post": {
+        "tags": ["Inspection"],
+        "summary": "Send an inspection to manual review",
+        "parameters": [{ "$ref": "#/components/parameters/InspectionId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/Inspection" } }
+      }
+    },
+    "/api/public/post-processing/tasks": {
+      "get": {
+        "tags": ["Post Processing"],
+        "summary": "List post-processing tasks",
+        "parameters": [{ "$ref": "#/components/parameters/Limit" }],
+        "responses": { "200": { "$ref": "#/components/responses/PostProcessingTasks" } }
+      },
+      "post": {
+        "tags": ["Post Processing"],
+        "summary": "Create a post-processing task",
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "201": { "$ref": "#/components/responses/PostProcessingTask" } }
+      }
+    },
+    "/api/public/post-processing/tasks/{task_id}": {
+      "get": {
+        "tags": ["Post Processing"],
+        "summary": "Read one post-processing task",
+        "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
+        "responses": { "200": { "$ref": "#/components/responses/PostProcessingTask" } }
+      }
+    },
+    "/api/public/post-processing/tasks/{task_id}/start": {
+      "post": {
+        "tags": ["Post Processing"],
+        "summary": "Start a post-processing task",
+        "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
+        "responses": { "200": { "$ref": "#/components/responses/PostProcessingTask" } }
+      }
+    },
+    "/api/public/post-processing/tasks/{task_id}/complete": {
+      "post": {
+        "tags": ["Post Processing"],
+        "summary": "Complete a post-processing task",
+        "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/PostProcessingTask" } }
+      }
+    },
+    "/api/public/post-processing/tasks/{task_id}/fail": {
+      "post": {
+        "tags": ["Post Processing"],
+        "summary": "Fail a post-processing task",
+        "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/PostProcessingTask" } }
+      }
+    },
+    "/api/public/post-processing/tasks/{task_id}/skip": {
+      "post": {
+        "tags": ["Post Processing"],
+        "summary": "Skip a post-processing task",
+        "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/PostProcessingTask" } }
+      }
+    },
+    "/api/public/material-reservations": {
+      "post": {
+        "tags": ["Materials"],
+        "summary": "Create a material reservation",
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "201": { "$ref": "#/components/responses/MaterialReservation" } }
+      }
+    },
+    "/api/public/material-reservations/{reservation_id}": {
+      "get": {
+        "tags": ["Materials"],
+        "summary": "Read one material reservation",
+        "parameters": [{ "$ref": "#/components/parameters/ReservationId" }],
+        "responses": { "200": { "$ref": "#/components/responses/MaterialReservation" } }
+      }
+    },
+    "/api/public/material-reservations/{reservation_id}/release": {
+      "post": {
+        "tags": ["Materials"],
+        "summary": "Release a material reservation",
+        "parameters": [{ "$ref": "#/components/parameters/ReservationId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/MaterialReservation" } }
+      }
+    },
+    "/api/public/batches": {
+      "post": {
+        "tags": ["Batches"],
+        "summary": "Create a production batch",
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "201": { "$ref": "#/components/responses/Batch" } }
+      }
+    },
+    "/api/public/batches/{batch_id}": {
+      "get": {
+        "tags": ["Batches"],
+        "summary": "Read one production batch",
+        "parameters": [{ "$ref": "#/components/parameters/BatchId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Batch" } }
+      }
+    },
+    "/api/public/batches/{batch_id}/pause": {
+      "post": {
+        "tags": ["Batches"],
+        "summary": "Pause one production batch",
+        "parameters": [{ "$ref": "#/components/parameters/BatchId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/Batch" } }
+      }
+    },
+    "/api/public/batches/{batch_id}/resume": {
+      "post": {
+        "tags": ["Batches"],
+        "summary": "Resume one production batch",
+        "parameters": [{ "$ref": "#/components/parameters/BatchId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Batch" } }
+      }
+    },
+    "/api/public/batches/{batch_id}/cancel": {
+      "post": {
+        "tags": ["Batches"],
+        "summary": "Cancel one production batch",
+        "parameters": [{ "$ref": "#/components/parameters/BatchId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/Batch" } }
+      }
+    },
+    "/api/public/shipments": {
+      "get": {
+        "tags": ["Shipping"],
+        "summary": "List merchant shipments",
+        "parameters": [{ "$ref": "#/components/parameters/Limit" }],
+        "responses": { "200": { "$ref": "#/components/responses/Shipments" } }
+      },
+      "post": {
+        "tags": ["Shipping"],
+        "summary": "Create a shipment",
+        "description": "Uses the configured shipping adapter. Without production shipping credentials, v2 records deterministic mock adapter shipment and tracking data.",
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "201": { "$ref": "#/components/responses/Shipment" } }
+      }
+    },
+    "/api/public/shipments/{shipment_id}": {
+      "get": {
+        "tags": ["Shipping"],
+        "summary": "Read one shipment",
+        "parameters": [{ "$ref": "#/components/parameters/ShipmentId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Shipment" } }
+      }
+    },
+    "/api/public/shipments/{shipment_id}/labels": {
+      "post": {
+        "tags": ["Shipping"],
+        "summary": "Create a shipping label for one shipment",
+        "description": "The implemented route uses the plural labels path. Mock adapter mode records deterministic label metadata rather than purchasing a carrier label.",
+        "parameters": [{ "$ref": "#/components/parameters/ShipmentId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "201": { "$ref": "#/components/responses/ShippingLabel" } }
+      }
+    },
+    "/api/public/billing/rate-card": {
+      "get": {
+        "tags": ["Billing"],
+        "summary": "Read the merchant billing rate card",
+        "description": "Canonical implemented route. In mock adapter mode, rates are deterministic placeholders until production billing is configured.",
+        "responses": { "200": { "$ref": "#/components/responses/RateCard" } }
+      }
+    },
+    "/api/public/rate-card": {
+      "get": {
+        "tags": ["Billing"],
+        "summary": "Compatibility reference for the merchant billing rate card",
+        "description": "Public docs include this short path for merchant discovery. The built API route is /api/public/billing/rate-card.",
+        "responses": { "200": { "$ref": "#/components/responses/RateCard" } }
+      }
+    },
+    "/api/public/billing/usage": {
+      "get": {
+        "tags": ["Billing"],
+        "summary": "List merchant usage lines",
+        "parameters": [{ "$ref": "#/components/parameters/Limit" }],
+        "responses": { "200": { "$ref": "#/components/responses/UsageLines" } }
+      }
+    },
+    "/api/public/billing/invoices": {
+      "get": {
+        "tags": ["Billing"],
+        "summary": "List merchant invoices",
+        "parameters": [{ "$ref": "#/components/parameters/Limit" }],
+        "responses": { "200": { "$ref": "#/components/responses/Invoices" } }
+      }
+    },
+    "/api/public/invoices": {
+      "get": {
+        "tags": ["Billing"],
+        "summary": "Compatibility reference for merchant invoices",
+        "description": "Public docs include this short path for merchant discovery. The built API route is /api/public/billing/invoices.",
+        "responses": { "200": { "$ref": "#/components/responses/Invoices" } }
+      }
+    },
+    "/api/public/billing/invoices/{invoice_id}": {
+      "get": {
+        "tags": ["Billing"],
+        "summary": "Read one merchant invoice",
+        "parameters": [{ "$ref": "#/components/parameters/InvoiceId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Invoice" } }
+      }
+    },
+    "/api/public/billing/invoices/preview": {
+      "post": {
+        "tags": ["Billing"],
+        "summary": "Preview invoice totals before invoice creation",
+        "description": "Uses deterministic mock billing in non-production adapter mode.",
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/InvoicePreview" } }
+      }
+    },
+    "/api/public/realtime/tokens": {
+      "get": {
+        "tags": ["Realtime"],
+        "summary": "List merchant realtime tokens",
+        "parameters": [{ "$ref": "#/components/parameters/Limit" }],
+        "responses": { "200": { "$ref": "#/components/responses/RealtimeTokens" } }
+      },
+      "post": {
+        "tags": ["Realtime"],
+        "summary": "Create a merchant realtime token",
+        "description": "The default realtime adapter returns deterministic mock tokens. Do not treat mock tokens as Supabase Realtime credentials until a production adapter is configured.",
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "201": { "$ref": "#/components/responses/RealtimeToken" } }
+      }
+    },
+    "/api/public/webhooks": {
+      "get": {
+        "tags": ["Webhooks"],
+        "summary": "List v2 webhook endpoints",
+        "parameters": [{ "$ref": "#/components/parameters/Limit" }],
+        "responses": { "200": { "$ref": "#/components/responses/WebhookEndpoints" } }
+      },
+      "post": {
+        "tags": ["Webhooks"],
+        "summary": "Create a v2 webhook endpoint",
+        "description": "Production webhook setup fails closed unless MERCHANT_WEBHOOK_SIGNING_SECRET_KEY is configured. Returned signing secrets are shown only once.",
+        "requestBody": { "$ref": "#/components/requestBodies/WebhookCreate" },
+        "responses": { "201": { "$ref": "#/components/responses/WebhookEndpoint" }, "500": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/public/webhooks/{webhook_id}": {
+      "get": {
+        "tags": ["Webhooks"],
+        "summary": "Read one v2 webhook endpoint",
+        "parameters": [{ "$ref": "#/components/parameters/WebhookId" }],
+        "responses": { "200": { "$ref": "#/components/responses/WebhookEndpoint" } }
+      },
+      "patch": {
+        "tags": ["Webhooks"],
+        "summary": "Update one v2 webhook endpoint",
+        "parameters": [{ "$ref": "#/components/parameters/WebhookId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/WebhookEndpoint" } }
+      },
+      "delete": {
+        "tags": ["Webhooks"],
+        "summary": "Delete one v2 webhook endpoint",
+        "parameters": [{ "$ref": "#/components/parameters/WebhookId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/public/webhooks/{webhook_id}/test": {
+      "post": {
+        "tags": ["Webhooks"],
+        "summary": "Send a signed test delivery to one v2 webhook endpoint",
+        "description": "Signs delivery payloads with the endpoint secret. MERCHANT_WEBHOOK_SIGNING_SECRET_KEY is required to create and recover stored endpoint signing secrets.",
+        "parameters": [{ "$ref": "#/components/parameters/WebhookId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonObject" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "MerchantApiKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "pkx_live",
+        "description": "Use Authorization: Bearer pkx_live_... for live merchant API requests."
+      },
+      "MerchantSetupToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Merchant-Setup-Token",
+        "description": "One-time pkx_setup_... token used only to create the first live merchant API key."
+      }
+    },
+    "parameters": {
+      "Limit": { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 } },
+      "FileId": { "name": "file_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "SliceId": { "name": "slice_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "OrderId": { "name": "order_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "JobId": { "name": "job_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "JobIdQuery": { "name": "job_id", "in": "query", "required": true, "schema": { "type": "string" } },
+      "InspectionId": { "name": "inspection_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "TaskId": { "name": "task_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "ReservationId": { "name": "reservation_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "BatchId": { "name": "batch_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "ShipmentId": { "name": "shipment_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "InvoiceId": { "name": "invoice_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "WebhookId": { "name": "webhook_id", "in": "path", "required": true, "schema": { "type": "string" } }
+    },
+    "requestBodies": {
+      "JsonObject": { "required": false, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+      "FileCreate": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateFileRequest" } } } },
+      "OrderCreate": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateOrderRequest" } } } },
+      "WebhookCreate": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateWebhookRequest" } } } }
+    },
+    "responses": {
+      "Ok": { "description": "Successful response", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } } },
+      "Error": { "description": "Error response", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+      "File": { "description": "File response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "file": { "$ref": "#/components/schemas/File" } } }] } } } },
+      "Slice": { "description": "Slice response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "slice": { "$ref": "#/components/schemas/Slice" } } }] } } } },
+      "Order": { "description": "Order response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "order": { "$ref": "#/components/schemas/Order" } } }] } } } },
+      "RoutingEstimate": { "description": "Routing estimate response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "estimate": { "$ref": "#/components/schemas/RoutingEstimate" } } }] } } } },
+      "JobEvents": { "description": "Job events response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "events": { "type": "array", "items": { "$ref": "#/components/schemas/PrintJobEvent" } } } }] } } } },
+      "JobArtifacts": { "description": "Job artifacts response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "artifacts": { "type": "array", "items": { "$ref": "#/components/schemas/JobArtifact" } } } }] } } } },
+      "Inspection": { "description": "Inspection response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "inspection": { "$ref": "#/components/schemas/Inspection" } } }] } } } },
+      "PostProcessingTask": { "description": "Post-processing task response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "task": { "$ref": "#/components/schemas/PostProcessingTask" } } }] } } } },
+      "PostProcessingTasks": { "description": "Post-processing tasks response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "tasks": { "type": "array", "items": { "$ref": "#/components/schemas/PostProcessingTask" } } } }] } } } },
+      "MaterialReservation": { "description": "Material reservation response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "reservation": { "$ref": "#/components/schemas/MaterialReservation" } } }] } } } },
+      "Batch": { "description": "Batch response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "batch": { "$ref": "#/components/schemas/Batch" } } }] } } } },
+      "Shipment": { "description": "Shipment response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "shipment": { "$ref": "#/components/schemas/Shipment" } } }] } } } },
+      "Shipments": { "description": "Shipments response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "shipments": { "type": "array", "items": { "$ref": "#/components/schemas/Shipment" } } } }] } } } },
+      "ShippingLabel": { "description": "Shipping label response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "label": { "$ref": "#/components/schemas/ShippingLabel" } } }] } } } },
+      "RateCard": { "description": "Rate card response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "rate_card": { "$ref": "#/components/schemas/RateCard" } } }] } } } },
+      "UsageLines": { "description": "Usage lines response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "usage": { "type": "array", "items": { "$ref": "#/components/schemas/UsageLine" } } } }] } } } },
+      "Invoice": { "description": "Invoice response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "invoice": { "$ref": "#/components/schemas/Invoice" } } }] } } } },
+      "Invoices": { "description": "Invoices response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "invoices": { "type": "array", "items": { "$ref": "#/components/schemas/Invoice" } } } }] } } } },
+      "InvoicePreview": { "description": "Invoice preview response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "preview": { "$ref": "#/components/schemas/InvoicePreview" } } }] } } } },
+      "RealtimeToken": { "description": "Realtime token response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "token": { "$ref": "#/components/schemas/RealtimeToken" } } }] } } } },
+      "RealtimeTokens": { "description": "Realtime tokens response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "tokens": { "type": "array", "items": { "$ref": "#/components/schemas/RealtimeToken" } } } }] } } } },
+      "WebhookEndpoint": { "description": "Webhook endpoint response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "webhook": { "$ref": "#/components/schemas/WebhookEndpoint" }, "signing_secret": { "type": "string", "description": "Returned only once on create." } } }] } } } },
+      "WebhookEndpoints": { "description": "Webhook endpoints response", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ApiResponse" }, { "type": "object", "properties": { "webhooks": { "type": "array", "items": { "$ref": "#/components/schemas/WebhookEndpoint" } } } }] } } } }
+    },
+    "schemas": {
+      "ApiResponse": {
+        "type": "object",
+        "required": ["ok", "request_id"],
+        "properties": {
+          "ok": { "type": "boolean" },
+          "request_id": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["ok", "error", "message", "request_id"],
+        "properties": {
+          "ok": { "const": false },
+          "error": { "type": "string" },
+          "message": { "type": "string" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "CreateFileRequest": {
+        "type": "object",
+        "required": ["file"],
+        "properties": {
+          "file": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "content_type": { "type": "string" },
+              "size_bytes": { "type": "integer" },
+              "checksum_sha256": { "type": "string" }
+            },
+            "additionalProperties": true
+          },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "File": {
+        "type": "object",
+        "required": ["file_id", "status", "file_mode"],
+        "properties": {
+          "file_id": { "type": "string" },
+          "name": { "type": "string" },
+          "content_type": { "type": "string" },
+          "file_mode": { "type": "string", "enum": ["ready_print", "source_model", "unknown"] },
+          "status": { "type": "string" },
+          "size_bytes": { "type": "integer" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "Slice": {
+        "type": "object",
+        "required": ["slice_id", "file_id", "status"],
+        "properties": {
+          "slice_id": { "type": "string" },
+          "file_id": { "type": "string" },
+          "status": { "type": "string" },
+          "provider": { "type": "string", "description": "mock unless a production slicer adapter is configured." },
+          "artifact": { "$ref": "#/components/schemas/JobArtifact" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "CreateOrderRequest": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "merchant_order_id": { "type": "string" },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/OrderItem" } },
+          "shipping": { "type": "object", "additionalProperties": true },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "Order": {
+        "type": "object",
+        "required": ["order_id", "status"],
+        "properties": {
+          "order_id": { "type": "string" },
+          "merchant_order_id": { "type": "string" },
+          "status": { "type": "string" },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/OrderItem" } },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "OrderItem": {
+        "type": "object",
+        "properties": {
+          "item_id": { "type": "string" },
+          "file_id": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "requirements": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "RoutingEstimate": {
+        "type": "object",
+        "properties": {
+          "strategy": { "type": "string" },
+          "estimated_print_minutes": { "type": "number" },
+          "estimated_queue_minutes": { "type": "number" },
+          "estimated_cost": { "type": "number" },
+          "currency": { "type": "string" },
+          "options": { "type": "array", "items": { "$ref": "#/components/schemas/RoutingOption" } }
+        },
+        "additionalProperties": true
+      },
+      "RoutingOption": {
+        "type": "object",
+        "properties": {
+          "routing_strategy": { "type": "string" },
+          "lead_time_minutes": { "type": "number" },
+          "available": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      },
+      "PrintJobEvent": {
+        "type": "object",
+        "properties": {
+          "event_id": { "type": "string" },
+          "job_id": { "type": "string" },
+          "event_type": { "type": "string" },
+          "message": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "JobArtifact": {
+        "type": "object",
+        "properties": {
+          "artifact_id": { "type": "string" },
+          "job_id": { "type": "string" },
+          "file_id": { "type": "string" },
+          "artifact_type": { "type": "string" },
+          "provider": { "type": "string" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "Inspection": {
+        "type": "object",
+        "properties": {
+          "inspection_id": { "type": "string" },
+          "job_id": { "type": "string" },
+          "status": { "type": "string" },
+          "provider": { "type": "string", "description": "mock unless a production inspection adapter is configured." },
+          "score": { "type": "number" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "PostProcessingTask": {
+        "type": "object",
+        "properties": {
+          "task_id": { "type": "string" },
+          "job_id": { "type": "string" },
+          "status": { "type": "string" },
+          "task_type": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "MaterialReservation": {
+        "type": "object",
+        "properties": {
+          "reservation_id": { "type": "string" },
+          "status": { "type": "string" },
+          "material": { "type": "string" },
+          "color_hex": { "type": "string" },
+          "grams": { "type": "number" },
+          "expires_at": { "type": "string", "format": "date-time" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "Batch": {
+        "type": "object",
+        "properties": {
+          "batch_id": { "type": "string" },
+          "status": { "type": "string" },
+          "name": { "type": "string" },
+          "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "created_at": { "type": "string", "format": "date-time" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "Shipment": {
+        "type": "object",
+        "properties": {
+          "shipment_id": { "type": "string" },
+          "status": { "type": "string" },
+          "carrier": { "type": "string" },
+          "tracking_number": { "type": "string" },
+          "provider": { "type": "string", "description": "mock unless a production shipping adapter is configured." },
+          "created_at": { "type": "string", "format": "date-time" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "ShippingLabel": {
+        "type": "object",
+        "properties": {
+          "label_id": { "type": "string" },
+          "shipment_id": { "type": "string" },
+          "provider": { "type": "string" },
+          "label_url": { "type": "string" },
+          "tracking_number": { "type": "string" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "RateCard": {
+        "type": "object",
+        "properties": {
+          "rate_card_id": { "type": "string" },
+          "currency": { "type": "string" },
+          "provider": { "type": "string", "description": "mock unless a production billing adapter is configured." },
+          "rates": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "UsageLine": {
+        "type": "object",
+        "properties": {
+          "usage_id": { "type": "string" },
+          "resource_type": { "type": "string" },
+          "quantity": { "type": "number" },
+          "amount": { "type": "number" },
+          "currency": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "Invoice": {
+        "type": "object",
+        "properties": {
+          "invoice_id": { "type": "string" },
+          "status": { "type": "string" },
+          "total": { "type": "number" },
+          "currency": { "type": "string" },
+          "period_start": { "type": "string", "format": "date-time" },
+          "period_end": { "type": "string", "format": "date-time" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "InvoicePreview": {
+        "type": "object",
+        "properties": {
+          "subtotal": { "type": "number" },
+          "tax": { "type": "number" },
+          "total": { "type": "number" },
+          "currency": { "type": "string" },
+          "lines": { "type": "array", "items": { "$ref": "#/components/schemas/UsageLine" } }
+        },
+        "additionalProperties": true
+      },
+      "RealtimeToken": {
+        "type": "object",
+        "properties": {
+          "token_id": { "type": "string" },
+          "token": { "type": "string" },
+          "provider": { "type": "string", "description": "mock unless a production realtime adapter is configured." },
+          "expires_at": { "type": "string", "format": "date-time" },
+          "scopes": { "type": "array", "items": { "type": "string" } },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "CreateWebhookRequest": {
+        "type": "object",
+        "required": ["url", "events"],
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "events": { "type": "array", "items": { "type": "string" } },
+          "description": { "type": "string" },
+          "status": { "type": "string", "enum": ["active", "disabled"] }
+        },
+        "additionalProperties": true
+      },
+      "WebhookEndpoint": {
+        "type": "object",
+        "properties": {
+          "webhook_id": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "events": { "type": "array", "items": { "type": "string" } },
+          "status": { "type": "string" },
+          "last_delivery_at": { "type": "string", "format": "date-time" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "WebhookDelivery": {
+        "type": "object",
+        "properties": {
+          "delivery_id": { "type": "string" },
+          "webhook_id": { "type": "string" },
+          "event_type": { "type": "string" },
+          "status": { "type": "string" },
+          "response_status": { "type": "integer" },
+          "attempt_count": { "type": "integer" },
+          "created_at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

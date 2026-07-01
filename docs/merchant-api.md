@@ -1,6 +1,14 @@
-# PrintKinetix Merchant API v1
+# PrintKinetix Merchant API
 
-The Merchant API lets approved merchants submit print files into PrintKinetix for automated routing and fulfillment.
+The Merchant API lets approved merchants submit print files into PrintKinetix for automated routing and fulfillment. Merchant API v1 remains available for basic print-job ingestion. Merchant API v2 adds the adapter-backed workflow surface for files, slicing, orders, routing, reservations, batches, QA, post-processing, shipping, billing, realtime tokens, and webhooks.
+
+Public merchant URLs:
+
+- Public onboarding page: `/merchant-onboarding.html`
+- Public API docs page: `/merchant-api.html`
+- Merchant API v1 OpenAPI JSON: `/openapi/merchant-api-v1.json`
+- Merchant API v2 OpenAPI JSON: `/openapi/merchant-api-v2.json`
+- Merchant API v2 JSON route: `/api/public/openapi-v2`
 
 ## Onboarding
 
@@ -20,7 +28,7 @@ Public farm capabilities are served by `GET /api/public/farm/capabilities`. It r
 
 ## Authentication
 
-Merchant endpoints use:
+Merchant endpoints use live API-key bearer auth:
 
 ```http
 Authorization: Bearer pkx_live_...
@@ -43,6 +51,104 @@ Admin endpoints use:
 ```http
 Authorization: Bearer <CLOUD_ADMIN_TOKEN>
 ```
+
+Merchant API v2 webhooks require production operator configuration before live setup:
+
+```text
+MERCHANT_WEBHOOK_SIGNING_SECRET_KEY=<high-entropy encryption key>
+```
+
+Without `MERCHANT_WEBHOOK_SIGNING_SECRET_KEY`, v2 webhook creation fails closed because signing secrets cannot be encrypted for storage.
+
+## Merchant API v2 Mode
+
+Merchant API v2 is public and merchant-facing, but the external provider layer is adapter-first. Unless production adapters are configured, v2 records files, slices, orders, shipments, invoices, inspections, and realtime tokens through deterministic mock adapter implementations. Mock adapter records are useful for onboarding, integration tests, and operator review, but they do not buy carrier labels, charge accounts, run a real slicer provider, or issue production realtime credentials.
+
+Use `Authorization: Bearer pkx_live_...` for all authenticated v2 calls. Include an `Idempotency-Key` header for create calls that may be retried by a merchant system.
+
+## Merchant API v2 Routes
+
+Files:
+
+- `POST /api/public/files` creates a file record.
+- `GET /api/public/files` is reserved in the public v2 contract for file listing; the current implementation creates at this path and reads individual files by ID.
+- `GET /api/public/files/{file_id}` reads one file.
+- `DELETE /api/public/files/{file_id}` deletes one file.
+- `POST /api/public/files/{file_id}/complete` marks upload complete.
+
+Slices:
+
+- `POST /api/public/slices` creates a slice job through the slicer adapter.
+- `GET /api/public/slices/{slice_id}` reads one slice job.
+- `POST /api/public/slices/{slice_id}/cancel` cancels one slice job.
+
+Orders and routing:
+
+- `POST /api/public/orders` creates an order.
+- `GET /api/public/orders` is reserved in the public v2 contract for order listing; the current implementation creates at this path and reads individual orders by ID.
+- `GET /api/public/orders/{order_id}` reads one order.
+- `POST /api/public/orders/{order_id}/cancel` cancels one order.
+- `POST /api/public/routing/estimate` estimates routing, capacity, cost, and lead time.
+- `GET /api/public/routing/options` lists routing options.
+
+Print-job timeline, artifacts, and QA:
+
+- `GET /api/public/print-jobs/{job_id}/events` lists job timeline events.
+- `GET /api/public/print-jobs/{job_id}/artifacts` lists generated job artifacts.
+- `GET /api/public/print-jobs/{job_id}/inspection` reads inspection state for a job.
+- `POST /api/public/print-jobs/{job_id}/inspection` requests inspection for a job.
+- `POST /api/public/inspections/{inspection_id}/accept` accepts an inspection result.
+- `POST /api/public/inspections/{inspection_id}/reject` rejects an inspection result.
+- `POST /api/public/inspections/{inspection_id}/manual-review` sends an inspection to manual review.
+
+Post-processing:
+
+- `GET /api/public/post-processing/tasks` lists post-processing tasks.
+- `POST /api/public/post-processing/tasks` creates a post-processing task.
+- `GET /api/public/post-processing/tasks/{task_id}` reads one task.
+- `POST /api/public/post-processing/tasks/{task_id}/start` starts one task.
+- `POST /api/public/post-processing/tasks/{task_id}/complete` completes one task.
+- `POST /api/public/post-processing/tasks/{task_id}/fail` fails one task.
+- `POST /api/public/post-processing/tasks/{task_id}/skip` skips one task.
+
+Materials and batches:
+
+- `POST /api/public/material-reservations` creates a material reservation.
+- `GET /api/public/material-reservations/{reservation_id}` reads one reservation.
+- `POST /api/public/material-reservations/{reservation_id}/release` releases one reservation.
+- `POST /api/public/batches` creates a batch.
+- `GET /api/public/batches/{batch_id}` reads one batch.
+- `POST /api/public/batches/{batch_id}/pause` pauses one batch.
+- `POST /api/public/batches/{batch_id}/resume` resumes one batch.
+- `POST /api/public/batches/{batch_id}/cancel` cancels one batch.
+
+Shipping:
+
+- `GET /api/public/shipments` lists shipments.
+- `POST /api/public/shipments` creates a shipment through the shipping adapter.
+- `GET /api/public/shipments/{shipment_id}` reads one shipment.
+- `POST /api/public/shipments/{shipment_id}/labels` creates a label. The implemented route uses `/labels` plural.
+
+Billing:
+
+- `GET /api/public/billing/rate-card` reads the canonical rate-card route.
+- `GET /api/public/rate-card` is documented as a short compatibility reference; use `/api/public/billing/rate-card` in live integrations.
+- `GET /api/public/billing/usage` lists usage lines.
+- `GET /api/public/billing/invoices` lists invoices.
+- `GET /api/public/invoices` is documented as a short compatibility reference; use `/api/public/billing/invoices` in live integrations.
+- `GET /api/public/billing/invoices/{invoice_id}` reads one invoice.
+- `POST /api/public/billing/invoices/preview` previews invoice totals.
+
+Realtime and webhooks:
+
+- `GET /api/public/realtime/tokens` lists realtime tokens.
+- `POST /api/public/realtime/tokens` creates a realtime token through the realtime adapter.
+- `GET /api/public/webhooks` lists webhook endpoints.
+- `POST /api/public/webhooks` creates a webhook endpoint and returns the signing secret once.
+- `GET /api/public/webhooks/{webhook_id}` reads one endpoint.
+- `PATCH /api/public/webhooks/{webhook_id}` updates one endpoint.
+- `DELETE /api/public/webhooks/{webhook_id}` deletes one endpoint.
+- `POST /api/public/webhooks/{webhook_id}/test` sends a signed test delivery.
 
 ## Submit A Print Job
 
@@ -181,3 +287,4 @@ Verify signatures by computing `HMAC_SHA256(secret, timestamp + "." + raw_body)`
 
 The public HTML docs are served at `/merchant-api.html`.
 The OpenAPI spec is served at `/openapi/merchant-api-v1.json`.
+The Merchant API v2 OpenAPI spec is served at `/openapi/merchant-api-v2.json` and `/api/public/openapi-v2`.

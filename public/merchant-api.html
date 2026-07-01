@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PrintKinetix Merchant API v1</title>
+  <title>PrintKinetix Merchant API</title>
   <link rel="icon"
     href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23146c5a'/%3E%3Cpath d='M8 10h16v4H8zM8 18h10v4H8z' fill='white'/%3E%3C/svg%3E">
   <style>
@@ -106,11 +106,13 @@
 <body>
   <main>
     <header>
-      <h1>PrintKinetix Merchant API v1</h1>
-      <p>Submit merchant print files, route them to the best available Bambu printer, and track usage through the live PrintKinetix cloud control plane.</p>
+      <h1>PrintKinetix Merchant API</h1>
+      <p>Submit merchant print files, route them to the best available Bambu printer, and track usage through the live PrintKinetix cloud control plane. Use v1 for basic print-job ingestion and v2 for adapter-backed files, slicing, orders, routing, shipping, billing, realtime, and webhooks.</p>
       <p>
         <a href="/merchant-onboarding.html">Merchant onboarding</a> |
-        <a href="/openapi/merchant-api-v1.json">OpenAPI JSON</a> |
+        <a href="/openapi/merchant-api-v1.json">OpenAPI v1 JSON</a> |
+        <a href="/openapi/merchant-api-v2.json">OpenAPI v2 JSON</a> |
+        <a href="/api/public/openapi-v2">OpenAPI v2 API route</a> |
         <a href="/cloud">Farm admin</a> |
         <a href="/windows-node-guide.html">Windows node guide</a>
       </p>
@@ -141,6 +143,35 @@
       <pre><code>Authorization: Bearer &lt;CLOUD_ADMIN_TOKEN&gt;</code></pre>
       <h3>Idempotent print submission</h3>
       <pre><code>Idempotency-Key: order-1001-print-v1</code></pre>
+      <h3>Merchant API v2 webhook operator config</h3>
+      <pre><code>MERCHANT_WEBHOOK_SIGNING_SECRET_KEY=&lt;high-entropy encryption key&gt;</code></pre>
+      <p>Merchant API v2 webhook setup fails closed without <code>MERCHANT_WEBHOOK_SIGNING_SECRET_KEY</code>, because webhook signing secrets must be encrypted before storage.</p>
+    </section>
+
+    <section>
+      <h2>Merchant API v2</h2>
+      <p>Merchant API v2 is public and merchant-facing. It currently records through deterministic mock adapter implementations unless production slicer, shipping, billing, inspection, and realtime adapters are configured. Mock adapter records are useful for onboarding and integration tests, but they do not buy carrier labels, charge accounts, run a real slicer provider, or issue production realtime credentials.</p>
+      <p>Use <code>Authorization: Bearer pkx_live_...</code> for authenticated v2 requests. The v2 OpenAPI document is <a href="/openapi/merchant-api-v2.json"><code>merchant-api-v2.json</code></a>.</p>
+      <table>
+        <thead>
+          <tr><th>Area</th><th>Public paths</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Files</td><td><code>POST /api/public/files</code><br><code>GET /api/public/files</code> reserved list path<br><code>GET /api/public/files/{file_id}</code><br><code>DELETE /api/public/files/{file_id}</code><br><code>POST /api/public/files/{file_id}/complete</code></td></tr>
+          <tr><td>Slices</td><td><code>POST /api/public/slices</code><br><code>GET /api/public/slices/{slice_id}</code><br><code>POST /api/public/slices/{slice_id}/cancel</code></td></tr>
+          <tr><td>Orders</td><td><code>POST /api/public/orders</code><br><code>GET /api/public/orders</code> reserved list path<br><code>GET /api/public/orders/{order_id}</code><br><code>POST /api/public/orders/{order_id}/cancel</code></td></tr>
+          <tr><td>Routing</td><td><code>POST /api/public/routing/estimate</code><br><code>GET /api/public/routing/options</code></td></tr>
+          <tr><td>Timeline and artifacts</td><td><code>GET /api/public/print-jobs/{job_id}/events</code><br><code>GET /api/public/print-jobs/{job_id}/artifacts</code></td></tr>
+          <tr><td>Inspection and QA</td><td><code>GET /api/public/print-jobs/{job_id}/inspection</code><br><code>POST /api/public/print-jobs/{job_id}/inspection</code><br><code>POST /api/public/inspections/{inspection_id}/accept</code><br><code>POST /api/public/inspections/{inspection_id}/reject</code><br><code>POST /api/public/inspections/{inspection_id}/manual-review</code></td></tr>
+          <tr><td>Post-processing</td><td><code>GET /api/public/post-processing/tasks</code><br><code>POST /api/public/post-processing/tasks</code><br><code>GET /api/public/post-processing/tasks/{task_id}</code><br><code>POST /api/public/post-processing/tasks/{task_id}/start</code><br><code>POST /api/public/post-processing/tasks/{task_id}/complete</code><br><code>POST /api/public/post-processing/tasks/{task_id}/fail</code><br><code>POST /api/public/post-processing/tasks/{task_id}/skip</code></td></tr>
+          <tr><td>Materials</td><td><code>POST /api/public/material-reservations</code><br><code>GET /api/public/material-reservations/{reservation_id}</code><br><code>POST /api/public/material-reservations/{reservation_id}/release</code></td></tr>
+          <tr><td>Batches</td><td><code>POST /api/public/batches</code><br><code>GET /api/public/batches/{batch_id}</code><br><code>POST /api/public/batches/{batch_id}/pause</code><br><code>POST /api/public/batches/{batch_id}/resume</code><br><code>POST /api/public/batches/{batch_id}/cancel</code></td></tr>
+          <tr><td>Shipping</td><td><code>GET /api/public/shipments</code><br><code>POST /api/public/shipments</code><br><code>GET /api/public/shipments/{shipment_id}</code><br><code>POST /api/public/shipments/{shipment_id}/labels</code></td></tr>
+          <tr><td>Billing</td><td><code>GET /api/public/billing/rate-card</code> canonical<br><code>GET /api/public/rate-card</code> compatibility reference<br><code>GET /api/public/billing/usage</code><br><code>GET /api/public/billing/invoices</code> canonical<br><code>GET /api/public/invoices</code> compatibility reference<br><code>GET /api/public/billing/invoices/{invoice_id}</code><br><code>POST /api/public/billing/invoices/preview</code></td></tr>
+          <tr><td>Realtime</td><td><code>GET /api/public/realtime/tokens</code><br><code>POST /api/public/realtime/tokens</code></td></tr>
+          <tr><td>Webhooks v2</td><td><code>GET /api/public/webhooks</code><br><code>POST /api/public/webhooks</code><br><code>GET /api/public/webhooks/{webhook_id}</code><br><code>PATCH /api/public/webhooks/{webhook_id}</code><br><code>DELETE /api/public/webhooks/{webhook_id}</code><br><code>POST /api/public/webhooks/{webhook_id}/test</code></td></tr>
+        </tbody>
+      </table>
     </section>
 
     <section>

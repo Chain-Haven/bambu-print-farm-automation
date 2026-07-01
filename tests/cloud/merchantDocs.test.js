@@ -2,6 +2,84 @@ import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('merchant API docs', () => {
+    it('publishes public v2 merchant docs and OpenAPI coverage for the adapter backbone', async () => {
+        const html = fs.readFileSync('public/merchant-api.html', 'utf8');
+        const spec = JSON.parse(fs.readFileSync('public/openapi/merchant-api-v2.json', 'utf8'));
+        const requiredV2Paths = [
+            '/api/public/files',
+            '/api/public/slices',
+            '/api/public/orders',
+            '/api/public/routing/estimate',
+            '/api/public/material-reservations',
+            '/api/public/batches',
+            '/api/public/shipments',
+            '/api/public/rate-card',
+            '/api/public/invoices',
+            '/api/public/realtime/tokens',
+        ];
+
+        for (const path of requiredV2Paths) {
+            expect(html).toContain(path);
+            expect(spec.paths[path]).toBeTruthy();
+        }
+        for (const path of [
+            '/api/public/billing/rate-card',
+            '/api/public/billing/usage',
+            '/api/public/billing/invoices',
+            '/api/public/billing/invoices/preview',
+            '/api/public/shipments/{shipment_id}/labels',
+            '/api/public/webhooks/{webhook_id}/test',
+            '/api/public/post-processing/tasks/{task_id}/complete',
+            '/api/public/inspections/{inspection_id}/manual-review',
+        ]) {
+            expect(html).toContain(path);
+            expect(spec.paths[path]).toBeTruthy();
+        }
+        expect(html).toContain('mock adapter');
+        expect(html).toContain('merchant-api-v2.json');
+        expect(html).toContain('MERCHANT_WEBHOOK_SIGNING_SECRET_KEY');
+        expect(spec.openapi).toBe('3.1.0');
+        expect(spec.components.securitySchemes.MerchantApiKey.scheme).toBe('bearer');
+        expect(Object.keys(spec.components.schemas)).toEqual(expect.arrayContaining([
+            'File',
+            'Slice',
+            'Order',
+            'RoutingEstimate',
+            'MaterialReservation',
+            'Batch',
+            'Shipment',
+            'RateCard',
+            'Invoice',
+            'RealtimeToken',
+            'WebhookEndpoint',
+        ]));
+    });
+
+    it('serves the v2 OpenAPI document as static JSON from the public API route', async () => {
+        const { default: handler } = await import('../../api/public/openapi-v2.js');
+        const headers = {};
+        const res = {
+            statusCode: 200,
+            setHeader: (key, value) => {
+                headers[key.toLowerCase()] = value;
+            },
+            status(code) {
+                this.statusCode = code;
+                return this;
+            },
+            json(payload) {
+                this.body = payload;
+                return this;
+            },
+        };
+
+        await handler({ method: 'GET' }, res);
+
+        expect(res.statusCode).toBe(200);
+        expect(headers['content-type']).toBe('application/json');
+        expect(res.body.openapi).toBe('3.1.0');
+    });
+
     it('publishes public docs and a parseable OpenAPI spec for the merchant API', () => {
         const html = fs.readFileSync('public/merchant-api.html', 'utf8');
         const spec = JSON.parse(fs.readFileSync('public/openapi/merchant-api-v1.json', 'utf8'));
