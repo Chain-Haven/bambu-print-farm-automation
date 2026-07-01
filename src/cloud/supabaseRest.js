@@ -221,6 +221,10 @@ function eqFilter(value, name) {
     return `eq.${encodeURIComponent(requireValue(value, name))}`;
 }
 
+function ltFilter(value, name) {
+    return `lt.${encodeURIComponent(requireValue(value, name))}`;
+}
+
 export function createSupabaseRestClient({
     url = null,
     supabaseUrl = null,
@@ -1021,12 +1025,38 @@ export function createSupabaseRestClient({
             return createMerchantV2Row('merchant_batch_items', batchItem);
         },
 
+        async listMerchantBatchItems({ merchantId, batchId, limit = 50 }) {
+            const filters = [`batch_id=${eqFilter(batchId, 'batch_id')}`];
+            return listMerchantV2Rows('merchant_batch_items', {
+                merchantId,
+                filters,
+                limit,
+            });
+        },
+
         async recordMerchantJobEvent(event) {
             return createMerchantV2Row('merchant_job_events', event);
         },
 
-        async listMerchantJobEvents({ merchantId, jobId, limit = 50 }) {
-            const filters = jobId ? [`job_id=${eqFilter(jobId, 'job_id')}`] : [];
+        async listMerchantJobEvents({
+            merchantId,
+            jobId = null,
+            orderId = null,
+            batchId = null,
+            fileId = null,
+            sliceId = null,
+            eventType = null,
+            cursor = null,
+            limit = 50,
+        }) {
+            const filters = [];
+            if (jobId) filters.push(`job_id=${eqFilter(jobId, 'job_id')}`);
+            if (orderId) filters.push(`order_id=${eqFilter(orderId, 'order_id')}`);
+            if (batchId) filters.push(`batch_id=${eqFilter(batchId, 'batch_id')}`);
+            if (fileId) filters.push(`file_id=${eqFilter(fileId, 'file_id')}`);
+            if (sliceId) filters.push(`slice_job_id=${eqFilter(sliceId, 'slice_job_id')}`);
+            if (eventType) filters.push(`event_type=${eqFilter(eventType, 'event_type')}`);
+            if (cursor) filters.push(`occurred_at=${ltFilter(cursor, 'cursor')}`);
             return listMerchantV2Rows('merchant_job_events', {
                 merchantId,
                 filters,
@@ -1039,9 +1069,25 @@ export function createSupabaseRestClient({
             return createMerchantV2Row('merchant_job_artifacts', artifact);
         },
 
-        async listMerchantJobArtifacts({ merchantId, jobId, limit = 50 }) {
-            const filters = jobId ? [`job_id=${eqFilter(jobId, 'job_id')}`] : [];
-            return listMerchantV2Rows('merchant_job_artifacts', { merchantId, filters, limit });
+        async listMerchantJobArtifacts({
+            merchantId,
+            jobId = null,
+            fileId = null,
+            artifactType = null,
+            cursor = null,
+            limit = 50,
+        }) {
+            const filters = [];
+            if (jobId) filters.push(`job_id=${eqFilter(jobId, 'job_id')}`);
+            if (fileId) filters.push(`file_id=${eqFilter(fileId, 'file_id')}`);
+            if (artifactType) filters.push(`artifact_type=${eqFilter(artifactType, 'artifact_type')}`);
+            if (cursor) filters.push(`created_at=${ltFilter(cursor, 'cursor')}`);
+            return listMerchantV2Rows('merchant_job_artifacts', {
+                merchantId,
+                filters,
+                order: 'created_at.desc',
+                limit,
+            });
         },
 
         async createMerchantInspection(inspection) {
