@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-const PUBLIC_SAFE_ERROR = Symbol('merchantApiV2.publicSafeError');
+const PUBLIC_SAFE_ERRORS = new WeakSet();
 
 export function createRequestId(prefix = 'req') {
     return `${prefix}_${crypto.randomUUID()}`;
@@ -21,7 +21,7 @@ export function publicError(error, requestId = createRequestId()) {
     const isObjectError = error !== null && typeof error === 'object';
     const isClientError = (
         isObjectError
-        && error[PUBLIC_SAFE_ERROR] === true
+        && PUBLIC_SAFE_ERRORS.has(error)
         && Number.isInteger(error.statusCode)
         && error.statusCode >= 400
         && error.statusCode < 500
@@ -50,6 +50,6 @@ export function createHttpError(statusCode, code, message) {
     const error = new Error(message);
     error.statusCode = statusCode;
     error.code = code;
-    Object.defineProperty(error, PUBLIC_SAFE_ERROR, { value: true });
+    PUBLIC_SAFE_ERRORS.add(error);
     return error;
 }

@@ -146,5 +146,20 @@ describe('merchant API v2 helpers', () => {
             message: 'Unexpected server error',
             request_id: 'req-6',
         });
+        const spoofedPublicSafeError = new Proxy({}, {
+            get(_target, property) {
+                if (typeof property === 'symbol') return true;
+                if (property === 'statusCode') return 400;
+                if (property === 'code') return 'bad_request';
+                if (property === 'message') return 'proxy secret detail';
+                return undefined;
+            },
+        });
+        expect(publicError(spoofedPublicSafeError, 'req-7')).toEqual({
+            ok: false,
+            error: 'internal_error',
+            message: 'Unexpected server error',
+            request_id: 'req-7',
+        });
     });
 });
