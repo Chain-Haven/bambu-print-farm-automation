@@ -43,7 +43,7 @@ create table public.routing_decisions (
   job_id uuid references public.print_jobs(job_id) on delete cascade,
   selected_node_id uuid references public.farm_nodes(node_id) on delete set null,
   selected_printer_id uuid references public.cloud_printers(printer_id) on delete set null,
-  status text not null check (status in ('routed', 'waiting_for_capacity', 'needs_review', 'needs_slicing')),
+  status text not null check (status in ('routed', 'no_capacity', 'waiting_for_capacity', 'needs_review', 'needs_slicing')),
   strategy text not null default 'fastest_fulfillment',
   score jsonb not null default '{}'::jsonb,
   rejected_candidates jsonb not null default '[]'::jsonb,
