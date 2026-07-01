@@ -5,6 +5,8 @@ const INTERNAL_EXACT_KEYS = new Set([
     'apikey',
     'authorization',
     'commandid',
+    'downloadurl',
+    'href',
     'keyhash',
     'localprinterid',
     'merchantid',
@@ -24,6 +26,8 @@ const INTERNAL_EXACT_KEYS = new Set([
     'storagepath',
     'token',
     'tokenhash',
+    'uploadurl',
+    'url',
 ]);
 
 const INTERNAL_KEY_PATTERNS = [
@@ -31,6 +35,8 @@ const INTERNAL_KEY_PATTERNS = [
     'apikey',
     'authorization',
     'commandtoken',
+    'downloadurl',
+    'href',
     'keyhash',
     'localprinter',
     'merchantsecret',
@@ -45,6 +51,8 @@ const INTERNAL_KEY_PATTERNS = [
     'storagepath',
     'storageurl',
     'token',
+    'uploadurl',
+    'url',
 ];
 
 export function isPlainObject(value) {

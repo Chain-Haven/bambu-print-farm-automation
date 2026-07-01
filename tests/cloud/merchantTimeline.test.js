@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+import { hashMerchantApiKey } from '../../src/cloud/merchantAuth.js';
 import { createTimelineHandlers } from '../../src/cloud/merchantTimeline.js';
 import { createSupabaseRestClient } from '../../src/cloud/supabaseRest.js';
+
+const routeRawKey = 'pkx_live_secret';
+const routePepper = 'pepper';
 
 function decodeCursor(cursor) {
     return JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
@@ -44,6 +48,12 @@ function createMockStore(overrides = {}) {
                     storagePath: 'internal/camel/path',
                     signed_url: 'https://signed.example/secret',
                     signedUrl: 'https://signed.example/camel',
+                    download_url: 'https://signed.example/download',
+                    downloadUrl: 'https://signed.example/download-camel',
+                    upload_url: 'https://signed.example/upload',
+                    uploadUrl: 'https://signed.example/upload-camel',
+                    url: 'https://signed.example/generic',
+                    href: 'https://signed.example/href',
                     secret: 'secret-value',
                     api_key: 'api-key-secret',
                     apiKey: 'api-key-camel',
@@ -60,6 +70,8 @@ function createMockStore(overrides = {}) {
                 metadata: {
                     note: 'merchant visible',
                     signedUrl: 'https://signed.example/meta',
+                    downloadUrl: 'https://signed.example/meta-download',
+                    url: 'https://signed.example/meta-generic',
                     command_id: 'command-secret',
                     local_printer_id: 'local-secret',
                 },
@@ -80,6 +92,10 @@ function createMockStore(overrides = {}) {
                 payload: {
                     original_name: 'part.gcode.3mf',
                     signedUrl: 'https://signed.example/artifact',
+                    download_url: 'https://signed.example/artifact-download',
+                    uploadUrl: 'https://signed.example/artifact-upload',
+                    url: 'https://signed.example/artifact-generic',
+                    href: 'https://signed.example/artifact-href',
                     apiKey: 'artifact-api-key',
                     storage_path: 'internal/payload/path',
                     printer_id: 'printer-secret',
@@ -93,6 +109,25 @@ function createMockStore(overrides = {}) {
         ]),
         ...overrides,
     };
+}
+
+function createAuthenticatedRouteStore(overrides = {}) {
+    const keyHash = hashMerchantApiKey(routeRawKey, routePepper);
+    return createMockStore({
+        findMerchantApiKeyByHash: vi.fn().mockResolvedValue({
+            key_id: 'key-1',
+            key_hash: keyHash,
+            merchant_id: 'merchant-1',
+            org_id: 'org-1',
+        }),
+        findMerchantById: vi.fn().mockResolvedValue({
+            merchant_id: 'merchant-1',
+            org_id: 'org-1',
+            status: 'active',
+        }),
+        touchMerchantApiKey: vi.fn().mockResolvedValue(null),
+        ...overrides,
+    });
 }
 
 function createHandlers(overrides = {}) {
@@ -225,6 +260,21 @@ describe('merchant print job timeline handlers', () => {
         expect(JSON.stringify(result)).not.toContain('token-secret');
         expect(JSON.stringify(result)).not.toContain('token-hash-secret');
         expect(JSON.stringify(result)).not.toContain('internal/event/path');
+    });
+
+    it('rejects malformed raw cursors before querying timeline children', async () => {
+        const { listJobEvents, listJobArtifacts, store } = createHandlers();
+
+        await expect(listJobEvents({ job_id: 'job-1', cursor: 'not-a-date' })).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'invalid_payload',
+        });
+        await expect(listJobArtifacts({ job_id: 'job-1', cursor: 'also-not-a-date' })).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'invalid_payload',
+        });
+        expect(store.listMerchantJobEvents).not.toHaveBeenCalled();
+        expect(store.listMerchantJobArtifacts).not.toHaveBeenCalled();
     });
 
     it('lists merchant-scoped job artifacts without exposing storage paths', async () => {
@@ -439,5 +489,51 @@ describe('merchant timeline public routes', () => {
             error: 'method_not_allowed',
             request_id: expect.stringMatching(/^req_/),
         });
+    });
+
+    it('returns public-safe 400 envelopes for invalid event and artifact cursors', async () => {
+        const previousPepper = process.env.MERCHANT_API_KEY_PEPPER;
+        process.env.MERCHANT_API_KEY_PEPPER = routePepper;
+        const store = createAuthenticatedRouteStore();
+        const eventsHandler = await importTimelineRoute('../../api/public/print-jobs/[job_id]/events.js', store);
+        const artifactsHandler = await importTimelineRoute('../../api/public/print-jobs/[job_id]/artifacts.js', store);
+        const eventsRes = createMockResponse();
+        const artifactsRes = createMockResponse();
+
+        try {
+            await eventsHandler({
+                method: 'GET',
+                headers: { authorization: `Bearer ${routeRawKey}` },
+                query: { job_id: 'job-1', cursor: 'not-a-date' },
+            }, eventsRes);
+            await artifactsHandler({
+                method: 'GET',
+                headers: { authorization: `Bearer ${routeRawKey}` },
+                query: { job_id: 'job-1', cursor: 'not-a-date' },
+            }, artifactsRes);
+        } finally {
+            if (previousPepper === undefined) {
+                delete process.env.MERCHANT_API_KEY_PEPPER;
+            } else {
+                process.env.MERCHANT_API_KEY_PEPPER = previousPepper;
+            }
+        }
+
+        expect(eventsRes.statusCode).toBe(400);
+        expect(eventsRes.body).toMatchObject({
+            ok: false,
+            error: 'invalid_payload',
+            message: 'cursor must be a valid timeline cursor',
+            request_id: expect.stringMatching(/^req_/),
+        });
+        expect(artifactsRes.statusCode).toBe(400);
+        expect(artifactsRes.body).toMatchObject({
+            ok: false,
+            error: 'invalid_payload',
+            message: 'cursor must be a valid timeline cursor',
+            request_id: expect.stringMatching(/^req_/),
+        });
+        expect(store.listMerchantJobEvents).not.toHaveBeenCalled();
+        expect(store.listMerchantJobArtifacts).not.toHaveBeenCalled();
     });
 });
