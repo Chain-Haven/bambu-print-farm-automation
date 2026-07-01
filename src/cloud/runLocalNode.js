@@ -4,6 +4,7 @@ import { createLocalNodeAgent } from './localNodeAgent.js';
 import { createLocalNodeClient } from './localNodeClient.js';
 import { createLocalResultOutbox } from './localResultOutbox.js';
 import { collectNetworkInterfaces } from './localNetwork.js';
+import systemEvents from '../utils/SystemEvents.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('CloudNode');
@@ -66,6 +67,17 @@ async function main() {
     });
 
     await import('../../server.js');
+
+    // Forward local printer failure alerts (auto-cancel / blocking-error detection)
+    // to the cloud so operators and storefronts see them in the control plane.
+    systemEvents.on('printer.alert', (alert) => {
+        client.sendEvents([{
+            event_type: alert?.kind === 'auto_canceled' ? 'printer.auto_canceled' : 'printer.alert',
+            printer_id: alert?.printer_id,
+            payload: alert,
+        }]).catch((error) => log.warn(`Cloud alert forward failed: ${error.message}`));
+    });
+
     await sendHeartbeat(client, 'online', resultOutbox);
     const heartbeatTimer = setInterval(() => {
         sendHeartbeat(client, 'online', resultOutbox).catch((error) => {

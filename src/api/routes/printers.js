@@ -366,4 +366,64 @@ router.delete('/:id/overrides/:key', requireAdmin, asyncHandler(async (req, res)
     res.json({ ok: true });
 }));
 
+// ─── Camera feed ────────────────────────────────────────────────────
+// The SPA's camera widget calls these (authenticated via ?token= for <img>/MJPEG,
+// which requireAuth supports). The CameraProxy handles model-specific transport
+// (P1 JPEG on :6000, X1 RTSPS on :322). Auth (access code) comes from the
+// encrypted printer record.
+async function ensureCameraProxy(printerId) {
+    const printer = PrinterRegistry.findById(printerId);
+    if (!printer) return { error: 'Printer not found', status: 404 };
+    if (process.env.MOCK_MODE === 'true') {
+        return { error: 'Camera feed is unavailable in mock mode (no physical printer).', status: 503 };
+    }
+    const { default: cameraProxy } = await import('../../services/CameraProxy.js');
+    const auth = PrinterRegistry.getAuth?.(printerId) || {};
+    if (!cameraProxy.isRunning(printerId)) {
+        await cameraProxy.start(printerId, printer.ip_hostname, auth.access_code || '', printer.model);
+    }
+    return { cameraProxy };
+}
+
+// Snapshot — returns the most recent JPEG frame (starts the proxy on first call).
+router.get('/:id/camera/snapshot', requireAuth, asyncHandler(async (req, res) => {
+    const result = await ensureCameraProxy(req.params.id);
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    const { cameraProxy } = result;
+
+    // Give a freshly-started proxy a moment to produce the first frame.
+    let frame = cameraProxy.getFrame(req.params.id);
+    for (let i = 0; i < 20 && !frame; i++) {
+        await new Promise((r) => setTimeout(r, 150));
+        frame = cameraProxy.getFrame(req.params.id);
+    }
+    if (!frame) {
+        const err = cameraProxy.getError(req.params.id) || 'Camera frame not yet available';
+        return res.status(503).json({ error: err });
+    }
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(frame);
+}));
+
+// Live MJPEG stream (multipart/x-mixed-replace) — usable directly as an <img> src.
+router.get('/:id/camera/stream', requireAuth, asyncHandler(async (req, res) => {
+    const result = await ensureCameraProxy(req.params.id);
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    const { cameraProxy } = result;
+
+    res.writeHead(200, {
+        'Content-Type': 'multipart/x-mixed-replace; boundary=frame',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        Connection: 'keep-alive',
+        Pragma: 'no-cache',
+    });
+    const added = cameraProxy.addStreamClient(req.params.id, res);
+    if (!added) {
+        const err = cameraProxy.getError(req.params.id) || 'Camera stream unavailable';
+        return res.end(`--frame\r\nContent-Type: text/plain\r\n\r\n${err}\r\n`);
+    }
+    // Response is held open by the proxy; it removes the client on 'close'.
+}));
+
 export default router;

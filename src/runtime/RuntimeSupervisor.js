@@ -94,6 +94,10 @@ export class RuntimeSupervisor {
         if (this.printerWorkers.has(printer.printer_id)) return;
         const worker = new PrinterWorker(printer);
         worker.onStatusUpdate = (status) => this._broadcastStatus('printer', printer.printer_id, status);
+        worker.onAlert = (alert) => {
+            if (this.wsBroadcast) this.wsBroadcast({ type: 'printer.alert', id: printer.printer_id, data: alert });
+            systemEvents.emit('printer.alert', alert); // for alerting integrations (email/webhook/etc.)
+        };
         this.printerWorkers.set(printer.printer_id, worker);
         await worker.start();
         log.info(`Printer worker spawned: ${printer.name} [${printer.printer_id}]`);

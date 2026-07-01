@@ -27,9 +27,11 @@ export class PrinterWorker {
         this.mqttClient = null;
         this.latestStatus = {};
         this.onStatusUpdate = null; // callback
+        this.onAlert = null; // callback(alert) — fired on detected failures (set by supervisor)
         this.mockMode = process.env.MOCK_MODE === 'true';
         this.activeJobId = null; // Track if current print was started by Antigravity
         this.lastReportTime = null; // Timestamp of last MQTT report
+        this._alertedErrorCode = 0; // de-dupe: last print_error we already alerted on
     }
 
     /**
@@ -300,6 +302,76 @@ export class PrinterWorker {
 
         PrinterModel.updateStatus(this.printerId, this.latestStatus);
         if (this.onStatusUpdate) this.onStatusUpdate(this.latestStatus);
+
+        // Camera/logs/motor-stat driven safety: react to a NEW blocking fault mid-print.
+        this._checkForFailures();
+    }
+
+    _autoCancelEnabled() {
+        // Default ON: a blocking print_error means the job can't succeed anyway.
+        return process.env.AUTO_CANCEL_ON_FAILURE !== 'false';
+    }
+
+    /**
+     * Detect a new blocking failure during an active print and alert (and, unless
+     * disabled, auto-cancel). Fires once per distinct error code; resets when the
+     * error clears so a later fault alerts again.
+     */
+    _checkForFailures() {
+        const code = this.latestStatus?.print_error || 0;
+
+        if (!code || !isBlockingError(code)) {
+            this._alertedErrorCode = 0;
+            return;
+        }
+        if (this._alertedErrorCode === code) return; // already handled this fault
+
+        // Only auto-act while a print is (or should be) running. Idle stale errors
+        // are handled by the health-check auto-clear path, not by cancelling.
+        const activePrint = this.state === 'printing' || this.state === 'paused' || !!this.activeJobId;
+        if (!activePrint) return;
+
+        this._alertedErrorCode = code;
+        const decoded = decodePrintError(code);
+        const alert = {
+            printer_id: this.printerId,
+            printer_name: this.printer.name,
+            severity: 'critical',
+            kind: 'print_error',
+            code,
+            formatted: decoded?.formatted,
+            message: decoded?.message,
+            remediation: decoded?.remediation,
+            job_id: this.activeJobId,
+            state: this.state,
+            at: new Date().toISOString(),
+        };
+
+        log.error(`Printer ${this.printer.name}: FAILURE during print — ${decoded?.formatted} (${decoded?.message}); auto_cancel=${this._autoCancelEnabled()}`);
+        try {
+            EventModel.create({
+                entity_type: 'printer', entity_id: this.printerId,
+                event_type: 'printer.failure_detected', payload: alert,
+            });
+        } catch { /* persistence best-effort */ }
+        if (this.onAlert) { try { this.onAlert(alert); } catch { /* ignore */ } }
+
+        // Auto-cancel the doomed print (opt out with AUTO_CANCEL_ON_FAILURE=false).
+        if (this._autoCancelEnabled() && this.state !== 'idle') {
+            try {
+                this._stopPrint();
+                EventModel.create({
+                    entity_type: 'printer', entity_id: this.printerId,
+                    event_type: 'printer.auto_canceled',
+                    payload: { reason: decoded?.formatted, message: decoded?.message, job_id: this.activeJobId },
+                });
+                if (this.onAlert) {
+                    this.onAlert({ ...alert, kind: 'auto_canceled', message: `Auto-canceled: ${decoded?.message}` });
+                }
+            } catch (e) {
+                log.error(`Auto-cancel failed for ${this.printer.name}: ${e.message}`);
+            }
+        }
     }
 
     _mapBambuState(bambuState) {
