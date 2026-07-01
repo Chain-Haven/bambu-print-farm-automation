@@ -6,13 +6,15 @@ import path from 'node:path';
 import { getUploadRoot } from '../utils/uploadPaths.js';
 
 export class JobModel {
-    static create({ name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, metadata }) {
+    static create({ name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, priority, scheduled_for, max_retries, metadata }) {
         const id = generateId();
         dbRun(
-            `INSERT INTO jobs (job_id, name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, repeat_remaining, metadata)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [id, name, printer_id || null, profile_id, source_file_name,
+            `INSERT INTO jobs (job_id, name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, repeat_remaining, priority, scheduled_for, max_retries, metadata)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, name, printer_id || null, profile_id || null, source_file_name || null,
                 JSON.stringify(ams_roles || null), repeat_total || 1, repeat_total || 1,
+                Number.isFinite(Number(priority)) ? Number(priority) : 0, scheduled_for || null,
+                Number.isFinite(Number(max_retries)) ? Math.max(0, Math.trunc(Number(max_retries))) : 0,
                 metadata ? JSON.stringify(metadata) : null]
         );
         return this.findById(id);
@@ -35,7 +37,7 @@ export class JobModel {
     }
 
     static update(id, fields) {
-        const allowed = ['name', 'printer_id', 'status', 'transformed_file_name', 'transform_report', 'diff_summary', 'ams_roles', 'repeat_total', 'repeat_remaining', 'metadata'];
+        const allowed = ['name', 'printer_id', 'status', 'transformed_file_name', 'transform_report', 'diff_summary', 'ams_roles', 'repeat_total', 'repeat_remaining', 'priority', 'scheduled_for', 'max_retries', 'metadata'];
         const sets = []; const vals = [];
         for (const [k, v] of Object.entries(fields)) {
             if (!allowed.includes(k)) continue;
@@ -50,11 +52,36 @@ export class JobModel {
     }
 
     static getQueue(printerId) {
-        return dbAll("SELECT * FROM jobs WHERE printer_id = ? AND status IN ('queued','assigned') ORDER BY created_at ASC", [printerId]).map(r => this._parse(r));
+        return dbAll("SELECT * FROM jobs WHERE printer_id = ? AND status IN ('queued','assigned') ORDER BY priority DESC, created_at ASC", [printerId]).map(r => this._parse(r));
     }
 
     static getGlobalQueue() {
-        return dbAll("SELECT * FROM jobs WHERE printer_id IS NULL AND status = 'queued' ORDER BY created_at ASC").map(r => this._parse(r));
+        return dbAll("SELECT * FROM jobs WHERE printer_id IS NULL AND status = 'queued' ORDER BY priority DESC, created_at ASC").map(r => this._parse(r));
+    }
+
+    /** Is a job runnable now? (queued/assigned and not scheduled for the future) */
+    static isReady(job, now = new Date()) {
+        if (!job) return false;
+        if (!['queued', 'assigned'].includes(job.status)) return false;
+        if (!job.scheduled_for) return true;
+        const when = new Date(job.scheduled_for);
+        if (Number.isNaN(when.getTime())) return true; // unparseable → treat as ready
+        return when.getTime() <= now.getTime();
+    }
+
+    /**
+     * Ready queue for a printer: queued/assigned jobs whose scheduled_for has
+     * passed (or is unset), ordered by priority (desc) then schedule/creation.
+     */
+    static getReadyQueue(printerId, now = new Date()) {
+        const iso = (now instanceof Date ? now : new Date(now)).toISOString();
+        return dbAll(
+            `SELECT * FROM jobs
+             WHERE printer_id = ? AND status IN ('queued','assigned')
+               AND (scheduled_for IS NULL OR scheduled_for <= ?)
+             ORDER BY priority DESC, COALESCE(scheduled_for, created_at) ASC, created_at ASC`,
+            [printerId, iso],
+        ).map(r => this._parse(r));
     }
 
     static delete(id) {

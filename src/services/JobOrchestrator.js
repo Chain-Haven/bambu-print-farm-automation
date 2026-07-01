@@ -10,6 +10,7 @@ import { extractGcodeFrom3mf, repack3mf } from '../gcode/AutomatorZip.js';
 import { executeEjectionSequence } from './EjectionService.js';
 import { createLogger } from '../utils/logger.js';
 import { decodePrintError } from '../utils/PrinterErrors.js';
+import { JobRetryService } from './JobRetryService.js';
 import systemEvents from '../utils/SystemEvents.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -589,7 +590,30 @@ export class JobOrchestrator {
             });
             this._broadcast('job.send_failed', { job_id: jobId, error: err.message, send_trace: sendTrace, debug_trace: debugTrace });
             this._broadcast('job.status_changed', { job_id: jobId, status: 'failed' });
-            systemEvents.emit('job.failed', { job: JobModel.findById(jobId), printer_id: job.printer_id, reason: err.message });
+
+            // Opt-in auto-retry: if the job set max_retries and this is not a
+            // known-blocking hardware fault, requeue it and kick the next-job
+            // flow (bounded by max_retries; a no-op unless the job opted in).
+            let requeue = { requeued: false };
+            try {
+                requeue = JobRetryService.maybeRequeue(jobId, { error: err.message });
+                if (requeue.requeued) {
+                    this._broadcast('job.requeued', { job_id: jobId, attempt: requeue.attempt, remaining: requeue.remaining });
+                    this._broadcast('job.status_changed', { job_id: jobId, status: 'queued' });
+                    if (requeue.printer_id) {
+                        // Async so we don't deepen this failure's call stack.
+                        Promise.resolve().then(() => this._autoStartNextJob(requeue.printer_id)).catch(() => { /* logged in auto-start */ });
+                    }
+                }
+            } catch (retryErr) {
+                log.warn(`Auto-retry evaluation failed: ${retryErr.message}`);
+            }
+
+            // Only treat this as a terminal failure (and forward it to the cloud,
+            // releasing reservations/firing webhooks) if it is NOT being retried.
+            if (!requeue.requeued) {
+                systemEvents.emit('job.failed', { job: JobModel.findById(jobId), printer_id: job.printer_id, reason: err.message });
+            }
             throw err;
         }
     }

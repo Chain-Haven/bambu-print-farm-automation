@@ -1520,7 +1520,7 @@ async function handleDownloadNodePackage() {
       node_name: state.provisionedNode.name,
     },
   });
-  showToast('Windows ZIP downloaded');
+  showToast('Farm node downloaded — Windows: run Start Farm Node.bat · Pi/Linux: bash start-farm-node.sh (no install, no keys)');
 }
 
 async function handleNodeQuickstart(event) {

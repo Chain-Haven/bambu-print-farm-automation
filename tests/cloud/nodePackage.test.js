@@ -5,9 +5,15 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
     buildWindowsNodePackage,
+    buildPortableNodePackage,
     collectNodePackageFiles,
+    collectPortablePublicFiles,
+    createFarmNodeLauncherBat,
+    createGetNodeSh,
     createNodeEnv,
     createNodePackageReadme,
+    createStartFarmNodeSh,
+    hasPortableBundle,
 } from '../../src/cloud/nodePackage.js';
 
 const tempRoots = [];
@@ -66,6 +72,43 @@ describe('Windows node package builder', () => {
         expect(files).not.toContain('public/cloud.html');
         expect(files).not.toContain('public/js/cloud-dashboard.js');
         expect(files).not.toContain('public/css/cloud.css');
+    });
+
+    it('ships the nested src/api Express router the local node imports (regression)', () => {
+        // server.js does `import apiRouter from './src/api/router.js'`, so the whole
+        // src/api tree MUST be in the package. A previous bug excluded any path with
+        // an `api` segment, dropping src/api/** and crashing the node on Windows with
+        // "Cannot find module '...\\src\\api\\router.js'".
+        const root = makeTempRoot();
+        [
+            'server.js',
+            'package.json',
+            'src/api/router.js',
+            'src/api/websocket.js',
+            'src/api/routes/printers.js',
+            'src/api/middleware/errorHandler.js',
+            'api/cloud/node-package.js', // top-level Vercel function — must still be excluded
+        ].forEach((file) => writeFile(root, file));
+
+        const files = collectNodePackageFiles(root);
+
+        expect(files).toContain('src/api/router.js');
+        expect(files).toContain('src/api/websocket.js');
+        expect(files).toContain('src/api/routes/printers.js');
+        expect(files).toContain('src/api/middleware/errorHandler.js');
+        // The top-level Vercel functions directory is still excluded.
+        expect(files).not.toContain('api/cloud/node-package.js');
+    });
+
+    it('bundles the real repository into a package that includes src/api', () => {
+        // Guard against the exclusion regression using the ACTUAL repo tree.
+        // Vitest runs from the repo root, so process.cwd() is the project root.
+        const files = collectNodePackageFiles(process.cwd());
+        expect(files).toContain('src/api/router.js');
+        expect(files).toContain('server.js');
+        // Cloud-only + secret files stay out.
+        expect(files).not.toContain('src/cloud/adminHandlers.js');
+        expect(files).not.toContain('public/cloud.html');
     });
 
     it('creates a prefilled local env without cloud service secrets', () => {
@@ -156,5 +199,107 @@ describe('Windows node package builder', () => {
             node_name: 'Print NUC 01',
             files: expect.arrayContaining(['src/cloud/runLocalNode.js']),
         });
+    });
+});
+
+describe('Portable ("no install") node package', () => {
+    function makePortableFixture() {
+        const root = makeTempRoot();
+        // Prebuilt bundle artifacts.
+        writeFile(root, 'dist/windows-node/farm-node.cjs', 'console.log("bundled node");');
+        writeFile(root, 'dist/windows-node/sql-wasm.wasm', 'WASM');
+        // Repo assets the portable package pulls in.
+        writeFile(root, 'public/index.html', '<main></main>');
+        writeFile(root, 'public/js/app.js', 'console.log("spa")');
+        writeFile(root, 'public/cloud.html', '<main>cloud</main>');
+        writeFile(root, 'public/js/cloud-dashboard.js', 'cloud only');
+        writeFile(root, 'src/db/migrations/001_initial.sql', 'CREATE TABLE t(id);');
+        writeFile(root, 'src/db/migrations/002_more.sql', 'ALTER TABLE t ADD c;');
+        return root;
+    }
+
+    it('detects a prebuilt bundle', () => {
+        const root = makePortableFixture();
+        expect(hasPortableBundle(path.join(root, 'dist', 'windows-node'))).toBe(true);
+        expect(hasPortableBundle(makeTempRoot())).toBe(false);
+    });
+
+    it('collects public assets but omits the cloud console files', () => {
+        const root = makePortableFixture();
+        const files = collectPortablePublicFiles(root);
+        expect(files).toContain('public/index.html');
+        expect(files).toContain('public/js/app.js');
+        expect(files).not.toContain('public/cloud.html');
+        expect(files).not.toContain('public/js/cloud-dashboard.js');
+    });
+
+    it('buildWindowsNodePackage ships the portable bundle when it exists', () => {
+        const root = makePortableFixture();
+        const buffer = buildWindowsNodePackage({
+            rootDir: root,
+            cloudApiUrl: 'https://farm.example.com',
+            localNodeToken: 'pkx_node_secret',
+            nodeName: 'Print NUC 01',
+        });
+        const entries = new AdmZip(buffer).getEntries().map((e) => e.entryName).sort();
+
+        // Bundle + colocated assets + launcher + per-user env.
+        expect(entries).toContain('farm-node.cjs');
+        expect(entries).toContain('sql-wasm.wasm');
+        expect(entries).toContain('migrations/001_initial.sql');
+        expect(entries).toContain('migrations/002_more.sql');
+        expect(entries).toContain('public/index.html');
+        expect(entries).toContain('Start Farm Node.bat');
+        expect(entries).toContain('get-node.ps1');
+        // Cross-platform: Raspberry Pi 5 / Linux launchers ship in the same package.
+        expect(entries).toContain('start-farm-node.sh');
+        expect(entries).toContain('get-node.sh');
+        expect(entries).toContain('install-service.sh');
+        expect(entries).toContain('README-FIRST.txt');
+        expect(entries).toContain('.env');
+        // No source tree and no cloud console in the portable package.
+        expect(entries).not.toContain('server.js');
+        expect(entries).not.toContain('src/cloud/runLocalNode.js');
+        expect(entries).not.toContain('public/cloud.html');
+
+        const zip = new AdmZip(buffer);
+        expect(zip.readAsText('.env')).toContain('LOCAL_NODE_TOKEN=pkx_node_secret');
+        expect(zip.readAsText('.env')).not.toContain('SUPABASE_SERVICE_ROLE_KEY');
+    });
+
+    it('launcher never runs npm install and finds a Node runtime three ways', () => {
+        const bat = createFarmNodeLauncherBat();
+        expect(bat).not.toMatch(/npm install/i);
+        expect(bat).toContain('farm-node.cjs');
+        expect(bat).toContain('node\\node.exe'); // bundled runtime
+        expect(bat).toContain('where node');     // system Node
+        expect(bat).toContain('get-node.ps1');   // auto-download portable Node
+    });
+
+    it('Pi/Linux launcher is npm-free, LF-terminated, and finds Node three ways', () => {
+        const sh = createStartFarmNodeSh();
+        expect(sh).not.toMatch(/npm install/i);
+        expect(sh).not.toContain('\r'); // LF only, or bash chokes on CRLF
+        expect(sh.startsWith('#!/usr/bin/env bash')).toBe(true);
+        expect(sh).toContain('farm-node.cjs');
+        expect(sh).toContain('./node/bin/node');       // bundled runtime
+        expect(sh).toContain('command -v node');        // system Node
+        expect(sh).toContain('get-node.sh');            // auto-download portable Node
+    });
+
+    it('portable Node download targets the Raspberry Pi 5 architecture', () => {
+        const sh = createGetNodeSh();
+        expect(sh).toContain('aarch64|arm64) NODE_ARCH="linux-arm64"'); // Pi 5
+        expect(sh).toContain('x86_64|amd64)  NODE_ARCH="linux-x64"');
+        expect(sh).not.toContain('\r');
+    });
+
+    it('buildPortableNodePackage requires cloud url and token', () => {
+        const root = makePortableFixture();
+        expect(() => buildPortableNodePackage({
+            rootDir: root,
+            bundleDir: path.join(root, 'dist', 'windows-node'),
+            localNodeToken: 'pkx_node_secret',
+        })).toThrow(/cloud_api_url/);
     });
 });
