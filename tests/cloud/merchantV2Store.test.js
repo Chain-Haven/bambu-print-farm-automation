@@ -3,13 +3,16 @@ import { describe, expect, it, vi } from 'vitest';
 const requiredMethods = [
     'createMerchantFile',
     'getMerchantFile',
+    'listMerchantFiles',
     'updateMerchantFile',
     'deleteMerchantFile',
     'createMerchantSliceJob',
     'getMerchantSliceJob',
+    'listMerchantSliceJobs',
     'updateMerchantSliceJob',
     'createMerchantOrder',
     'getMerchantOrder',
+    'listMerchantOrders',
     'findMerchantOrderByIdempotencyKey',
     'findMerchantOrderByExternalOrderId',
     'updateMerchantOrder',
@@ -18,9 +21,11 @@ const requiredMethods = [
     'findMerchantOrderItemByJobAndOrder',
     'createMerchantMaterialReservation',
     'getMerchantMaterialReservation',
+    'listMerchantMaterialReservations',
     'releaseMerchantMaterialReservation',
     'createMerchantBatch',
     'getMerchantBatch',
+    'listMerchantBatches',
     'updateMerchantBatch',
     'updateMerchantBatchIfStatus',
     'createMerchantBatchItem',
@@ -68,6 +73,7 @@ const requiredMethods = [
     'createMerchantRealtimeToken',
     'listMerchantRealtimeTokens',
     'recordMerchantAdapterEvent',
+    'listMerchantAdapterEvents',
 ];
 
 function jsonResponse(payload, status = 200) {
@@ -178,6 +184,39 @@ describe('merchant API v2 store surface', () => {
         expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.m1');
         expect(requestUrl.searchParams.get('job_id')).toBe('eq.j1');
         expect(requestUrl.searchParams.get('order')).toBe('occurred_at.desc,event_id.desc');
+    });
+
+    it('lists primary Merchant API v2 resources for admin visibility', async () => {
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse([{ file_id: 'f1', merchant_id: 'm1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ order_id: 'o1', merchant_id: 'm1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ slice_job_id: 'sj1', merchant_id: 'm1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ batch_id: 'b1', merchant_id: 'm1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ reservation_id: 'r1', merchant_id: 'm1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ adapter_event_id: 'ae1', merchant_id: 'm1' }]));
+        const store = await createStore(fetchImpl);
+
+        await expect(store.listMerchantFiles({ merchantId: 'm1', limit: 3 })).resolves.toEqual([{ file_id: 'f1', merchant_id: 'm1' }]);
+        await expect(store.listMerchantOrders({ merchantId: 'm1', limit: 4 })).resolves.toEqual([{ order_id: 'o1', merchant_id: 'm1' }]);
+        await expect(store.listMerchantSliceJobs({ merchantId: 'm1', limit: 5 })).resolves.toEqual([{ slice_job_id: 'sj1', merchant_id: 'm1' }]);
+        await expect(store.listMerchantBatches({ merchantId: 'm1', limit: 6 })).resolves.toEqual([{ batch_id: 'b1', merchant_id: 'm1' }]);
+        await expect(store.listMerchantMaterialReservations({ merchantId: 'm1', limit: 7 })).resolves.toEqual([{ reservation_id: 'r1', merchant_id: 'm1' }]);
+        await expect(store.listMerchantAdapterEvents({ merchantId: 'm1', limit: 8 })).resolves.toEqual([{ adapter_event_id: 'ae1', merchant_id: 'm1' }]);
+
+        for (const [index, [path, limit]] of [
+            ['/rest/v1/merchant_files', '3'],
+            ['/rest/v1/merchant_orders', '4'],
+            ['/rest/v1/merchant_slice_jobs', '5'],
+            ['/rest/v1/merchant_batches', '6'],
+            ['/rest/v1/merchant_material_reservations', '7'],
+            ['/rest/v1/merchant_adapter_events', '8'],
+        ].entries()) {
+            const requestUrl = new URL(fetchImpl.mock.calls[index][0]);
+            expect(requestUrl.pathname).toBe(path);
+            expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+            expect(requestUrl.searchParams.get('order')).toBe('created_at.desc');
+            expect(requestUrl.searchParams.get('limit')).toBe(limit);
+        }
     });
 
     it('finds merchant orders by idempotency key or external order id', async () => {

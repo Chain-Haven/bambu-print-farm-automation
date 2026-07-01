@@ -32,6 +32,17 @@ const state = {
   merchantApiKeys: [],
   merchantJobs: [],
   merchantUsage: [],
+  merchantV2: {
+    orders: [],
+    files: [],
+    slices: [],
+    batches: [],
+    reservations: [],
+    shipments: [],
+    invoices: [],
+    webhook_deliveries: [],
+    adapter_events: [],
+  },
   provisionedNode: null,
 };
 
@@ -338,6 +349,16 @@ function formatNumber(value) {
   return new Intl.NumberFormat().format(Number(value) || 0);
 }
 
+function formatMoney(value, currency = 'USD') {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return '-';
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)} ${currency || ''}`.trim();
+  }
+}
+
 function makeStatus(value) {
   const span = document.createElement('span');
   span.className = `status ${String(value || 'unknown').toLowerCase()}`;
@@ -362,6 +383,10 @@ function showDetail(title, value) {
 
 function makeDetailButton(label, title, value) {
   return makeButton(label, () => showDetail(title, value), 'ghost-button small-button');
+}
+
+function merchantV2Detail(row, idKey, label) {
+  return makeDetailButton('Open', `${label} ${shortId(row[idKey])}`, row);
 }
 
 function makeSetupItem(label, ok, detail) {
@@ -522,6 +547,15 @@ function updateCounts() {
   setText('#merchant-key-count', state.merchantApiKeys.length);
   setText('#merchant-job-count', state.merchantJobs.length);
   setText('#merchant-usage-count', state.merchantUsage.length);
+  setText('#merchant-v2-order-count', state.merchantV2.orders.length);
+  setText('#merchant-v2-file-count', state.merchantV2.files.length);
+  setText('#merchant-v2-slice-count', state.merchantV2.slices.length);
+  setText('#merchant-v2-batch-count', state.merchantV2.batches.length);
+  setText('#merchant-v2-reservation-count', state.merchantV2.reservations.length);
+  setText('#merchant-v2-shipment-count', state.merchantV2.shipments.length);
+  setText('#merchant-v2-invoice-count', state.merchantV2.invoices.length);
+  setText('#merchant-v2-webhook-count', state.merchantV2.webhook_deliveries.length);
+  setText('#merchant-v2-adapter-count', state.merchantV2.adapter_events.length);
   setText('#automation-plan-count', state.farmAutomation.plan?.job_recommendations?.length || 0);
   setText('#automation-alert-count', state.farmAutomation.plan?.alerts?.length || 0);
 }
@@ -635,6 +669,96 @@ function renderMerchantOperationalTables() {
     { label: 'Metrics', value: (row) => jsonSummary(row.metrics) },
     { label: 'Detail', value: (row) => makeDetailButton('Open', `Usage ${shortId(row.usage_event_id)}`, row) },
   ], state.merchantUsage, 'No usage loaded.');
+
+  renderTable('#merchant-v2-orders-table', [
+    { label: 'Order', value: (row) => shortId(row.order_id) },
+    { label: 'External', value: (row) => row.external_order_id || '-' },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    { label: 'Due', value: (row) => formatDate(row.due_at) },
+    { label: 'Total', value: (row) => formatMoney(row.totals?.total ?? row.totals?.amount, row.totals?.currency || 'USD') },
+    { label: 'Created', value: (row) => formatDate(row.created_at) },
+    { label: 'Detail', value: (row) => merchantV2Detail(row, 'order_id', 'Order') },
+  ], state.merchantV2.orders, 'No Merchant API v2 orders loaded.');
+
+  renderTable('#merchant-v2-files-table', [
+    { label: 'File', value: (row) => shortId(row.file_id) },
+    { label: 'Name', value: (row) => row.original_name || '-' },
+    { label: 'Mode', value: (row) => makeStatus(row.file_mode) },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    { label: 'Bytes', value: (row) => formatNumber(row.byte_size) },
+    { label: 'Created', value: (row) => formatDate(row.created_at) },
+    { label: 'Detail', value: (row) => merchantV2Detail(row, 'file_id', 'File') },
+  ], state.merchantV2.files, 'No Merchant API v2 files loaded.');
+
+  renderTable('#merchant-v2-slices-table', [
+    { label: 'Slice', value: (row) => shortId(row.slice_job_id) },
+    { label: 'File', value: (row) => shortId(row.file_id) },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    { label: 'Profile', value: (row) => jsonSummary(row.profile, 72) },
+    { label: 'Created', value: (row) => formatDate(row.created_at) },
+    { label: 'Completed', value: (row) => formatDate(row.completed_at) },
+    { label: 'Detail', value: (row) => merchantV2Detail(row, 'slice_job_id', 'Slice') },
+  ], state.merchantV2.slices, 'No Merchant API v2 slices loaded.');
+
+  renderTable('#merchant-v2-batches-table', [
+    { label: 'Batch', value: (row) => row.name || shortId(row.batch_id) },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    { label: 'Strategy', value: (row) => row.strategy || '-' },
+    { label: 'Started', value: (row) => formatDate(row.started_at) },
+    { label: 'Completed', value: (row) => formatDate(row.completed_at) },
+    { label: 'Created', value: (row) => formatDate(row.created_at) },
+    { label: 'Detail', value: (row) => merchantV2Detail(row, 'batch_id', 'Batch') },
+  ], state.merchantV2.batches, 'No Merchant API v2 batches loaded.');
+
+  renderTable('#merchant-v2-reservations-table', [
+    { label: 'Reservation', value: (row) => shortId(row.reservation_id) },
+    { label: 'Material', value: (row) => row.material || '-' },
+    { label: 'Color', value: (row) => row.color || '-' },
+    { label: 'Grams', value: (row) => formatNumber(row.grams) },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    { label: 'Expires', value: (row) => formatDate(row.expires_at) },
+    { label: 'Detail', value: (row) => merchantV2Detail(row, 'reservation_id', 'Reservation') },
+  ], state.merchantV2.reservations, 'No material reservations loaded.');
+
+  renderTable('#merchant-v2-shipments-table', [
+    { label: 'Shipment', value: (row) => shortId(row.shipment_id) },
+    { label: 'Order', value: (row) => shortId(row.order_id) },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    { label: 'Carrier', value: (row) => row.carrier || '-' },
+    { label: 'Tracking', value: (row) => row.tracking_number || '-' },
+    { label: 'Created', value: (row) => formatDate(row.created_at) },
+    { label: 'Detail', value: (row) => merchantV2Detail(row, 'shipment_id', 'Shipment') },
+  ], state.merchantV2.shipments, 'No shipments loaded.');
+
+  renderTable('#merchant-v2-invoices-table', [
+    { label: 'Invoice', value: (row) => shortId(row.invoice_id) },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    { label: 'Period Start', value: (row) => formatDate(row.period_start) },
+    { label: 'Period End', value: (row) => formatDate(row.period_end) },
+    { label: 'Total', value: (row) => formatMoney(row.total, row.currency || 'USD') },
+    { label: 'Issued', value: (row) => formatDate(row.issued_at) },
+    { label: 'Detail', value: (row) => merchantV2Detail(row, 'invoice_id', 'Invoice') },
+  ], state.merchantV2.invoices, 'No invoices loaded.');
+
+  renderTable('#merchant-v2-webhooks-table', [
+    { label: 'Delivery', value: (row) => shortId(row.delivery_id) },
+    { label: 'Event', value: (row) => row.event_type || '-' },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    { label: 'Attempts', value: (row) => formatNumber(row.attempt_count) },
+    { label: 'Response', value: (row) => row.response_status || '-' },
+    { label: 'Next Retry', value: (row) => formatDate(row.next_retry_at) },
+    { label: 'Detail', value: (row) => merchantV2Detail(row, 'delivery_id', 'Webhook Delivery') },
+  ], state.merchantV2.webhook_deliveries, 'No webhook deliveries loaded.');
+
+  renderTable('#merchant-v2-adapters-table', [
+    { label: 'Adapter', value: (row) => row.adapter_name || '-' },
+    { label: 'Event', value: (row) => row.event_type || '-' },
+    { label: 'Resource', value: (row) => [row.resource_type, shortId(row.resource_id)].filter(Boolean).join(' ') || '-' },
+    { label: 'Created', value: (row) => formatDate(row.created_at) },
+    { label: 'Payload', value: (row) => jsonSummary(row.payload, 86) },
+    { label: 'Metadata', value: (row) => jsonSummary(row.metadata, 86) },
+    { label: 'Detail', value: (row) => merchantV2Detail(row, 'adapter_event_id', 'Adapter Event') },
+  ], state.merchantV2.adapter_events, 'No adapter events loaded.');
 }
 
 function flattenPlatformStrategyRows(strategy = {}) {
@@ -886,6 +1010,29 @@ async function refreshMerchantUsage(merchantId) {
   return state.merchantUsage;
 }
 
+async function refreshMerchantV2(merchantId) {
+  const id = merchantId || elements.merchantLookupId.value.trim();
+  if (!id) throw new Error('Merchant ID is required');
+  const params = new URLSearchParams({
+    merchant_id: id,
+    limit: String(getRowLimit()),
+  });
+  const payload = await apiRequest(`/api/cloud/merchant-v2?${params.toString()}`);
+  state.merchantV2 = {
+    orders: payload.v2?.orders || [],
+    files: payload.v2?.files || [],
+    slices: payload.v2?.slices || [],
+    batches: payload.v2?.batches || [],
+    reservations: payload.v2?.reservations || [],
+    shipments: payload.v2?.shipments || [],
+    invoices: payload.v2?.invoices || [],
+    webhook_deliveries: payload.v2?.webhook_deliveries || [],
+    adapter_events: payload.v2?.adapter_events || [],
+  };
+  renderOverview();
+  return state.merchantV2;
+}
+
 async function refreshMerchantOperationalData(merchantId) {
   const id = merchantId || elements.merchantLookupId.value.trim();
   if (!id) throw new Error('Merchant ID is required');
@@ -895,6 +1042,7 @@ async function refreshMerchantOperationalData(merchantId) {
     refreshMerchantApiKeys(id),
     refreshMerchantJobs(id),
     refreshMerchantUsage(id),
+    refreshMerchantV2(id),
   ]);
   showToast('Merchant data loaded');
 }

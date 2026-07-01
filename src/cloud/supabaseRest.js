@@ -900,6 +900,12 @@ export function createSupabaseRestClient({
             });
         },
 
+        async listMerchantFiles({ merchantId, status = null, limit = 50 }) {
+            const filters = [];
+            if (status) filters.push(`status=${eqFilter(status, 'status')}`);
+            return listMerchantV2Rows('merchant_files', { merchantId, filters, limit });
+        },
+
         async updateMerchantFile({ merchantId, fileId, fields = {} }) {
             return updateMerchantV2Row('merchant_files', {
                 merchantId,
@@ -930,6 +936,12 @@ export function createSupabaseRestClient({
             });
         },
 
+        async listMerchantSliceJobs({ merchantId, status = null, limit = 50 }) {
+            const filters = [];
+            if (status) filters.push(`status=${eqFilter(status, 'status')}`);
+            return listMerchantV2Rows('merchant_slice_jobs', { merchantId, filters, limit });
+        },
+
         async updateMerchantSliceJob({ merchantId, sliceJobId, fields = {} }) {
             return updateMerchantV2Row('merchant_slice_jobs', {
                 merchantId,
@@ -949,6 +961,12 @@ export function createSupabaseRestClient({
                 idColumn: MERCHANT_V2_IDS.merchant_orders,
                 id: orderId,
             });
+        },
+
+        async listMerchantOrders({ merchantId, status = null, limit = 50 }) {
+            const filters = [];
+            if (status) filters.push(`status=${eqFilter(status, 'status')}`);
+            return listMerchantV2Rows('merchant_orders', { merchantId, filters, limit });
         },
 
         async findMerchantOrderByIdempotencyKey({ merchantId, idempotencyKey }) {
@@ -1033,6 +1051,12 @@ export function createSupabaseRestClient({
             });
         },
 
+        async listMerchantMaterialReservations({ merchantId, status = null, limit = 50 }) {
+            const filters = [];
+            if (status) filters.push(`status=${eqFilter(status, 'status')}`);
+            return listMerchantV2Rows('merchant_material_reservations', { merchantId, filters, limit });
+        },
+
         async releaseMerchantMaterialReservation({
             merchantId,
             reservationId,
@@ -1061,6 +1085,12 @@ export function createSupabaseRestClient({
                 idColumn: MERCHANT_V2_IDS.merchant_batches,
                 id: batchId,
             });
+        },
+
+        async listMerchantBatches({ merchantId, status = null, limit = 50 }) {
+            const filters = [];
+            if (status) filters.push(`status=${eqFilter(status, 'status')}`);
+            return listMerchantV2Rows('merchant_batches', { merchantId, filters, limit });
         },
 
         async updateMerchantBatch({ merchantId, batchId, fields = {} }) {
@@ -1548,6 +1578,12 @@ export function createSupabaseRestClient({
 
         async recordMerchantAdapterEvent(event) {
             return createMerchantV2Row('merchant_adapter_events', event);
+        },
+
+        async listMerchantAdapterEvents({ merchantId, adapterName = null, limit = 50 }) {
+            const filters = [];
+            if (adapterName) filters.push(`adapter_name=${eqFilter(adapterName, 'adapter_name')}`);
+            return listMerchantV2Rows('merchant_adapter_events', { merchantId, filters, limit });
         },
 
         async uploadPrintArtifact(storagePath, buffer, contentType = 'application/octet-stream') {

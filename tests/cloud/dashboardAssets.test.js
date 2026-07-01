@@ -90,6 +90,26 @@ describe('cloud dashboard assets', () => {
         expect(css).toContain('.toolbar');
     });
 
+    it('surfaces Merchant API v2 operational resources in the admin dashboard', () => {
+        const html = fs.readFileSync('public/cloud.html', 'utf8');
+        const js = fs.readFileSync('public/js/cloud-dashboard.js', 'utf8');
+
+        for (const id of [
+            'merchant-v2-orders-table',
+            'merchant-v2-files-table',
+            'merchant-v2-slices-table',
+            'merchant-v2-batches-table',
+            'merchant-v2-reservations-table',
+            'merchant-v2-shipments-table',
+            'merchant-v2-invoices-table',
+            'merchant-v2-webhooks-table',
+            'merchant-v2-adapters-table',
+        ]) {
+            expect(html).toContain(`id="${id}"`);
+        }
+        expect(js).toContain('/api/cloud/merchant-v2');
+    });
+
     it('makes Windows node onboarding one-click and exposes local printer sync commands', () => {
         const html = fs.readFileSync('public/cloud.html', 'utf8');
         const js = fs.readFileSync('public/js/cloud-dashboard.js', 'utf8');

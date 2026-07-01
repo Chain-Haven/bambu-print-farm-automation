@@ -869,3 +869,72 @@ export function createCloudMerchantUsageHandler({
         }
     };
 }
+
+async function listMerchantV2AdminRows(store, methodName, query) {
+    if (typeof store[methodName] !== 'function') return [];
+    const rows = await store[methodName](query);
+    return Array.isArray(rows) ? rows : [];
+}
+
+export function createCloudMerchantV2Handler({
+    store,
+    adminToken = process.env.CLOUD_ADMIN_TOKEN,
+}) {
+    if (!store) throw new Error('store is required');
+
+    return async function cloudMerchantV2Handler(req, res) {
+        if (req.method && req.method !== 'GET') {
+            return methodNotAllowed(res, 'GET');
+        }
+
+        try {
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+            const query = {
+                merchantId: normalizeRequiredString((req.query || {}).merchant_id, 'merchant_id'),
+                limit: parseLimit(req.query || {}),
+            };
+            const [
+                files,
+                orders,
+                slices,
+                batches,
+                reservations,
+                shipments,
+                invoices,
+                webhookDeliveries,
+                adapterEvents,
+            ] = await Promise.all([
+                listMerchantV2AdminRows(store, 'listMerchantFiles', query),
+                listMerchantV2AdminRows(store, 'listMerchantOrders', query),
+                listMerchantV2AdminRows(store, 'listMerchantSliceJobs', query),
+                listMerchantV2AdminRows(store, 'listMerchantBatches', query),
+                listMerchantV2AdminRows(store, 'listMerchantMaterialReservations', query),
+                listMerchantV2AdminRows(store, 'listMerchantShipments', query),
+                listMerchantV2AdminRows(store, 'listMerchantInvoices', query),
+                listMerchantV2AdminRows(store, 'listMerchantWebhookDeliveries', query),
+                listMerchantV2AdminRows(store, 'listMerchantAdapterEvents', query),
+            ]);
+
+            return sendJson(res, 200, {
+                ok: true,
+                v2: {
+                    orders,
+                    files,
+                    slices,
+                    batches,
+                    reservations,
+                    shipments,
+                    invoices,
+                    webhook_deliveries: webhookDeliveries,
+                    adapter_events: adapterEvents,
+                },
+            });
+        } catch (error) {
+            return sendJson(res, 400, {
+                ok: false,
+                error: 'list_merchant_v2_failed',
+                message: error.message,
+            });
+        }
+    };
+}
