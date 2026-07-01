@@ -1042,6 +1042,7 @@ export function createSupabaseRestClient({
         },
 
         async deleteMerchantWebhookEndpoint({ merchantId, webhookId }) {
+            // Disable instead of deleting so delivery history remains auditable.
             return updateMerchantV2Row('merchant_webhook_endpoints', {
                 merchantId,
                 idColumn: MERCHANT_V2_IDS.merchant_webhook_endpoints,

@@ -339,6 +339,198 @@ create table public.merchant_adapter_events (
   updated_at timestamptz not null default now()
 );
 
+-- Existing print_jobs.merchant_id is nullable for non-merchant jobs. V2 rows
+-- have non-null merchant_id, so this composite reference only permits v2 rows
+-- to point at merchant-scoped jobs owned by the same merchant.
+alter table public.print_jobs
+  add constraint print_jobs_merchant_job_id_unique unique (merchant_id, job_id);
+
+alter table public.merchant_files
+  add constraint merchant_files_merchant_file_id_unique unique (merchant_id, file_id);
+
+alter table public.merchant_slice_jobs
+  add constraint merchant_slice_jobs_merchant_slice_job_id_unique unique (merchant_id, slice_job_id);
+
+alter table public.merchant_orders
+  add constraint merchant_orders_merchant_order_id_unique unique (merchant_id, order_id);
+
+alter table public.merchant_order_items
+  add constraint merchant_order_items_merchant_order_item_id_unique unique (merchant_id, order_item_id);
+
+alter table public.merchant_material_reservations
+  add constraint merchant_material_reservations_merchant_reservation_id_unique unique (merchant_id, reservation_id);
+
+alter table public.merchant_batches
+  add constraint merchant_batches_merchant_batch_id_unique unique (merchant_id, batch_id);
+
+alter table public.merchant_batch_items
+  add constraint merchant_batch_items_merchant_batch_item_id_unique unique (merchant_id, batch_item_id);
+
+alter table public.merchant_job_events
+  add constraint merchant_job_events_merchant_event_id_unique unique (merchant_id, event_id);
+
+alter table public.merchant_job_artifacts
+  add constraint merchant_job_artifacts_merchant_artifact_id_unique unique (merchant_id, artifact_id);
+
+alter table public.merchant_inspections
+  add constraint merchant_inspections_merchant_inspection_id_unique unique (merchant_id, inspection_id);
+
+alter table public.merchant_post_processing_tasks
+  add constraint merchant_post_processing_tasks_merchant_task_id_unique unique (merchant_id, task_id);
+
+alter table public.merchant_shipments
+  add constraint merchant_shipments_merchant_shipment_id_unique unique (merchant_id, shipment_id);
+
+alter table public.merchant_shipping_labels
+  add constraint merchant_shipping_labels_merchant_label_id_unique unique (merchant_id, label_id);
+
+alter table public.merchant_rate_cards
+  add constraint merchant_rate_cards_merchant_rate_card_id_unique unique (merchant_id, rate_card_id);
+
+alter table public.merchant_invoices
+  add constraint merchant_invoices_merchant_invoice_id_unique unique (merchant_id, invoice_id);
+
+alter table public.merchant_invoice_lines
+  add constraint merchant_invoice_lines_merchant_invoice_line_id_unique unique (merchant_id, invoice_line_id);
+
+alter table public.merchant_webhook_endpoints
+  add constraint merchant_webhook_endpoints_merchant_webhook_id_unique unique (merchant_id, webhook_id);
+
+alter table public.merchant_webhook_deliveries
+  add constraint merchant_webhook_deliveries_merchant_delivery_id_unique unique (merchant_id, delivery_id);
+
+alter table public.merchant_realtime_tokens
+  add constraint merchant_realtime_tokens_merchant_token_id_unique unique (merchant_id, token_id);
+
+alter table public.merchant_adapter_events
+  add constraint merchant_adapter_events_merchant_adapter_event_id_unique unique (merchant_id, adapter_event_id);
+
+alter table public.merchant_slice_jobs
+  add constraint merchant_slice_jobs_file_tenant_fk
+  foreign key (merchant_id, file_id) references public.merchant_files(merchant_id, file_id)
+  on delete set null (file_id);
+
+alter table public.merchant_order_items
+  add constraint merchant_order_items_order_tenant_fk
+  foreign key (merchant_id, order_id) references public.merchant_orders(merchant_id, order_id)
+  on delete cascade,
+  add constraint merchant_order_items_file_tenant_fk
+  foreign key (merchant_id, file_id) references public.merchant_files(merchant_id, file_id)
+  on delete set null (file_id),
+  add constraint merchant_order_items_slice_job_tenant_fk
+  foreign key (merchant_id, slice_job_id) references public.merchant_slice_jobs(merchant_id, slice_job_id)
+  on delete set null (slice_job_id),
+  add constraint merchant_order_items_print_job_tenant_fk
+  foreign key (merchant_id, job_id) references public.print_jobs(merchant_id, job_id)
+  on delete set null (job_id);
+
+alter table public.merchant_material_reservations
+  add constraint merchant_material_reservations_order_tenant_fk
+  foreign key (merchant_id, order_id) references public.merchant_orders(merchant_id, order_id)
+  on delete set null (order_id),
+  add constraint merchant_material_reservations_batch_tenant_fk
+  foreign key (merchant_id, batch_id) references public.merchant_batches(merchant_id, batch_id)
+  on delete set null (batch_id),
+  add constraint merchant_material_reservations_file_tenant_fk
+  foreign key (merchant_id, file_id) references public.merchant_files(merchant_id, file_id)
+  on delete set null (file_id),
+  add constraint merchant_material_reservations_print_job_tenant_fk
+  foreign key (merchant_id, job_id) references public.print_jobs(merchant_id, job_id)
+  on delete set null (job_id);
+
+alter table public.merchant_batch_items
+  add constraint merchant_batch_items_batch_tenant_fk
+  foreign key (merchant_id, batch_id) references public.merchant_batches(merchant_id, batch_id)
+  on delete cascade,
+  add constraint merchant_batch_items_order_tenant_fk
+  foreign key (merchant_id, order_id) references public.merchant_orders(merchant_id, order_id)
+  on delete set null (order_id),
+  add constraint merchant_batch_items_order_item_tenant_fk
+  foreign key (merchant_id, order_item_id) references public.merchant_order_items(merchant_id, order_item_id)
+  on delete set null (order_item_id),
+  add constraint merchant_batch_items_file_tenant_fk
+  foreign key (merchant_id, file_id) references public.merchant_files(merchant_id, file_id)
+  on delete set null (file_id),
+  add constraint merchant_batch_items_print_job_tenant_fk
+  foreign key (merchant_id, job_id) references public.print_jobs(merchant_id, job_id)
+  on delete set null (job_id);
+
+alter table public.merchant_job_events
+  add constraint merchant_job_events_print_job_tenant_fk
+  foreign key (merchant_id, job_id) references public.print_jobs(merchant_id, job_id)
+  on delete set null (job_id),
+  add constraint merchant_job_events_order_tenant_fk
+  foreign key (merchant_id, order_id) references public.merchant_orders(merchant_id, order_id)
+  on delete set null (order_id),
+  add constraint merchant_job_events_batch_tenant_fk
+  foreign key (merchant_id, batch_id) references public.merchant_batches(merchant_id, batch_id)
+  on delete set null (batch_id),
+  add constraint merchant_job_events_slice_job_tenant_fk
+  foreign key (merchant_id, slice_job_id) references public.merchant_slice_jobs(merchant_id, slice_job_id)
+  on delete set null (slice_job_id),
+  add constraint merchant_job_events_file_tenant_fk
+  foreign key (merchant_id, file_id) references public.merchant_files(merchant_id, file_id)
+  on delete set null (file_id);
+
+alter table public.merchant_job_artifacts
+  add constraint merchant_job_artifacts_print_job_tenant_fk
+  foreign key (merchant_id, job_id) references public.print_jobs(merchant_id, job_id)
+  on delete set null (job_id),
+  add constraint merchant_job_artifacts_file_tenant_fk
+  foreign key (merchant_id, file_id) references public.merchant_files(merchant_id, file_id)
+  on delete set null (file_id);
+
+alter table public.merchant_inspections
+  add constraint merchant_inspections_print_job_tenant_fk
+  foreign key (merchant_id, job_id) references public.print_jobs(merchant_id, job_id)
+  on delete set null (job_id),
+  add constraint merchant_inspections_order_tenant_fk
+  foreign key (merchant_id, order_id) references public.merchant_orders(merchant_id, order_id)
+  on delete set null (order_id);
+
+alter table public.merchant_post_processing_tasks
+  add constraint merchant_post_processing_tasks_print_job_tenant_fk
+  foreign key (merchant_id, job_id) references public.print_jobs(merchant_id, job_id)
+  on delete set null (job_id),
+  add constraint merchant_post_processing_tasks_order_tenant_fk
+  foreign key (merchant_id, order_id) references public.merchant_orders(merchant_id, order_id)
+  on delete set null (order_id);
+
+alter table public.merchant_shipments
+  add constraint merchant_shipments_order_tenant_fk
+  foreign key (merchant_id, order_id) references public.merchant_orders(merchant_id, order_id)
+  on delete set null (order_id);
+
+alter table public.merchant_shipping_labels
+  add constraint merchant_shipping_labels_shipment_tenant_fk
+  foreign key (merchant_id, shipment_id) references public.merchant_shipments(merchant_id, shipment_id)
+  on delete cascade;
+
+alter table public.merchant_invoice_lines
+  add constraint merchant_invoice_lines_invoice_tenant_fk
+  foreign key (merchant_id, invoice_id) references public.merchant_invoices(merchant_id, invoice_id)
+  on delete cascade,
+  add constraint merchant_invoice_lines_order_tenant_fk
+  foreign key (merchant_id, order_id) references public.merchant_orders(merchant_id, order_id)
+  on delete set null (order_id),
+  add constraint merchant_invoice_lines_print_job_tenant_fk
+  foreign key (merchant_id, job_id) references public.print_jobs(merchant_id, job_id)
+  on delete set null (job_id),
+  add constraint merchant_invoice_lines_file_tenant_fk
+  foreign key (merchant_id, file_id) references public.merchant_files(merchant_id, file_id)
+  on delete set null (file_id),
+  add constraint merchant_invoice_lines_shipment_tenant_fk
+  foreign key (merchant_id, shipment_id) references public.merchant_shipments(merchant_id, shipment_id)
+  on delete set null (shipment_id),
+  add constraint merchant_invoice_lines_slice_job_tenant_fk
+  foreign key (merchant_id, slice_job_id) references public.merchant_slice_jobs(merchant_id, slice_job_id)
+  on delete set null (slice_job_id);
+
+alter table public.merchant_webhook_deliveries
+  add constraint merchant_webhook_deliveries_endpoint_tenant_fk
+  foreign key (merchant_id, webhook_id) references public.merchant_webhook_endpoints(merchant_id, webhook_id)
+  on delete set null (webhook_id);
+
 create trigger merchant_files_set_updated_at
 before update on public.merchant_files
 for each row execute function public.set_updated_at();

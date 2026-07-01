@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const requiredMethods = [
     'createMerchantFile',
@@ -46,17 +46,123 @@ const requiredMethods = [
     'recordMerchantAdapterEvent',
 ];
 
+function jsonResponse(payload, status = 200) {
+    return {
+        ok: status >= 200 && status < 300,
+        status,
+        text: async () => JSON.stringify(payload),
+    };
+}
+
+async function createStore(fetchImpl) {
+    const { createSupabaseRestClient } = await import('../../src/cloud/supabaseRest.js');
+    return createSupabaseRestClient({
+        supabaseUrl: 'https://example.supabase.co',
+        serviceRoleKey: 'service_role',
+        fetchImpl,
+    });
+}
+
 describe('merchant API v2 store surface', () => {
     it('exposes every v2 store method required by the public API backbone', async () => {
-        const { createSupabaseRestClient } = await import('../../src/cloud/supabaseRest.js');
-        const store = createSupabaseRestClient({
-            supabaseUrl: 'https://example.supabase.co',
-            serviceRoleKey: 'service_role',
-            fetchImpl: async () => ({ ok: true, status: 200, text: async () => '[]' }),
-        });
+        const store = await createStore(async () => ({ ok: true, status: 200, text: async () => '[]' }));
 
         for (const method of requiredMethods) {
             expect(typeof store[method], method).toBe('function');
         }
+    });
+
+    it('creates merchant files with representation returned', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([{ file_id: 'f1', merchant_id: 'm1' }], 201));
+        const store = await createStore(fetchImpl);
+
+        const result = await store.createMerchantFile({ merchant_id: 'm1', org_id: 'o1', original_name: 'part.stl' });
+
+        expect(result).toEqual({ file_id: 'f1', merchant_id: 'm1' });
+        const [url, init] = fetchImpl.mock.calls[0];
+        const requestUrl = new URL(url);
+        expect(requestUrl.pathname).toBe('/rest/v1/merchant_files');
+        expect(requestUrl.searchParams.get('select')).toBe('*');
+        expect(init).toMatchObject({
+            method: 'POST',
+            headers: expect.objectContaining({ Prefer: 'return=representation' }),
+            body: JSON.stringify({ merchant_id: 'm1', org_id: 'o1', original_name: 'part.stl' }),
+        });
+    });
+
+    it('reads merchant files through merchant and file filters', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([{ file_id: 'f1', merchant_id: 'm1' }]));
+        const store = await createStore(fetchImpl);
+
+        await store.getMerchantFile({ merchantId: 'm1', fileId: 'f1' });
+
+        const requestUrl = new URL(fetchImpl.mock.calls[0][0]);
+        expect(requestUrl.pathname).toBe('/rest/v1/merchant_files');
+        expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(requestUrl.searchParams.get('file_id')).toBe('eq.f1');
+        expect(requestUrl.searchParams.get('limit')).toBe('1');
+    });
+
+    it('updates merchant files through a merchant-scoped PATCH', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([{ file_id: 'f1', status: 'completed' }]));
+        const store = await createStore(fetchImpl);
+
+        await store.updateMerchantFile({ merchantId: 'm1', fileId: 'f1', fields: { status: 'completed' } });
+
+        const [url, init] = fetchImpl.mock.calls[0];
+        const requestUrl = new URL(url);
+        expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(requestUrl.searchParams.get('file_id')).toBe('eq.f1');
+        expect(init).toMatchObject({
+            method: 'PATCH',
+            headers: expect.objectContaining({ Prefer: 'return=representation' }),
+            body: JSON.stringify({ status: 'completed' }),
+        });
+    });
+
+    it('soft-deletes merchant files through a merchant-scoped status patch', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([{ file_id: 'f1', status: 'deleted' }]));
+        const store = await createStore(fetchImpl);
+
+        await store.deleteMerchantFile({ merchantId: 'm1', fileId: 'f1' });
+
+        const [url, init] = fetchImpl.mock.calls[0];
+        const requestUrl = new URL(url);
+        expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(requestUrl.searchParams.get('file_id')).toBe('eq.f1');
+        expect(init).toMatchObject({
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'deleted' }),
+        });
+    });
+
+    it('lists merchant job events by merchant, job, and newest event first', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([{ event_id: 'e1', merchant_id: 'm1' }]));
+        const store = await createStore(fetchImpl);
+
+        await store.listMerchantJobEvents({ merchantId: 'm1', jobId: 'j1' });
+
+        const requestUrl = new URL(fetchImpl.mock.calls[0][0]);
+        expect(requestUrl.pathname).toBe('/rest/v1/merchant_job_events');
+        expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(requestUrl.searchParams.get('job_id')).toBe('eq.j1');
+        expect(requestUrl.searchParams.get('order')).toBe('occurred_at.desc');
+    });
+
+    it('releases material reservations through a merchant-scoped status patch', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([{ reservation_id: 'r1', status: 'released' }]));
+        const store = await createStore(fetchImpl);
+
+        await store.releaseMerchantMaterialReservation({ merchantId: 'm1', reservationId: 'r1' });
+
+        const [url, init] = fetchImpl.mock.calls[0];
+        const requestUrl = new URL(url);
+        expect(requestUrl.pathname).toBe('/rest/v1/merchant_material_reservations');
+        expect(requestUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(requestUrl.searchParams.get('reservation_id')).toBe('eq.r1');
+        expect(init).toMatchObject({
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'released' }),
+        });
     });
 });
