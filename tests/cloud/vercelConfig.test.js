@@ -2,12 +2,15 @@ import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('Vercel cloud node package config', () => {
-    it('serves the root SPA statically and bundles sql.js wasm for legacy server fallback', () => {
+    it('serves the cloud landing at the root (not the LAN-only printer SPA) and bundles sql.js wasm', () => {
         const config = JSON.parse(fs.readFileSync('vercel.json', 'utf8'));
 
+        // The root must NOT be index.html: that is the local Windows-node printer
+        // dashboard, whose /api/auth,/api/printers routes only exist in the Express
+        // server (not on Vercel), so it 500s with an HTML-not-JSON parse error.
         expect(config.rewrites).toContainEqual({
             source: '/',
-            destination: '/index.html',
+            destination: '/home.html',
         });
         expect(config.rewrites).toContainEqual({
             source: '/cloud',
