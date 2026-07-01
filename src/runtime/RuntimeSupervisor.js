@@ -107,6 +107,7 @@ export class RuntimeSupervisor {
             if (this.wsBroadcast) this.wsBroadcast({ type: 'printer.alert', id: printer.printer_id, data: alert });
             systemEvents.emit('printer.alert', alert); // for alerting integrations (email/webhook/etc.)
         };
+        worker.onJobFinished = (finish) => this._handleJobFinished(finish);
         this.printerWorkers.set(printer.printer_id, worker);
         try {
             await worker.start();
@@ -174,6 +175,26 @@ export class RuntimeSupervisor {
             if (removed > 0) log.info(`Pruned ${removed} events older than ${retentionDays}d`);
         } catch (err) {
             log.warn(`Event prune failed: ${err.message}`);
+        }
+    }
+
+    /**
+     * A worker resolved its active job (print ended). Hand the outcome to the
+     * orchestrator: completed → ejection + repeat + auto-start-next; anything
+     * else → mark the job failed so it doesn't sit "printing" forever.
+     * Dynamic import avoids a static require cycle (JobOrchestrator imports
+     * this module dynamically too).
+     */
+    async _handleJobFinished({ job_id, printer_id, outcome }) {
+        try {
+            const { JobOrchestrator } = await import('../services/JobOrchestrator.js');
+            if (outcome === 'completed') {
+                await JobOrchestrator.onJobCompleted(job_id, printer_id);
+            } else {
+                await JobOrchestrator.onJobAborted(job_id, printer_id, outcome);
+            }
+        } catch (err) {
+            log.error(`Job finish handling failed for ${job_id} (${outcome}): ${err.message}`);
         }
     }
 

@@ -32,6 +32,7 @@ export class PrinterWorker {
             : {};
         this.onStatusUpdate = null; // callback
         this.onAlert = null; // callback(alert) — fired on detected failures (set by supervisor)
+        this.onJobFinished = null; // callback({ job_id, printer_id, outcome }) — fired when the active job's print ends (set by supervisor)
         this.mockMode = process.env.MOCK_MODE === 'true';
         this.activeJobId = null; // Track if current print was started by Antigravity
         this.lastReportTime = null; // Timestamp of last MQTT report
@@ -212,8 +213,8 @@ export class PrinterWorker {
         }
 
         if (this.mockMode) {
+            this.latestStatus = { ...this.latestStatus, state: 'printing', gcode_state: 'RUNNING', progress: 0 };
             this._transitionState('printing');
-            this.latestStatus = { ...this.latestStatus, state: 'printing', progress: 0 };
             // Simulate print progress
             this._simulatePrint(params);
             return { started: true, mock: true };
@@ -252,6 +253,9 @@ export class PrinterWorker {
 
     _stopPrint() {
         if (this.mockMode) {
+            // gcode_state IDLE (not FINISH) so completion detection classifies
+            // this as an abort, mirroring a real on-device stop.
+            this.latestStatus = { ...this.latestStatus, gcode_state: 'IDLE' };
             this._transitionState('idle');
             return { stopped: true, mock: true };
         }
@@ -457,6 +461,48 @@ export class PrinterWorker {
                 payload: { from: oldState, to: newState },
             });
             log.info(`Printer ${this.printer.name}: ${oldState} → ${newState}`);
+            this._maybeFinishActiveJob(oldState, newState);
+        }
+    }
+
+    /**
+     * Completion detection: when a print we started ends (printing/paused → idle
+     * or error), resolve the active job and notify the supervisor. This is the
+     * producer for JobOrchestrator.onJobCompleted — without it, ejection,
+     * repeat-loops, and auto-start-next never run and jobs stay "printing".
+     *
+     * Outcomes:
+     *  - completed: printer reports FINISH (a real finished print)
+     *  - aborted:   printer went idle without FINISH (stopped/canceled on-device)
+     *  - failed:    printer entered the error state mid-print
+     * An offline transition is NOT terminal — Bambu printers keep printing
+     * through an MQTT drop, so the job stays active until a real end state.
+     */
+    _maybeFinishActiveJob(oldState, newState) {
+        if (!this.activeJobId) return;
+        if (oldState !== 'printing' && oldState !== 'paused') return;
+
+        let outcome = null;
+        if (newState === 'idle') {
+            outcome = this.latestStatus?.gcode_state === 'FINISH' ? 'completed' : 'aborted';
+        } else if (newState === 'error') {
+            outcome = 'failed';
+        }
+        if (!outcome) return;
+
+        const jobId = this.activeJobId;
+        this.activeJobId = null; // clear first so duplicate reports can't double-fire
+
+        log.info(`Printer ${this.printer.name}: active job ${jobId} ${outcome}`);
+        EventModel.create({
+            entity_type: 'job', entity_id: jobId,
+            event_type: 'job.print_finished',
+            payload: { printer_id: this.printerId, outcome, gcode_state: this.latestStatus?.gcode_state || null },
+        });
+
+        if (this.onJobFinished) {
+            Promise.resolve(this.onJobFinished({ job_id: jobId, printer_id: this.printerId, outcome }))
+                .catch((err) => log.error(`onJobFinished handler failed for job ${jobId}: ${err.message}`));
         }
     }
 
@@ -473,9 +519,12 @@ export class PrinterWorker {
             if (this.onStatusUpdate) this.onStatusUpdate(this.latestStatus);
             if (progress >= 100) {
                 clearInterval(interval);
-                this._transitionState('idle');
+                // Mark FINISH before transitioning so completion detection sees a
+                // real finished print (mirrors the Bambu gcode_state contract).
                 this.latestStatus.state = 'idle';
-                this.latestStatus.bed_temp = 60; // Start cooling
+                this.latestStatus.gcode_state = 'FINISH';
+                this.latestStatus.bed_temp = 25; // cooled — lets ejection cool-wait pass immediately
+                this._transitionState('idle');
                 PrinterModel.updateStatus(this.printerId, this.latestStatus);
             }
         }, 3000); // updates every 3s, finishes in 30s

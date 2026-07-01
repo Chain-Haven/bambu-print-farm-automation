@@ -33,10 +33,15 @@ export function createPublicFarmFilamentsHandler({ store }) {
         }
 
         try {
-            const inventory = await store.getPlatformSetting(FARM_FILAMENT_INVENTORY_KEY, { spools: [] });
+            const [inventory, overview] = await Promise.all([
+                store.getPlatformSetting(FARM_FILAMENT_INVENTORY_KEY, { spools: [] }),
+                typeof store.getCloudOverview === 'function'
+                    ? store.getCloudOverview({ orgId: null, limit: 100 }).catch(() => null)
+                    : Promise.resolve(null),
+            ]);
             return sendJson(res, 200, {
                 ok: true,
-                filaments: buildPublicFilamentAvailability({ inventory }),
+                filaments: buildPublicFilamentAvailability({ inventory, overview }),
             });
         } catch (error) {
             return sendJson(res, 500, {

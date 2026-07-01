@@ -10,6 +10,7 @@ import { extractGcodeFrom3mf, repack3mf } from '../gcode/AutomatorZip.js';
 import { executeEjectionSequence } from './EjectionService.js';
 import { createLogger } from '../utils/logger.js';
 import { decodePrintError } from '../utils/PrinterErrors.js';
+import systemEvents from '../utils/SystemEvents.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getUploadRoot } from '../utils/uploadPaths.js';
@@ -33,8 +34,16 @@ export class JobOrchestrator {
 
     /**
      * Submit a new job: upload → transform → store → optionally start.
+     *
+     * transform_mode (only meaningful with a 3MF input):
+     *  - 'required' (default): transform failure fails the job.
+     *  - 'optional': transform failure falls back to printing the original
+     *    artifact untouched (used for cloud/merchant files we didn't slice).
+     *  - 'skip': never transform; print the original artifact as-is.
+     * auto_start: when a printer is assigned, false leaves the job 'assigned'
+     * (queued for that printer) instead of starting it immediately.
      */
-    static async submit({ name, printer_id, profile_id, repeat_total, ams_roles, fileContent, fileName, skip_transform = false, transform_overrides = null, rawBuffer3mf = null, originalFileName3mf = null }) {
+    static async submit({ name, printer_id, profile_id, repeat_total, ams_roles, fileContent, fileName, skip_transform = false, transform_overrides = null, rawBuffer3mf = null, originalFileName3mf = null, transform_mode = 'required', auto_start = true, metadata = null }) {
         // Ensure uploads directory exists
         if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
@@ -47,6 +56,10 @@ export class JobOrchestrator {
             profile = GcodeProfileModel.findByName('universal');
         }
         if (!profile) {
+            // Last resort: any wildcard-model profile (see seed default_profiles.js)
+            profile = GcodeProfileModel.findByModel('*')[0] || null;
+        }
+        if (!profile) {
             throw new Error('No G-code transform profile found');
         }
 
@@ -54,6 +67,7 @@ export class JobOrchestrator {
         const job = JobModel.create({
             name, printer_id, profile_id: profile.profile_id,
             source_file_name: fileName, ams_roles, repeat_total: repeat_total || 1,
+            metadata,
         });
 
         log.info(`Job created: ${job.name} [${job.job_id}]`);
@@ -136,8 +150,52 @@ export class JobOrchestrator {
                     log.info(`Extracted gcode from 3MF: ${gcodeEntryName}`);
                 }
 
-                // Run the automator
-                const { output: transformedGcode, report } = automate(gcodeText, automatorConfig);
+                // Run the automator. In 'optional' mode (cloud/merchant files we
+                // didn't slice) a transform failure falls back to printing the
+                // original artifact untouched instead of failing the job.
+                let transformedGcode = null;
+                let report = null;
+                let transformError = null;
+                if (transform_mode !== 'skip') {
+                    try {
+                        ({ output: transformedGcode, report } = automate(gcodeText, automatorConfig));
+                    } catch (transformErr) {
+                        if (transform_mode !== 'optional' || !rawBuffer3mf) throw transformErr;
+                        transformError = transformErr.message;
+                        log.warn(`Transform failed for ${job.job_id}, falling back to original artifact: ${transformError}`);
+                    }
+                }
+
+                if (transformedGcode === null) {
+                    // 'skip' mode or optional-transform fallback: keep the original
+                    // 3MF artifact as the printable file.
+                    if (!rawBuffer3mf) throw new Error('transform_mode skip/fallback requires a .gcode.3mf input');
+                    const passthroughName = originalFileName3mf || fileName;
+                    fs.writeFileSync(path.join(UPLOADS_DIR, `${job.job_id}_${passthroughName}`), rawBuffer3mf);
+                    JobModel.update(job.job_id, {
+                        transformed_file_name: passthroughName,
+                        transform_report: {
+                            skipped: true,
+                            mode: transform_mode,
+                            transform_error: transformError,
+                            gcode_entry_name: gcodeEntryName,
+                        },
+                        diff_summary: { raw_mode: true },
+                        status: printer_id ? 'assigned' : 'queued',
+                    });
+                    EventModel.create({
+                        entity_type: 'job', entity_id: job.job_id,
+                        event_type: 'job.submitted',
+                        payload: { raw_mode: true, transform_mode, transform_error: transformError },
+                    });
+                    log.info(`Job submitted (original artifact, no transform): ${passthroughName}`);
+                    this._broadcast('job.created', JobModel.findById(job.job_id));
+                    if (printer_id && auto_start) {
+                        await this.startJob(job.job_id);
+                    }
+                    return JobModel.findById(job.job_id);
+                }
+
                 if (doubleLoopWarning) report.warnings.push(doubleLoopWarning);
 
                 // Save plain .gcode for debugging
@@ -191,7 +249,7 @@ export class JobOrchestrator {
             }
 
             // Auto-start if printer assigned
-            if (printer_id) {
+            if (printer_id && auto_start) {
                 await this.startJob(job.job_id);
             }
 
@@ -281,7 +339,7 @@ export class JobOrchestrator {
 
             // ========== PHASE 2: FILE READ ==========
             stage('FILE_READ_START');
-            const auth = PrinterModel.getAuth(job.printer_id);
+            const auth = worker.mockMode ? { access_code: 'mock' } : PrinterModel.getAuth(job.printer_id);
             if (!auth?.access_code) { stage('FILE_READ_FAIL', 'No access code'); throw new Error('Upload failed: No access code'); }
 
             const filePath = path.join(UPLOADS_DIR, `${job.job_id}_${job.transformed_file_name}`);
@@ -315,66 +373,74 @@ export class JobOrchestrator {
 
             stage('ARTIFACT_VALIDATION_OK', { type: '.gcode.3mf', gcode_entry: gcodeEntry, plate: plateNumber, remote_file: remoteFileName });
 
-            // ========== PHASE 3: FTPS REACHABILITY ==========
-            stage('FTPS_REACHABILITY_START');
-            const { BambuFtpsClient } = await import('./BambuFtpsClient.js');
-            const ftpsClient = new BambuFtpsClient({ ip: printer.ip_hostname, accessCode: auth.access_code, printerId: job.printer_id });
-            const ftpsReachable = await ftpsClient.isReachable();
-            stage(ftpsReachable ? 'FTPS_REACHABILITY_OK' : 'FTPS_REACHABILITY_FAIL');
-            if (!ftpsReachable) {
-                broadcastPhase('upload', 'failed', 'FTPS port 990 not reachable.');
-                throw new Error('Upload failed: FTPS not reachable');
-            }
+            // ========== PHASE 3+4+5: FTPS REACHABILITY / UPLOAD / RESOLUTION ==========
+            if (worker.mockMode) {
+                // MOCK_MODE: no real printer — skip the network phases so the full
+                // job pipeline (transform → start → simulated print → completion →
+                // ejection → repeat/next) can be exercised end-to-end.
+                stage('UPLOAD_SKIPPED_MOCK', { bytes: fileBuffer.length });
+                broadcastPhase('upload', 'ok', { mock: true, bytes: fileBuffer.length, filename: remoteFileName });
+            } else {
+                stage('FTPS_REACHABILITY_START');
+                const { BambuFtpsClient } = await import('./BambuFtpsClient.js');
+                const ftpsClient = new BambuFtpsClient({ ip: printer.ip_hostname, accessCode: auth.access_code, printerId: job.printer_id });
+                const ftpsReachable = await ftpsClient.isReachable();
+                stage(ftpsReachable ? 'FTPS_REACHABILITY_OK' : 'FTPS_REACHABILITY_FAIL');
+                if (!ftpsReachable) {
+                    broadcastPhase('upload', 'failed', 'FTPS port 990 not reachable.');
+                    throw new Error('Upload failed: FTPS not reachable');
+                }
 
-            // ========== PHASE 4: FTPS UPLOAD (delegated, returns its own trace) ==========
-            stage('UPLOAD_DELEGATED_TO_FTPS_CLIENT');
-            broadcastPhase('upload', 'running');
+                // ========== PHASE 4: FTPS UPLOAD (delegated, returns its own trace) ==========
+                stage('UPLOAD_DELEGATED_TO_FTPS_CLIENT');
+                broadcastPhase('upload', 'running');
 
-            const uploadResult = await ftpsClient.upload(fileBuffer, remoteFileName, (progress) => {
-                this._broadcast('job.upload_progress', {
-                    job_id: jobId, printer_id: job.printer_id,
-                    bytes: progress.bytes, total: progress.total, percent: progress.percent,
+                const uploadResult = await ftpsClient.upload(fileBuffer, remoteFileName, (progress) => {
+                    this._broadcast('job.upload_progress', {
+                        job_id: jobId, printer_id: job.printer_id,
+                        bytes: progress.bytes, total: progress.total, percent: progress.percent,
+                    });
                 });
-            });
 
-            // Merge FTPS client's detailed trace into ours
-            if (uploadResult.trace) {
-                for (const t of uploadResult.trace) {
-                    // FTPS trace timings are relative to the upload's own start; tag the source
-                    // so the debug panel can distinguish them from orchestrator-timeline stages.
-                    debugTrace.push({ ...t, source: 'ftps_client' });
-                    this._broadcast('job.debug_trace', { job_id: jobId, ...t, source: 'ftps_client' });
+                // Merge FTPS client's detailed trace into ours
+                if (uploadResult.trace) {
+                    for (const t of uploadResult.trace) {
+                        // FTPS trace timings are relative to the upload's own start; tag the source
+                        // so the debug panel can distinguish them from orchestrator-timeline stages.
+                        debugTrace.push({ ...t, source: 'ftps_client' });
+                        this._broadcast('job.debug_trace', { job_id: jobId, ...t, source: 'ftps_client' });
+                    }
                 }
-            }
 
-            if (!uploadResult.success) {
-                stage('UPLOAD_FAILED', uploadResult.error);
-                broadcastPhase('upload', 'failed', uploadResult.error);
+                if (!uploadResult.success) {
+                    stage('UPLOAD_FAILED', uploadResult.error);
+                    broadcastPhase('upload', 'failed', uploadResult.error);
 
-                // MicroSD error detection
-                const errLower = (uploadResult.error || '').toLowerCase();
-                if (errLower.includes('microsd') || errLower.includes('read/write') || errLower.includes('storage') || errLower.includes('sd card')) {
-                    stage('PRINTER_ERROR_DETECTED', { type: 'SD_STORAGE', raw: uploadResult.error });
+                    // MicroSD error detection
+                    const errLower = (uploadResult.error || '').toLowerCase();
+                    if (errLower.includes('microsd') || errLower.includes('read/write') || errLower.includes('storage') || errLower.includes('sd card')) {
+                        stage('PRINTER_ERROR_DETECTED', { type: 'SD_STORAGE', raw: uploadResult.error });
+                    }
+                    throw new Error(`Upload failed: ${uploadResult.error}`);
                 }
-                throw new Error(`Upload failed: ${uploadResult.error}`);
-            }
 
-            stage('UPLOAD_COMPLETE', { bytes: uploadResult.bytesUploaded, verified: uploadResult.verified });
-            broadcastPhase('upload', 'ok', { bytes: uploadResult.bytesUploaded, verified: uploadResult.verified, filename: remoteFileName });
+                stage('UPLOAD_COMPLETE', { bytes: uploadResult.bytesUploaded, verified: uploadResult.verified });
+                broadcastPhase('upload', 'ok', { bytes: uploadResult.bytesUploaded, verified: uploadResult.verified, filename: remoteFileName });
 
-            // ========== PHASE 5: REMOTE FILE RESOLUTION ==========
-            try {
-                const cacheFiles = await ftpsClient.listCacheFiles();
-                const remoteExists = cacheFiles.some(f => f.toLowerCase() === remoteFileName.toLowerCase());
-                if (remoteExists) {
-                    stage('REMOTE_FILE_RESOLVED', { remote_path: `/cache/${remoteFileName}`, found_in_listing: true });
-                } else {
-                    stage('REMOTE_FILE_RESOLUTION_FAILED', { remote_file: remoteFileName, cache_files: cacheFiles.slice(0, 10) });
-                    log.warn(`Remote file not found in /cache/ listing. Expected: ${remoteFileName}. Found: ${cacheFiles.join(', ')}`);
-                    // Don't hard-fail — SIZE verification already passed, LIST may not always work
+                // ========== PHASE 5: REMOTE FILE RESOLUTION ==========
+                try {
+                    const cacheFiles = await ftpsClient.listCacheFiles();
+                    const remoteExists = cacheFiles.some(f => f.toLowerCase() === remoteFileName.toLowerCase());
+                    if (remoteExists) {
+                        stage('REMOTE_FILE_RESOLVED', { remote_path: `/cache/${remoteFileName}`, found_in_listing: true });
+                    } else {
+                        stage('REMOTE_FILE_RESOLUTION_FAILED', { remote_file: remoteFileName, cache_files: cacheFiles.slice(0, 10) });
+                        log.warn(`Remote file not found in /cache/ listing. Expected: ${remoteFileName}. Found: ${cacheFiles.join(', ')}`);
+                        // Don't hard-fail — SIZE verification already passed, LIST may not always work
+                    }
+                } catch (listErr) {
+                    stage('REMOTE_FILE_LIST_SKIPPED', { error: listErr.message });
                 }
-            } catch (listErr) {
-                stage('REMOTE_FILE_LIST_SKIPPED', { error: listErr.message });
             }
 
             // ========== PHASE 6: START PRINT ==========
@@ -383,7 +449,7 @@ export class JobOrchestrator {
 
             const run = JobRunModel.create({ job_id: jobId, printer_id: job.printer_id });
 
-            if (worker.mqttClient) {
+            if (worker.mockMode || worker.mqttClient) {
                 let amsMapping = [];
                 if (job.ams_roles?.slot_map) amsMapping = Object.values(job.ams_roles.slot_map);
 
@@ -404,9 +470,15 @@ export class JobOrchestrator {
 
                 stage('START_PAYLOAD_VALIDATED', { filename: startPayload.filename, plate: startPayload.plateNumber, ams: startPayload.useAms });
 
-                worker.mqttClient.startPrint(startPayload);
-                worker.activeJobId = jobId;
-                stage('MQTT_START_COMMAND_SENT');
+                if (worker.mockMode) {
+                    await worker._startPrint(startPayload); // simulated print
+                    worker.activeJobId = jobId;
+                    stage('MOCK_START_COMMAND_SENT');
+                } else {
+                    worker.mqttClient.startPrint(startPayload);
+                    worker.activeJobId = jobId;
+                    stage('MQTT_START_COMMAND_SENT');
+                }
             } else {
                 stage('START_PRINT_FAIL', 'MQTT not available');
                 broadcastPhase('start', 'failed', 'MQTT client not available');
@@ -498,6 +570,7 @@ export class JobOrchestrator {
 
             log.info(`Job started: ${job.name} on printer ${job.printer_id} (total: ${totalElapsed}ms)`);
             this._broadcast('job.started', { job_id: jobId, printer_id: job.printer_id, run_id: run.run_id });
+            systemEvents.emit('job.started', { job: JobModel.findById(jobId), printer_id: job.printer_id, run_id: run.run_id });
             this._broadcast('job.status_changed', { job_id: jobId, status: 'printing' });
             // Broadcast full trace for debug panel
             this._broadcast('job.debug_trace_complete', { job_id: jobId, trace: debugTrace });
@@ -516,16 +589,25 @@ export class JobOrchestrator {
             });
             this._broadcast('job.send_failed', { job_id: jobId, error: err.message, send_trace: sendTrace, debug_trace: debugTrace });
             this._broadcast('job.status_changed', { job_id: jobId, status: 'failed' });
+            systemEvents.emit('job.failed', { job: JobModel.findById(jobId), printer_id: job.printer_id, reason: err.message });
             throw err;
         }
     }
 
     /**
      * Handle job completion (called when printer reports done).
+     * Producer: PrinterWorker completion detection via RuntimeSupervisor.
      */
     static async onJobCompleted(jobId, printerId) {
         const job = JobModel.findById(jobId);
         if (!job) return;
+        // Idempotency: only a job we believe is printing can complete. A stale or
+        // duplicate signal (e.g. re-delivered MQTT report) must not re-run
+        // ejection or repeat logic.
+        if (job.status !== 'printing') {
+            log.warn(`onJobCompleted ignored for ${jobId}: status is ${job.status}`);
+            return;
+        }
 
         // Find the current run
         const runs = JobRunModel.findByJobId(jobId);
@@ -536,20 +618,32 @@ export class JobOrchestrator {
 
         const profile = job.profile_id ? GcodeProfileModel.findById(job.profile_id) : null;
 
-        // Trigger ejection sequence
+        // Trigger the hardware ejection sequence (no-op with a clear event when
+        // no ejector accessory is fitted — in-gcode sweep ejection has already
+        // run inside the print file by the time FINISH is reported).
         if (profile) {
             log.info(`Triggering ejection for job ${jobId}`);
-            const ejectResult = await executeEjectionSequence({
-                job_id: jobId,
-                printer_id: printerId,
-                profile,
-            });
+            try {
+                const ejectResult = await executeEjectionSequence({
+                    job_id: jobId,
+                    printer_id: printerId,
+                    profile,
+                });
 
-            EventModel.create({
-                entity_type: 'job', entity_id: jobId,
-                event_type: 'job.eject_result',
-                payload: ejectResult,
-            });
+                EventModel.create({
+                    entity_type: 'job', entity_id: jobId,
+                    event_type: 'job.eject_result',
+                    payload: ejectResult,
+                });
+            } catch (ejectErr) {
+                // Ejection problems must never leave the job stuck "printing".
+                log.error(`Ejection failed for job ${jobId}: ${ejectErr.message}`);
+                EventModel.create({
+                    entity_type: 'job', entity_id: jobId,
+                    event_type: 'job.eject_result',
+                    payload: { success: false, error: ejectErr.message },
+                });
+            }
         }
 
         // Handle repeat
@@ -572,10 +666,43 @@ export class JobOrchestrator {
             log.info(`Job completed: ${job.name}`);
             this._broadcast('job.completed', { job_id: jobId, total_repeats: job.repeat_total });
             this._broadcast('job.status_changed', { job_id: jobId, status: 'completed' });
+            // For integrations (e.g. the cloud node agent forwarding merchant job
+            // status): carries metadata so listeners can map back to cloud jobs.
+            systemEvents.emit('job.completed', { job: JobModel.findById(jobId), printer_id: printerId });
 
             // Auto-start next queued job for this printer
             await this._autoStartNextJob(printerId);
         }
+    }
+
+    /**
+     * Handle a print that ended without finishing (stopped on-device or a
+     * blocking error). Marks the job failed so it doesn't sit "printing", and
+     * does NOT auto-start the next job — the bed state is unknown.
+     */
+    static async onJobAborted(jobId, printerId, reason = 'aborted') {
+        const job = JobModel.findById(jobId);
+        if (!job) return;
+        if (job.status !== 'printing') {
+            log.warn(`onJobAborted ignored for ${jobId}: status is ${job.status}`);
+            return;
+        }
+
+        const runs = JobRunModel.findByJobId(jobId);
+        const activeRun = runs.find(r => r.status === 'printing');
+        if (activeRun) {
+            JobRunModel.updateStatus(activeRun.run_id, 'failed');
+        }
+
+        JobModel.update(jobId, { status: 'failed' });
+        EventModel.create({
+            entity_type: 'job', entity_id: jobId,
+            event_type: 'job.print_aborted',
+            payload: { printer_id: printerId, reason },
+        });
+        log.warn(`Job ${jobId} aborted on printer ${printerId}: ${reason}`);
+        this._broadcast('job.status_changed', { job_id: jobId, status: 'failed' });
+        systemEvents.emit('job.failed', { job: JobModel.findById(jobId), printer_id: printerId, reason });
     }
 
     /**

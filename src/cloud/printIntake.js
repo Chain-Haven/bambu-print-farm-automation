@@ -1,11 +1,17 @@
 export const MAX_JSON_FILE_BYTES = 25 * 1024 * 1024;
 export const READY_EXTENSIONS = ['.gcode.3mf', '.3mf', '.gcode'];
 export const SOURCE_EXTENSIONS = ['.stl', '.obj', '.step', '.stp'];
+// Must stay in sync with the scorer in merchantRouting.js and the strategy
+// list advertised by merchantRoutingV2.js — a strategy accepted at estimate
+// time but missing here silently downgrades to fastest_fulfillment at submit.
 export const ROUTING_STRATEGIES = [
     'fastest_fulfillment',
+    'cheapest',
+    'exact_material_match',
     'batch_by_material',
     'least_printer_wear',
     'ship_cutoff',
+    'smart_material_queue',
 ];
 
 export function isPlainObject(value) {

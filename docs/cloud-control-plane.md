@@ -166,7 +166,8 @@ Open `/cloud`, enter `CLOUD_ADMIN_TOKEN`, and optionally set an organization ID 
 - create a bootstrap organization and copy its `org_id`
 - create a farm node row and return the raw `LOCAL_NODE_TOKEN` once
 - download a Windows-node ZIP with the local runtime and prefilled `.env`
-- enqueue local-node commands such as `printer.status`, `printer.pause`, `printer.resume`, `printer.stop`, `printer.gcode`, `job.start`, and `cloud.print.ready`
+- assign the color + material loaded in each printer's AMS slots from the "AMS Filament Mapping" panel (queues `printer.ams.set`; the node persists it, pushes it to the printer, and mirrors it back on the next heartbeat)
+- enqueue local-node commands such as `printer.status`, `printer.pause`, `printer.resume`, `printer.stop`, `printer.gcode`, `printer.ams.get`, `printer.ams.set`, `printer.ams.clear`, `job.start`, and `cloud.print.ready`
 - inspect full row details for nodes, printers, jobs, commands, events, merchants, keys, and usage without exposing Supabase service-role credentials
 
 Provisioned node rows store only:
@@ -236,10 +237,37 @@ Supported cloud command types in this slice:
 - `printer.resume` with `payload.local_printer_id`
 - `printer.stop` with `payload.local_printer_id`
 - `printer.gcode` with `payload.local_printer_id` and `payload.gcode`
+- `printer.ams.get` with `payload.local_printer_id` — merged AMS slot view (operator config + live telemetry)
+- `printer.ams.set` with `payload.local_printer_id`, `payload.ams_id`, `payload.tray_id` (0-3, or a flat 0-15 slot index), `payload.material`, `payload.color_hex`, `payload.color_name` — persists the slot assignment on the node and pushes it to the printer when reachable
+- `printer.ams.clear` with `payload.local_printer_id`, `payload.ams_id`, `payload.tray_id`
 - `job.start` with `payload.local_job_id`
 - `cloud.print.ready` with `payload.local_printer_id`, `payload.download_url`, and `payload.original_name`
 
-`cloud.print.ready` is the merchant API fulfillment command. The local Windows node downloads the signed private artifact from Vercel/Supabase storage, wraps raw `.gcode` into `.gcode.3mf` when needed, uploads the file to the selected Bambu printer over LAN FTPS, starts the print over MQTT, and reports the command result back to Vercel.
+`cloud.print.ready` is the merchant API fulfillment command. The local Windows
+node downloads the signed private artifact, wraps raw `.gcode` into
+`.gcode.3mf` when needed, and routes it through the JobOrchestrator pipeline:
+G-code transform (cool-release + sweep auto-ejection, optional loops),
+preflight, verified LAN FTPS upload, MQTT start with ACK wait, and completion
+tracking (auto-eject → repeat → auto-start-next). Optional payload fields:
+`ams_mapping` (global tray indexes), `repeat_total`, `loops`,
+`skip_transform: true` (print the artifact untouched), and `pipeline: "raw"`
+(legacy one-shot upload+start with no transform or tracking). If the printer is
+mid-print the job queues on the node and auto-starts after the current print
+completes and ejects.
+
+## Printer mirror + job status sync
+
+Each heartbeat now carries a `printers` array (name, model, mapped status,
+`status_snapshot`, and `capabilities` including the merged `ams_trays`
+filament view and build volume). The cloud upserts these into `cloud_printers`
+keyed by `(node_id, local_printer_id)` — this feeds the admin console printer
+table, merchant routing, and the public filament availability API.
+
+The node also forwards job lifecycle events for cloud-originated jobs
+(`print_job.started`, `print_job.completed`, `print_job.failed` with
+`payload.print_job_id`). The events endpoint updates the matching `print_jobs`
+row (org-scoped), releases the job's filament reservation on terminal states,
+and delivers the merchant webhook.
 
 For the operator-facing setup path, see `docs/windows-local-node.md` or `/windows-node-guide.html`.
 

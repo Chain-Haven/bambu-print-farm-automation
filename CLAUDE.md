@@ -45,6 +45,30 @@ swapped since, re-run `proof_test.js` before concluding anything.
 
 Full write-up is in `DIAGNOSIS.md`.
 
+## Changes already made (July 2026 session — farm loop audit)
+
+Full write-up: `docs/AUDIT-2026-07-farm-loop.md`. Headlines:
+
+1. **The production loop is closed** — `PrinterWorker` now detects print end and
+   drives `JobOrchestrator.onJobCompleted` (eject → repeat → auto-start-next) /
+   `onJobAborted`. Previously orphaned; finished prints stayed "printing".
+2. **Cloud merchant prints run the real pipeline** — `cloud.print.ready` goes
+   through `JobOrchestrator.submit` (transform w/ auto-eject, ACK wait, job
+   tracking; queues when the printer is busy). `pipeline:'raw'` = legacy path.
+3. **`cloud_printers` finally has a writer** — node heartbeats mirror every
+   printer (state + merged AMS trays) into the cloud; job lifecycle events flow
+   back (`print_job.*`), updating merchant jobs, releasing filament
+   reservations, and firing webhooks.
+4. **AMS everywhere** — cloud console "AMS Filament Mapping" panel →
+   `printer.ams.set/get/clear` node commands → SQLite persistence + MQTT push;
+   merchant `farm/filaments` overlays loaded trays (`loaded_slot_count`).
+5. **Router fixes** — inventory-augmented submit routing, unified strategies,
+   `ams_mapping` in dispatch payloads, `selected_local_printer_id` for cancel.
+6. **Fresh-install seeding bug fixed** — migration 005 + count-guarded seeder
+   left new DBs without the Universal profile (every profile-less submit
+   failed). Seeder is per-profile idempotent now; profile lookup NOCASE.
+7. **MOCK_MODE runs the full loop** (simulated upload/start), verified e2e.
+
 ## Changes already made (June 2026 session)
 
 In `src/services/JobOrchestrator.js`:

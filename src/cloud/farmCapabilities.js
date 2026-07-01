@@ -46,7 +46,7 @@ export function buildPublicFarmCapabilities({
         maxBuildVolume.z = maxNumber(maxBuildVolume.z, volume.z);
     }
 
-    const filaments = buildPublicFilamentAvailability({ inventory: settings.inventory || {} });
+    const filaments = buildPublicFilamentAvailability({ inventory: settings.inventory || {}, overview });
     const autoEjectCapable = onlinePrinters.some((printer) => {
         const capabilities = printer.capabilities || {};
         return capabilities.auto_eject === true

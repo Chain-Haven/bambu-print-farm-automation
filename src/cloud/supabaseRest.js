@@ -747,7 +747,7 @@ export function createSupabaseRestClient({
                     orgId,
                     limit: boundedLimit,
                     order: 'created_at.desc',
-                    select: 'job_id,org_id,node_id,printer_id,file_id,name,status,options,created_at,updated_at',
+                    select: 'job_id,org_id,node_id,printer_id,file_id,name,status,options,routing_summary,created_at,updated_at',
                 })),
                 request(tableListPath('node_commands', {
                     orgId,
@@ -830,6 +830,13 @@ export function createSupabaseRestClient({
         async getMerchantPrintJob({ merchantId, jobId }) {
             const rows = await request(
                 `/rest/v1/print_jobs?merchant_id=eq.${encodeURIComponent(merchantId)}&job_id=eq.${encodeURIComponent(jobId)}&select=${PRINT_JOB_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async getPrintJobById(jobId) {
+            const rows = await request(
+                `/rest/v1/print_jobs?job_id=eq.${encodeURIComponent(jobId)}&select=${PRINT_JOB_SELECT}&limit=1`,
             );
             return firstRow(rows);
         },
@@ -1637,6 +1644,32 @@ export function createSupabaseRestClient({
                     updated_at: heartbeat.last_seen_at,
                 },
             });
+        },
+
+        async upsertCloudPrinters(node, printers, lastSeenAt = new Date().toISOString()) {
+            const orgId = node.organization_id || node.org_id;
+            const rows = (Array.isArray(printers) ? printers : []).map((printer) => ({
+                org_id: orgId,
+                node_id: node.node_id,
+                local_printer_id: printer.local_printer_id,
+                name: printer.name,
+                model: printer.model,
+                status: printer.status,
+                status_snapshot: printer.status_snapshot,
+                capabilities: printer.capabilities,
+                last_seen_at: lastSeenAt,
+                updated_at: lastSeenAt,
+            }));
+            if (rows.length === 0) return;
+
+            await request(
+                '/rest/v1/cloud_printers?on_conflict=node_id,local_printer_id',
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+                    body: rows,
+                },
+            );
         },
 
         async claimNodeCommands(nodeId, limit = 10) {

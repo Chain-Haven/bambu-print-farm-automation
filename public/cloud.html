@@ -315,6 +315,19 @@
               <button type="submit">Save Policy</button>
             </form>
 
+            <div id="ams-mapping-panel" class="subpanel">
+              <div class="panel-heading">
+                <h2>AMS Filament Mapping</h2>
+                <span>Per-slot color + material</span>
+              </div>
+              <label>
+                <span>Printer</span>
+                <select id="ams-printer"></select>
+              </label>
+              <div id="ams-slots"></div>
+              <p class="field-hint">Assignments are queued as <code>printer.ams.set</code> commands: the local node persists them, pushes them to the printer, and mirrors them back to this console (and the merchant filament API) on its next heartbeat.</p>
+            </div>
+
             <form id="filament-inventory-form" class="subpanel">
               <div class="panel-heading">
                 <h2>Filament Inventory</h2>

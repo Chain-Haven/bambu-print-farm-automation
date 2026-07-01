@@ -120,7 +120,9 @@ export function buildTrayPayload({ amsId = 0, trayId, material, colorHex = 'FFFF
             sequence_id: String(Date.now()),
             ams_id: amsId,
             tray_id: trayId,
-            tray_info_idx: entry.settingBase.replace('GFS', 'GFL').slice(0, -2) + '99',
+            // Bambu filament ids drop the "S" (setting) from the setting base:
+            // GFSL99 (Generic PLA setting) → GFL99 (Generic PLA filament id).
+            tray_info_idx: entry.settingBase.replace('GFS', 'GF'),
             tray_type: entry.trayType,
             tray_sub_brands: '',
             tray_color: colorHex.toUpperCase(),

@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
 import AdmZip from 'adm-zip';
+import { collectLocalPrinterRecords } from './localPrinterSnapshot.js';
+
+function isPlainObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
 
 function buildGcode3mf(gcode) {
     const zip = new AdmZip();
@@ -54,7 +59,75 @@ async function getRequiredWorker(localPrinterId, deps) {
     return worker;
 }
 
+function normalizeAmsSlotRef(payload = {}) {
+    let amsId = Number.parseInt(payload.ams_id ?? 0, 10);
+    let trayId = Number.parseInt(payload.tray_id, 10);
+    if (!Number.isFinite(amsId) || amsId < 0) amsId = 0;
+    if (!Number.isFinite(trayId) || trayId < 0 || trayId > 15) {
+        throw new Error('payload.tray_id must be 0-15');
+    }
+    // A flat slot index (4..15) addresses (unit, slot-within-unit); explicit
+    // ams_id + tray_id 0-3 addresses the pair directly.
+    if (trayId > 3) {
+        amsId = Math.floor(trayId / 4);
+        trayId = trayId % 4;
+    }
+    return { amsId, trayId };
+}
+
+async function executeAmsAction(command, deps) {
+    const payload = command.payload || {};
+    const localPrinterId = requiredString(payload.local_printer_id, 'payload.local_printer_id');
+    const amsService = await deps.getAmsService();
+
+    if (command.command_type === 'printer.ams.get') {
+        return amsService.getFullStatus(localPrinterId);
+    }
+
+    const { amsId, trayId } = normalizeAmsSlotRef(payload);
+
+    if (command.command_type === 'printer.ams.clear') {
+        amsService.clearTray(localPrinterId, amsId, trayId);
+        return { ok: true, cleared: { ams_id: amsId, tray_id: trayId }, status: amsService.getFullStatus(localPrinterId) };
+    }
+
+    // printer.ams.set — persist the operator's slot assignment, then push it to
+    // the printer when it is reachable so the AMS display matches.
+    const material = requiredString(payload.material, 'payload.material');
+    const updated = amsService.setTray(localPrinterId, amsId, trayId, {
+        material,
+        colorHex: typeof payload.color_hex === 'string' && payload.color_hex.trim() ? payload.color_hex.trim() : 'FFFFFFFF',
+        colorName: typeof payload.color_name === 'string' && payload.color_name.trim() ? payload.color_name.trim() : 'White',
+    });
+
+    let pushedToPrinter = false;
+    let pushError = null;
+    if (payload.push_to_printer !== false) {
+        try {
+            const worker = await deps.getWorker?.(localPrinterId);
+            if (worker?.mqttClient?.connected) {
+                await amsService.syncToDevice(localPrinterId, worker.mqttClient);
+                pushedToPrinter = true;
+            }
+        } catch (error) {
+            pushError = error.message;
+        }
+    }
+
+    return {
+        ok: true,
+        updated,
+        pushed_to_printer: pushedToPrinter,
+        push_error: pushError,
+        status: amsService.getFullStatus(localPrinterId),
+    };
+}
+
 async function executePrinterAction(command, deps) {
+    if (command.command_type.startsWith('printer.ams.')) {
+        return executeAmsAction(command, deps);
+    }
+
     const localPrinterId = requiredString(command.payload?.local_printer_id, 'payload.local_printer_id');
     const worker = await getRequiredWorker(localPrinterId, deps);
 
@@ -157,20 +230,12 @@ async function defaultUploadToPrinter({ localPrinterId, buffer, remoteFileName }
     return uploadResult;
 }
 
-async function executeCloudPrintReady(command, deps) {
-    const payload = command.payload || {};
-    const localPrinterId = requiredString(payload.local_printer_id, 'payload.local_printer_id');
-    const downloadUrl = requiredString(payload.download_url, 'payload.download_url');
-    const originalName = safeRemoteFileName(payload.original_name);
-    const worker = await getRequiredWorker(localPrinterId, deps);
-
+/**
+ * Legacy raw fulfillment: upload the artifact and fire a one-shot MQTT start.
+ * No transform, no ACK wait, no job tracking. Kept for payload.pipeline='raw'.
+ */
+async function executeCloudPrintReadyRaw({ payload, localPrinterId, worker, buffer, remoteFileName }, deps) {
     assertPreflightOk(worker);
-
-    const downloaded = await deps.downloadArtifact(downloadUrl);
-    const { buffer, remoteFileName } = prepareReadyPrintArtifact({
-        buffer: Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded),
-        originalName,
-    });
 
     const uploaded = await deps.uploadToPrinter({
         localPrinterId,
@@ -187,10 +252,82 @@ async function executeCloudPrintReady(command, deps) {
     });
 
     return {
+        pipeline: 'raw',
         started: startResult?.started === true,
         remote_file_name: remoteFileName,
         uploaded,
         start_result: startResult,
+    };
+}
+
+async function executeCloudPrintReady(command, deps) {
+    const payload = command.payload || {};
+    const localPrinterId = requiredString(payload.local_printer_id, 'payload.local_printer_id');
+    const downloadUrl = requiredString(payload.download_url, 'payload.download_url');
+    const originalName = safeRemoteFileName(payload.original_name);
+    const worker = await getRequiredWorker(localPrinterId, deps);
+
+    const downloaded = await deps.downloadArtifact(downloadUrl);
+    const { buffer, remoteFileName } = prepareReadyPrintArtifact({
+        buffer: Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded),
+        originalName,
+    });
+
+    if (payload.pipeline === 'raw') {
+        return executeCloudPrintReadyRaw({ payload, localPrinterId, worker, buffer, remoteFileName }, deps);
+    }
+
+    // Orchestrated (default): route through JobOrchestrator so merchant prints
+    // get the full farm pipeline — transform (cool-release ejection + optional
+    // loops), preflight, verified FTPS upload, MQTT start with ACK wait, and
+    // completion tracking (auto-eject / repeat / auto-start-next + cloud status
+    // forwarding via job metadata).
+    const amsMapping = Array.isArray(payload.ams_mapping) ? payload.ams_mapping : [];
+    const slotMap = {};
+    amsMapping.forEach((value, index) => { slotMap[index] = value; });
+
+    // A busy printer queues the job instead of failing the command: the
+    // completion hook auto-starts the next assigned job once the bed is clear.
+    const printerBusy = worker.state === 'printing' || worker.state === 'paused';
+    if (!printerBusy) assertPreflightOk(worker);
+
+    const loops = Number.parseInt(payload.loops ?? payload.n_loops, 10);
+    const job = await deps.submitJob({
+        name: typeof payload.name === 'string' && payload.name.trim() ? payload.name.trim() : originalName,
+        printer_id: localPrinterId,
+        repeat_total: Number.parseInt(payload.repeat_total, 10) || 1,
+        ams_roles: amsMapping.length > 0 ? { slot_map: slotMap } : null,
+        fileName: remoteFileName,
+        fileContent: buffer,
+        rawBuffer3mf: buffer,
+        originalFileName3mf: remoteFileName,
+        transform_mode: payload.skip_transform === true ? 'skip' : 'optional',
+        transform_overrides: {
+            ...(isPlainObject(payload.transform_overrides) ? payload.transform_overrides : {}),
+            ...(Number.isFinite(loops) && loops > 0 ? { n_loops: loops } : {}),
+        },
+        auto_start: !printerBusy,
+        metadata: {
+            origin: 'cloud',
+            cloud_job_id: command.job_id || payload.print_job_id || null,
+            cloud_command_id: command.command_id || null,
+            org_id: command.org_id || null,
+            merchant_requirements: isPlainObject(payload.requirements) ? payload.requirements : null,
+        },
+    });
+
+    return {
+        pipeline: 'orchestrated',
+        started: job.status === 'printing',
+        queued: job.status !== 'printing',
+        local_job_id: job.job_id,
+        job_status: job.status,
+        remote_file_name: job.transformed_file_name || remoteFileName,
+        transform: {
+            applied: job.transform_report?.skipped !== true,
+            error: job.transform_report?.transform_error || null,
+            loops: job.diff_summary?.loops || 1,
+        },
     };
 }
 
@@ -230,49 +367,6 @@ function wait(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function countAmsTrays(snapshot) {
-    if (!snapshot || typeof snapshot !== 'object') return 0;
-    if (Array.isArray(snapshot.ams?.trays)) return snapshot.ams.trays.length;
-    if (Array.isArray(snapshot.ams?.ams)) {
-        return snapshot.ams.ams.reduce((count, unit) => count + (Array.isArray(unit.tray) ? unit.tray.length : 0), 0);
-    }
-    if (Array.isArray(snapshot.ams?.tray)) return snapshot.ams.tray.length;
-    return 0;
-}
-
-function buildSyncedPrinterRecord(printer, worker, options) {
-    const statusSnapshot = printer.status_snapshot && typeof printer.status_snapshot === 'object'
-        ? { ...printer.status_snapshot }
-        : {};
-    const liveState = worker?.state && worker.state !== 'unknown'
-        ? worker.state
-        : statusSnapshot.state;
-    const status = worker?.connected
-        ? (liveState || 'online')
-        : (liveState || 'offline');
-
-    const record = {
-        local_printer_id: printer.printer_id,
-        name: printer.name || printer.printer_id,
-        model: printer.model || null,
-        ip_hostname: printer.ip_hostname || null,
-        status,
-        connected: !!worker?.connected,
-        capabilities: printer.capabilities || {},
-        last_seen: printer.last_seen || null,
-    };
-
-    if (options.sync_ams || options.sync_filament) {
-        record.status_snapshot = statusSnapshot;
-    }
-
-    if (options.sync_ams) {
-        record.ams_tray_count = countAmsTrays(statusSnapshot);
-    }
-
-    return record;
-}
-
 async function defaultDiscoverPrinters(options = {}) {
     const [{ RuntimeSupervisor }, { getDiscoveryInstance }] = await Promise.all([
         import('../runtime/RuntimeSupervisor.js'),
@@ -291,23 +385,15 @@ async function defaultDiscoverPrinters(options = {}) {
 }
 
 async function defaultSyncPrinters(options = {}) {
-    const [{ PrinterModel }, { RuntimeSupervisor }, { collectNetworkInterfaces }] = await Promise.all([
-        import('../models/Printer.js'),
-        import('../runtime/RuntimeSupervisor.js'),
-        import('./localNetwork.js'),
-    ]);
-    const supervisor = RuntimeSupervisor.getInstance();
-    const registeredPrinters = options.include_saved_printers === false ? [] : PrinterModel.findAll();
-    const printers = registeredPrinters.map((printer) => (
-        buildSyncedPrinterRecord(printer, supervisor?.getWorker?.(printer.printer_id), options)
-    ));
+    const { collectNetworkInterfaces } = await import('./localNetwork.js');
+    const printers = await collectLocalPrinterRecords(options);
     const online = printers.filter((printer) => printer.connected || String(printer.status).toLowerCase() === 'online').length;
     const amsTrays = printers.reduce((count, printer) => count + (Number(printer.ams_tray_count) || 0), 0);
 
     return {
         printers,
         summary: {
-            registered: registeredPrinters.length,
+            registered: printers.length,
             online,
             ams_trays: amsTrays,
             network_interface_count: collectNetworkInterfaces().length,
@@ -364,6 +450,14 @@ function getDefaultDeps() {
         async startJob(jobId) {
             const { JobOrchestrator } = await import('../services/JobOrchestrator.js');
             return JobOrchestrator.startJob(jobId);
+        },
+        async submitJob(params) {
+            const { JobOrchestrator } = await import('../services/JobOrchestrator.js');
+            return JobOrchestrator.submit(params);
+        },
+        async getAmsService() {
+            const { AmsService } = await import('../services/AmsService.js');
+            return AmsService;
         },
         downloadArtifact: defaultDownloadArtifact,
         uploadToPrinter: defaultUploadToPrinter,

@@ -36,7 +36,24 @@ export async function executeEjectionSequence(params) {
     });
 
     try {
-        // Step 1: Wait for bed to cool to release temperature
+        // Step 1: Find the eject_printhead accessory for this printer FIRST.
+        // Without one there is nothing to drive, so bail immediately — before
+        // the cool-down wait, which can poll for up to max_wait_minutes and
+        // would otherwise stall the completion pipeline (repeat/auto-start-next)
+        // on every printer that relies on in-gcode sweep ejection instead.
+        const ejectorAccessories = AccessoryModel.findByPrinterId(printer_id)
+            .filter(a => a.type === 'eject_printhead');
+
+        if (ejectorAccessories.length === 0) {
+            log.info(`No eject_printhead accessory for printer ${printer_id} — skipping hardware ejection (in-gcode ejection, if configured, already ran)`);
+            EventModel.create({
+                entity_type: 'job', entity_id: job_id,
+                event_type: 'eject.no_ejector', payload: { printer_id },
+            });
+            return { success: false, skipped: true, error: 'No ejector accessory found' };
+        }
+
+        // Step 2: Wait for bed to cool to release temperature
         log.info(`Waiting for bed temp ≤ ${release_temp_c}°C (timeout: ${max_wait_minutes}min)`);
         const coolResult = await waitForCoolDown(printer_id, release_temp_c, hysteresis_c, hold_seconds, max_wait_minutes);
 
@@ -50,19 +67,6 @@ export async function executeEjectionSequence(params) {
         }
 
         log.info(`Bed cooled to ${coolResult.lastTemp}°C in ${coolResult.elapsedMinutes.toFixed(1)} min`);
-
-        // Step 2: Find eject_printhead accessory for this printer
-        const ejectorAccessories = AccessoryModel.findByPrinterId(printer_id)
-            .filter(a => a.type === 'eject_printhead');
-
-        if (ejectorAccessories.length === 0) {
-            log.warn(`No eject_printhead accessory found for printer ${printer_id}`);
-            EventModel.create({
-                entity_type: 'job', entity_id: job_id,
-                event_type: 'eject.no_ejector', payload: { printer_id },
-            });
-            return { success: false, error: 'No ejector accessory found' };
-        }
 
         const ejector = ejectorAccessories[0];
         const maxAttempts = ejectParams.max_eject_attempts || 3;
