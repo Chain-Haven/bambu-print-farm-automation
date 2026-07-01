@@ -125,6 +125,7 @@
       </ol>
       <p>Full-auto merchant signup exists as an admin option, but <code>full_auto_merchant_mode</code> defaults to disabled.</p>
       <p>The Vercel farm admin at <code>/cloud</code> also manages smart material queueing, filament/AMS inventory, auto-eject policy, failure-detection hooks, and integrations for alerts, ecommerce, shipping, and remote access through <code>GET/PATCH /api/cloud/farm-automation</code>.</p>
+      <p>Merchants can check public material and color availability with <code>GET /api/public/farm/filaments</code>. The response is aggregate-only and does not expose spool IDs, printer IDs, rack locations, lot codes, or reserved jobs.</p>
     </section>
 
     <section>
@@ -175,6 +176,7 @@
         </thead>
         <tbody>
           <tr><td>POST</td><td><code>/api/public/merchants/signup</code></td><td>Create a merchant signup request.</td></tr>
+          <tr><td>GET</td><td><code>/api/public/farm/filaments</code></td><td>Read public aggregate material and color availability.</td></tr>
           <tr><td>POST</td><td><code>/api/public/api-keys</code></td><td>Exchange setup token or create an additional live key.</td></tr>
           <tr><td>GET</td><td><code>/api/public/api-keys</code></td><td>List live keys without hashes or raw secrets.</td></tr>
           <tr><td>POST</td><td><code>/api/public/api-keys/revoke</code></td><td>Revoke a merchant API key.</td></tr>

@@ -40,6 +40,25 @@
         }
       }
     },
+    "/api/public/farm/filaments": {
+      "get": {
+        "summary": "Read public aggregate farm filament availability",
+        "description": "Unauthenticated aggregate material and color availability. Internal spool IDs, printer IDs, locations, lot codes, and reserved jobs are not exposed.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Public filament availability",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicFilamentAvailabilityResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/public/merchant/me": {
       "get": {
         "summary": "Read authenticated merchant account",
@@ -667,6 +686,111 @@
           "integrations": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "PublicFilamentAvailabilityResponse": {
+        "type": "object",
+        "required": ["ok", "filaments"],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "filaments": {
+            "type": "object",
+            "required": ["materials", "colors", "updated_at"],
+            "properties": {
+              "materials": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PublicFilamentMaterial"
+                }
+              },
+              "colors": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PublicFilamentColor"
+                }
+              },
+              "updated_at": {
+                "type": ["string", "null"],
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      },
+      "PublicFilamentMaterial": {
+        "type": "object",
+        "required": [
+          "material",
+          "spool_count",
+          "available_spool_count",
+          "total_grams_remaining",
+          "available_grams_remaining",
+          "colors"
+        ],
+        "properties": {
+          "material": {
+            "type": "string",
+            "examples": ["PLA"]
+          },
+          "spool_count": {
+            "type": "integer"
+          },
+          "available_spool_count": {
+            "type": "integer"
+          },
+          "total_grams_remaining": {
+            "type": "number"
+          },
+          "available_grams_remaining": {
+            "type": "number"
+          },
+          "colors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicFilamentColor"
+            }
+          }
+        }
+      },
+      "PublicFilamentColor": {
+        "type": "object",
+        "required": [
+          "color_hex",
+          "color_name",
+          "spool_count",
+          "available_spool_count",
+          "total_grams_remaining",
+          "available_grams_remaining"
+        ],
+        "properties": {
+          "color_hex": {
+            "type": "string",
+            "examples": ["#FFFFFF"]
+          },
+          "color_name": {
+            "type": ["string", "null"],
+            "examples": ["White"]
+          },
+          "materials": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "spool_count": {
+            "type": "integer"
+          },
+          "available_spool_count": {
+            "type": "integer"
+          },
+          "total_grams_remaining": {
+            "type": "number"
+          },
+          "available_grams_remaining": {
+            "type": "number"
           }
         }
       }

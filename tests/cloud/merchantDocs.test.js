@@ -7,12 +7,14 @@ describe('merchant API docs', () => {
         const spec = JSON.parse(fs.readFileSync('public/openapi/merchant-api-v1.json', 'utf8'));
 
         expect(html).toContain('/api/public/merchants/signup');
+        expect(html).toContain('/api/public/farm/filaments');
         expect(html).toContain('/api/cloud/farm-automation');
         expect(html).toContain('approval-required by default');
         expect(html).toContain('pkx_live_');
         expect(spec.openapi).toBe('3.1.0');
         expect(Object.keys(spec.paths)).toEqual(expect.arrayContaining([
             '/api/public/merchants/signup',
+            '/api/public/farm/filaments',
             '/api/public/api-keys',
             '/api/public/print-jobs',
             '/api/public/print-jobs/status',
