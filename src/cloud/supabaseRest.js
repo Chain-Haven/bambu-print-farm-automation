@@ -210,7 +210,9 @@ const MERCHANT_V2_IDS = {
     merchant_inspections: 'inspection_id',
     merchant_post_processing_tasks: 'task_id',
     merchant_shipments: 'shipment_id',
+    merchant_invoices: 'invoice_id',
     merchant_webhook_endpoints: 'webhook_id',
+    merchant_realtime_tokens: 'token_id',
 };
 
 function boundedLimit(limit, fallback = 50, max = 100) {
@@ -862,11 +864,28 @@ export function createSupabaseRestClient({
             return firstRow(rows);
         },
 
-        async listMerchantUsageEvents({ merchantId, limit = 50 }) {
-            const rows = await request(
-                `/rest/v1/merchant_usage_events?merchant_id=eq.${encodeURIComponent(merchantId)}&select=usage_event_id,org_id,merchant_id,job_id,file_id,event_type,quantity,metrics,created_at&order=created_at.desc&limit=${Math.max(1, Math.min(Number.parseInt(limit, 10) || 50, 100))}`,
-            );
-            return Array.isArray(rows) ? rows : [];
+        async listMerchantUsageEvents({
+            merchantId,
+            jobId = null,
+            orderId = null,
+            fileId = null,
+            createdFrom = null,
+            createdTo = null,
+            limit = 50,
+        }) {
+            const filters = [];
+            if (jobId) filters.push(`job_id=${eqFilter(jobId, 'job_id')}`);
+            if (orderId) filters.push(`metrics->>order_id=${eqFilter(orderId, 'order_id')}`);
+            if (fileId) filters.push(`file_id=${eqFilter(fileId, 'file_id')}`);
+            if (createdFrom) filters.push(`created_at=gte.${encodeURIComponent(createdFrom)}`);
+            if (createdTo) filters.push(`created_at=lt.${encodeURIComponent(createdTo)}`);
+            return listMerchantV2Rows('merchant_usage_events', {
+                merchantId,
+                select: 'usage_event_id,org_id,merchant_id,job_id,file_id,event_type,quantity,metrics,created_at',
+                filters,
+                order: 'created_at.desc',
+                limit,
+            });
         },
 
         async createMerchantFile(file) {
@@ -1287,6 +1306,18 @@ export function createSupabaseRestClient({
             return createMerchantV2Row('merchant_shipments', shipment);
         },
 
+        async listMerchantShipments({
+            merchantId,
+            orderId = null,
+            status = null,
+            limit = 50,
+        }) {
+            const filters = [];
+            if (orderId) filters.push(`order_id=${eqFilter(orderId, 'order_id')}`);
+            if (status) filters.push(`status=${eqFilter(status, 'status')}`);
+            return listMerchantV2Rows('merchant_shipments', { merchantId, filters, limit });
+        },
+
         async getMerchantShipment({ merchantId, shipmentId }) {
             return getMerchantV2Row('merchant_shipments', {
                 merchantId,
@@ -1295,8 +1326,51 @@ export function createSupabaseRestClient({
             });
         },
 
+        async updateMerchantShipmentStatus({
+            merchantId,
+            shipmentId,
+            status,
+            shippedAt = undefined,
+            deliveredAt = undefined,
+            fields = {},
+        }) {
+            const body = { ...fields, status: requireValue(status, 'status') };
+            if (shippedAt !== undefined) body.shipped_at = shippedAt;
+            if (deliveredAt !== undefined) body.delivered_at = deliveredAt;
+            return updateMerchantV2Row('merchant_shipments', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_shipments,
+                id: shipmentId,
+                body,
+            });
+        },
+
         async createMerchantShippingLabel(label) {
             return createMerchantV2Row('merchant_shipping_labels', label);
+        },
+
+        async listMerchantShippingLabels({
+            merchantId,
+            shipmentId = null,
+            limit = 50,
+        }) {
+            const filters = [];
+            if (shipmentId) filters.push(`shipment_id=${eqFilter(shipmentId, 'shipment_id')}`);
+            return listMerchantV2Rows('merchant_shipping_labels', {
+                merchantId,
+                filters,
+                limit,
+            });
+        },
+
+        async getMerchantShippingLabelByShipment({ merchantId, shipmentId }) {
+            const rows = await request(merchantV2ListPath('merchant_shipping_labels', {
+                merchantId,
+                filters: [`shipment_id=${eqFilter(shipmentId, 'shipment_id')}`],
+                order: 'created_at.desc',
+                limit: 1,
+            }));
+            return firstRow(rows);
         },
 
         async getMerchantRateCard({ merchantId, rateCardId = null } = {}) {
@@ -1316,12 +1390,32 @@ export function createSupabaseRestClient({
             return createMerchantV2Row('merchant_invoices', invoice);
         },
 
-        async listMerchantInvoices({ merchantId, limit = 50 }) {
-            return listMerchantV2Rows('merchant_invoices', { merchantId, limit });
+        async listMerchantInvoices({ merchantId, status = null, limit = 50 }) {
+            const filters = [];
+            if (status) filters.push(`status=${eqFilter(status, 'status')}`);
+            return listMerchantV2Rows('merchant_invoices', { merchantId, filters, limit });
+        },
+
+        async getMerchantInvoice({ merchantId, invoiceId }) {
+            return getMerchantV2Row('merchant_invoices', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_invoices,
+                id: invoiceId,
+            });
         },
 
         async createMerchantInvoiceLine(line) {
             return createMerchantV2Row('merchant_invoice_lines', line);
+        },
+
+        async listMerchantInvoiceLines({ merchantId, invoiceId, limit = 100 }) {
+            const filters = [`invoice_id=${eqFilter(invoiceId, 'invoice_id')}`];
+            return listMerchantV2Rows('merchant_invoice_lines', {
+                merchantId,
+                filters,
+                order: 'created_at.asc',
+                limit,
+            });
         },
 
         async createMerchantWebhookEndpoint(endpoint) {
@@ -1362,6 +1456,30 @@ export function createSupabaseRestClient({
 
         async createMerchantRealtimeToken(token) {
             return createMerchantV2Row('merchant_realtime_tokens', token);
+        },
+
+        async listMerchantRealtimeTokens({ merchantId, limit = 50, now = new Date().toISOString() }) {
+            return listMerchantV2Rows('merchant_realtime_tokens', {
+                merchantId,
+                select: [
+                    'token_id',
+                    'org_id',
+                    'merchant_id',
+                    'token_prefix',
+                    'scopes',
+                    'channel_names',
+                    'expires_at',
+                    'revoked_at',
+                    'metadata',
+                    'created_at',
+                    'updated_at',
+                ].join(','),
+                filters: [
+                    'revoked_at=is.null',
+                    `expires_at=gt.${encodeURIComponent(now)}`,
+                ],
+                limit,
+            });
         },
 
         async recordMerchantAdapterEvent(event) {

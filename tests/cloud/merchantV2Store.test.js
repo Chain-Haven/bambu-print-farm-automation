@@ -42,12 +42,18 @@ const requiredMethods = [
     'updateMerchantPostProcessingTask',
     'updateMerchantPostProcessingTaskIfStatus',
     'createMerchantShipment',
+    'listMerchantShipments',
     'getMerchantShipment',
+    'updateMerchantShipmentStatus',
     'createMerchantShippingLabel',
+    'listMerchantShippingLabels',
+    'getMerchantShippingLabelByShipment',
     'getMerchantRateCard',
     'createMerchantInvoice',
     'listMerchantInvoices',
+    'getMerchantInvoice',
     'createMerchantInvoiceLine',
+    'listMerchantInvoiceLines',
     'createMerchantWebhookEndpoint',
     'listMerchantWebhookEndpoints',
     'updateMerchantWebhookEndpoint',
@@ -55,6 +61,7 @@ const requiredMethods = [
     'createMerchantWebhookDelivery',
     'listMerchantWebhookDeliveries',
     'createMerchantRealtimeToken',
+    'listMerchantRealtimeTokens',
     'recordMerchantAdapterEvent',
 ];
 
@@ -244,5 +251,123 @@ describe('merchant API v2 store surface', () => {
                 released_at: '2026-07-01T12:05:00.000Z',
             }),
         });
+    });
+
+    it('lists shipments, labels, and label lookups with merchant-scoped filters', async () => {
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse([{ shipment_id: 's1', merchant_id: 'm1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ label_id: 'l1', shipment_id: 's1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ label_id: 'l2', shipment_id: 's1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ shipment_id: 's1', status: 'shipped' }]));
+        const store = await createStore(fetchImpl);
+
+        await store.listMerchantShipments({
+            merchantId: 'm1',
+            orderId: 'o1',
+            status: 'label_created',
+            limit: 2,
+        });
+        await store.listMerchantShippingLabels({ merchantId: 'm1', shipmentId: 's1', limit: 3 });
+        await store.getMerchantShippingLabelByShipment({ merchantId: 'm1', shipmentId: 's1' });
+        await store.updateMerchantShipmentStatus({
+            merchantId: 'm1',
+            shipmentId: 's1',
+            status: 'shipped',
+            shippedAt: '2026-07-01T12:10:00.000Z',
+        });
+
+        const shipmentsUrl = new URL(fetchImpl.mock.calls[0][0]);
+        expect(shipmentsUrl.pathname).toBe('/rest/v1/merchant_shipments');
+        expect(shipmentsUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(shipmentsUrl.searchParams.get('order_id')).toBe('eq.o1');
+        expect(shipmentsUrl.searchParams.get('status')).toBe('eq.label_created');
+        expect(shipmentsUrl.searchParams.get('order')).toBe('created_at.desc');
+        expect(shipmentsUrl.searchParams.get('limit')).toBe('2');
+
+        const labelsUrl = new URL(fetchImpl.mock.calls[1][0]);
+        expect(labelsUrl.pathname).toBe('/rest/v1/merchant_shipping_labels');
+        expect(labelsUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(labelsUrl.searchParams.get('shipment_id')).toBe('eq.s1');
+        expect(labelsUrl.searchParams.get('limit')).toBe('3');
+
+        const labelLookupUrl = new URL(fetchImpl.mock.calls[2][0]);
+        expect(labelLookupUrl.pathname).toBe('/rest/v1/merchant_shipping_labels');
+        expect(labelLookupUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(labelLookupUrl.searchParams.get('shipment_id')).toBe('eq.s1');
+        expect(labelLookupUrl.searchParams.get('limit')).toBe('1');
+
+        const [updateUrl, updateInit] = fetchImpl.mock.calls[3];
+        const shipmentUpdateUrl = new URL(updateUrl);
+        expect(shipmentUpdateUrl.pathname).toBe('/rest/v1/merchant_shipments');
+        expect(shipmentUpdateUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(shipmentUpdateUrl.searchParams.get('shipment_id')).toBe('eq.s1');
+        expect(updateInit).toMatchObject({
+            method: 'PATCH',
+            body: JSON.stringify({
+                status: 'shipped',
+                shipped_at: '2026-07-01T12:10:00.000Z',
+            }),
+        });
+    });
+
+    it('filters usage, invoices, invoice lines, and realtime token metadata', async () => {
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse([{ usage_event_id: 'u1', merchant_id: 'm1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ invoice_id: 'i1', merchant_id: 'm1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ invoice_id: 'i1', merchant_id: 'm1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ invoice_line_id: 'il1', invoice_id: 'i1' }]))
+            .mockResolvedValueOnce(jsonResponse([{ token_id: 't1', token_prefix: 'pkx_mock_rt_' }]));
+        const store = await createStore(fetchImpl);
+
+        await store.listMerchantUsageEvents({
+            merchantId: 'm1',
+            jobId: 'j1',
+            orderId: 'o1',
+            fileId: 'f1',
+            createdFrom: '2026-07-01T00:00:00.000Z',
+            createdTo: '2026-07-02T00:00:00.000Z',
+            limit: 4,
+        });
+        await store.listMerchantInvoices({ merchantId: 'm1', status: 'issued', limit: 5 });
+        await store.getMerchantInvoice({ merchantId: 'm1', invoiceId: 'i1' });
+        await store.listMerchantInvoiceLines({ merchantId: 'm1', invoiceId: 'i1', limit: 6 });
+        await store.listMerchantRealtimeTokens({ merchantId: 'm1', limit: 7 });
+
+        const usageUrl = new URL(fetchImpl.mock.calls[0][0]);
+        expect(usageUrl.pathname).toBe('/rest/v1/merchant_usage_events');
+        expect(usageUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(usageUrl.searchParams.get('job_id')).toBe('eq.j1');
+        expect(usageUrl.searchParams.get('file_id')).toBe('eq.f1');
+        expect(usageUrl.searchParams.get('metrics->>order_id')).toBe('eq.o1');
+        expect(usageUrl.searchParams.get('created_at')).toBe('gte.2026-07-01T00:00:00.000Z');
+        expect(usageUrl.toString()).toContain('created_at=lt.2026-07-02T00%3A00%3A00.000Z');
+        expect(usageUrl.searchParams.get('order')).toBe('created_at.desc');
+        expect(usageUrl.searchParams.get('limit')).toBe('4');
+
+        const invoicesUrl = new URL(fetchImpl.mock.calls[1][0]);
+        expect(invoicesUrl.pathname).toBe('/rest/v1/merchant_invoices');
+        expect(invoicesUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(invoicesUrl.searchParams.get('status')).toBe('eq.issued');
+        expect(invoicesUrl.searchParams.get('limit')).toBe('5');
+
+        const invoiceUrl = new URL(fetchImpl.mock.calls[2][0]);
+        expect(invoiceUrl.pathname).toBe('/rest/v1/merchant_invoices');
+        expect(invoiceUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(invoiceUrl.searchParams.get('invoice_id')).toBe('eq.i1');
+        expect(invoiceUrl.searchParams.get('limit')).toBe('1');
+
+        const linesUrl = new URL(fetchImpl.mock.calls[3][0]);
+        expect(linesUrl.pathname).toBe('/rest/v1/merchant_invoice_lines');
+        expect(linesUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(linesUrl.searchParams.get('invoice_id')).toBe('eq.i1');
+        expect(linesUrl.searchParams.get('limit')).toBe('6');
+
+        const tokensUrl = new URL(fetchImpl.mock.calls[4][0]);
+        expect(tokensUrl.pathname).toBe('/rest/v1/merchant_realtime_tokens');
+        expect(tokensUrl.searchParams.get('merchant_id')).toBe('eq.m1');
+        expect(tokensUrl.searchParams.get('revoked_at')).toBe('is.null');
+        expect(tokensUrl.searchParams.get('expires_at')).toMatch(/^gt\./);
+        expect(tokensUrl.searchParams.get('select')).not.toContain('token_hash');
+        expect(tokensUrl.searchParams.get('limit')).toBe('7');
     });
 });

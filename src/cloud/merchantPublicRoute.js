@@ -1,5 +1,6 @@
 import { createHttpError, createRequestId, publicError } from './merchantApiV2.js';
 import { MerchantAuthError, authenticateMerchantRequest } from './merchantAuth.js';
+import { createDefaultAdapters } from './adapters/index.js';
 import { createSupabaseRestClient } from './supabaseRest.js';
 
 function sendJson(res, statusCode, payload) {
@@ -63,12 +64,13 @@ export function routeQuery(req) {
 export function createMerchantRouteContext() {
     const store = createSupabaseRestClient();
     const now = () => new Date();
+    const adapters = createDefaultAdapters({ now });
     const authenticateMerchant = (request) => authenticateMerchantRequest(request, {
         store,
         pepper: process.env.MERCHANT_API_KEY_PEPPER || process.env.NODE_TOKEN_PEPPER,
         now,
     });
-    return { store, now, authenticateMerchant };
+    return { store, adapters, now, authenticateMerchant };
 }
 
 export async function runMerchantRoute(req, res, {
