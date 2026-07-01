@@ -163,9 +163,40 @@ router.post('/:id/start', requireAuth, asyncHandler(async (req, res) => {
     res.json(result);
 }));
 
-// Get printer queue
+// Get printer queue (all queued/assigned, priority-ordered)
 router.get('/queue/:printer_id', requireAuth, asyncHandler(async (req, res) => {
     res.json(JobOrchestrator.getQueue(req.params.printer_id));
+}));
+
+// Get the READY queue for a printer (excludes jobs scheduled for the future)
+router.get('/ready/:printer_id', requireAuth, asyncHandler(async (req, res) => {
+    res.json(JobModel.getReadyQueue(req.params.printer_id));
+}));
+
+// Schedule a job for a future time and/or set its queue priority
+router.post('/:id/schedule', requireAuth, asyncHandler(async (req, res) => {
+    const job = JobModel.findById(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    const updates = {};
+    if (req.body?.scheduled_for !== undefined) {
+        const value = req.body.scheduled_for;
+        if (value === null || value === '') {
+            updates.scheduled_for = null;
+        } else {
+            const when = new Date(value);
+            if (Number.isNaN(when.getTime())) return res.status(400).json({ error: 'scheduled_for must be a valid date/ISO timestamp' });
+            updates.scheduled_for = when.toISOString();
+        }
+    }
+    if (req.body?.priority !== undefined) {
+        const priority = Number(req.body.priority);
+        if (!Number.isFinite(priority)) return res.status(400).json({ error: 'priority must be a number' });
+        updates.priority = Math.trunc(priority);
+    }
+    if (!Object.keys(updates).length) return res.status(400).json({ error: 'provide scheduled_for and/or priority' });
+
+    res.json(JobModel.update(req.params.id, updates));
 }));
 
 // Clear history (MUST be before /:id to prevent Express matching "history" as an ID)

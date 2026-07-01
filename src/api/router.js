@@ -12,6 +12,7 @@ import sliceRoutes from './routes/slice.js';
 import eventRoutes from './routes/events.js';
 import analyticsRoutes from './routes/analytics.js';
 import filamentRoutes from './routes/filament.js';
+import maintenanceRoutes from './routes/maintenance.js';
 import systemRoutes from './routes/system.js';
 
 const router = Router();
@@ -48,5 +49,6 @@ router.use('/slice', sliceRoutes);
 router.use('/events', eventRoutes);
 router.use('/analytics', analyticsRoutes);
 router.use('/filament', filamentRoutes);
+router.use('/maintenance', maintenanceRoutes);
 
 export default router;

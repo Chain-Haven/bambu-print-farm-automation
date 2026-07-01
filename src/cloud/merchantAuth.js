@@ -1,4 +1,11 @@
 import { createHash, randomBytes as defaultRandomBytes, timingSafeEqual } from 'node:crypto';
+import { createRpmLimiter } from '../utils/rateLimiter.js';
+
+// Per-API-key rate limit for the public merchant API. Configurable via
+// MERCHANT_RATE_LIMIT_RPM (set <= 0 to disable). Best-effort per-instance on
+// serverless; exact on a long-running node.
+const MERCHANT_RATE_LIMIT_RPM = Number.parseInt(process.env.MERCHANT_RATE_LIMIT_RPM || '240', 10);
+const defaultMerchantRateLimiter = MERCHANT_RATE_LIMIT_RPM > 0 ? createRpmLimiter(MERCHANT_RATE_LIMIT_RPM) : null;
 
 export class MerchantAuthError extends Error {
     constructor(statusCode, code, message = code) {
@@ -95,6 +102,7 @@ export async function authenticateMerchantRequest(req, {
     store,
     pepper,
     now = () => new Date(),
+    rateLimiter = defaultMerchantRateLimiter,
 } = {}) {
     if (!store) throw new Error('store is required');
     if (!pepper) throw new Error('merchant api key pepper is required');
@@ -116,6 +124,17 @@ export async function authenticateMerchantRequest(req, {
     }
     if (merchant.org_id !== apiKey.org_id) {
         throw new MerchantAuthError(403, 'merchant_key_scope_mismatch');
+    }
+
+    // Per-key rate limit, checked only after the key is validated so bad tokens
+    // cannot exhaust a real key's bucket.
+    if (rateLimiter) {
+        const verdict = rateLimiter.check(apiKey.key_id);
+        if (!verdict.allowed) {
+            const error = new MerchantAuthError(429, 'rate_limited');
+            error.retryAfterMs = verdict.retryAfterMs;
+            throw error;
+        }
     }
 
     if (typeof store.touchMerchantApiKey === 'function') {
