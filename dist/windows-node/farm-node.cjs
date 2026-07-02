@@ -84103,7 +84103,7 @@ async function init() {
     process.exit(1);
   }
 }
-var import_express15, import_node_http, import_node_path12, import_node_url2, import_meta2, __dirname3, publicDir, log33, app, server;
+var import_express15, import_node_http, import_node_path12, import_node_url2, import_meta2, __dirname3, publicDir, log33, isVercelRuntime2, farmDashboardFile, cloudLandingFile, rootPageFile, app, server;
 var init_server = __esm({
   "server.js"() {
     init_config();
@@ -84128,6 +84128,10 @@ var init_server = __esm({
     __dirname3 = import_meta2.url ? import_node_path12.default.dirname((0, import_node_url2.fileURLToPath)(import_meta2.url)) : process.env.PKX_ASSET_ROOT || process.cwd();
     publicDir = resolveAsset("public", import_node_path12.default.join(__dirname3, "public"));
     log33 = createLogger("Server");
+    isVercelRuntime2 = Boolean(process.env.VERCEL);
+    farmDashboardFile = "farm-dashboard.html";
+    cloudLandingFile = "index.html";
+    rootPageFile = isVercelRuntime2 ? cloudLandingFile : farmDashboardFile;
     app = (0, import_express15.default)();
     server = (0, import_node_http.createServer)(app);
     app.use(import_express15.default.json({ limit: "200mb" }));
@@ -84139,7 +84143,7 @@ var init_server = __esm({
       if (req.method === "OPTIONS") return res.sendStatus(200);
       next();
     });
-    app.use(import_express15.default.static(publicDir));
+    app.use(import_express15.default.static(publicDir, { index: false }));
     app.get("/cloud", (req, res) => {
       res.sendFile(import_node_path12.default.join(publicDir, "cloud.html"));
     });
@@ -84149,11 +84153,14 @@ var init_server = __esm({
     app.get("/admin-reset", (req, res) => {
       res.sendFile(import_node_path12.default.join(publicDir, "admin-reset.html"));
     });
+    app.get("/", (req, res) => {
+      res.sendFile(import_node_path12.default.join(publicDir, rootPageFile));
+    });
     app.use("/api", router_default);
     app.use(errorHandler);
     app.get("*", (req, res) => {
-      if (!req.path.startsWith("/api")) {
-        res.sendFile(import_node_path12.default.join(publicDir, "index.html"));
+      if (!req.path.startsWith("/api") && !isVercelRuntime2) {
+        res.sendFile(import_node_path12.default.join(publicDir, farmDashboardFile));
       }
     });
     init();

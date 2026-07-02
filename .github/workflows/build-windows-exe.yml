@@ -46,3 +46,18 @@ jobs:
           name: farm-node-exe
           path: dist/windows-node/farm-node.exe
           if-no-files-found: error
+
+      - name: Publish farm-node.exe as a Release asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "farm-node-exe-$env:GITHUB_RUN_ID"
+          git tag $tag
+          git push origin $tag
+          gh release create $tag dist/windows-node/farm-node.exe `
+            --title "PrintKinetix Farm Node (Windows .exe)" `
+            --notes "Single self-contained Windows .exe built from $env:GITHUB_SHA. The admin console 'Download Windows .exe' button is wired to this asset via FARM_NODE_EXE_URL." `
+            --target $env:GITHUB_SHA
+          Write-Host "Release asset URL:"
+          gh release view $tag --json assets --jq '.assets[0].url'
