@@ -4,8 +4,10 @@ import { releaseFilamentReservation } from './filamentReservations.js';
 import {
     MerchantAuthError,
     authenticateMerchantRequest,
+    requireScope,
 } from './merchantAuth.js';
 import { deliverMerchantWebhook } from './webhooks.js';
+import { deliverMerchantWebhookEvent } from './merchantWebhookDelivery.js';
 
 const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
 
@@ -107,6 +109,7 @@ export function createMerchantPrintJobLifecycleHandler({
                 });
                 await recordLifecycleUsage({ store, merchant: context.merchant, job: updated, eventType: 'job.approved', now });
                 await deliverMerchantWebhook({ merchant: context.merchant, eventType: 'job.approved', data: { job: updated }, fetchImpl, now });
+                await deliverMerchantWebhookEvent({ store, merchant: context.merchant, eventType: 'job.approved', data: { job: updated }, fetchImpl, now });
                 return sendJson(res, 200, { ok: true, job: updated });
             }
 
@@ -148,6 +151,7 @@ export function createMerchantPrintJobLifecycleHandler({
                 const reservation_release = await releaseReservationIfNeeded({ store, job });
                 await recordLifecycleUsage({ store, merchant: context.merchant, job: updated, eventType: 'job.canceled', now });
                 await deliverMerchantWebhook({ merchant: context.merchant, eventType: 'job.canceled', data: { job: updated }, fetchImpl, now });
+                await deliverMerchantWebhookEvent({ store, merchant: context.merchant, eventType: 'job.canceled', data: { job: updated }, fetchImpl, now });
                 return sendJson(res, 200, { ok: true, job: updated, reservation_release, stop_dispatched });
             }
 
@@ -172,6 +176,7 @@ export function createMerchantPrintJobLifecycleHandler({
             });
             await recordLifecycleUsage({ store, merchant: context.merchant, job: reprint, eventType: 'job.reprint_requested', now });
             await deliverMerchantWebhook({ merchant: context.merchant, eventType: 'job.reprint_requested', data: { job: reprint }, fetchImpl, now });
+            await deliverMerchantWebhookEvent({ store, merchant: context.merchant, eventType: 'job.reprint_requested', data: { job: reprint }, fetchImpl, now });
             return sendJson(res, 201, { ok: true, job: reprint });
         } catch (error) {
             const handled = handleMerchantAuthError(res, error);
@@ -179,6 +184,89 @@ export function createMerchantPrintJobLifecycleHandler({
             return sendJson(res, 400, {
                 ok: false,
                 error: `${action}_print_job_failed`,
+                request_id: req.headers?.['x-vercel-id'] || null,
+                message: error.message,
+            });
+        }
+    };
+}
+
+const CONTROL_ACTIONS = new Set(['pause', 'resume', 'stop']);
+const CONTROL_COMMAND_TYPES = { pause: 'printer.pause', resume: 'printer.resume', stop: 'printer.stop' };
+
+// Merchant-initiated in-flight print control (pause/resume/stop) for a job the
+// merchant owns. Unlike cancel, this does not change the job's lifecycle status
+// (except stop, which the node reports back via print_job events); it enqueues a
+// command to the node that owns the printer, scoped to the merchant's job.
+export function createMerchantPrintJobControlHandler({
+    store,
+    pepper = process.env.MERCHANT_API_KEY_PEPPER || process.env.NODE_TOKEN_PEPPER,
+    now = () => new Date(),
+} = {}) {
+    if (!store) throw new Error('store is required');
+
+    return async function merchantPrintJobControlHandler(req, res) {
+        if (req.method && req.method !== 'POST') {
+            return methodNotAllowed(res, 'POST');
+        }
+
+        try {
+            const context = await authenticateMerchantRequest(req, { store, pepper, now });
+            requireScope(context.apiKey, 'print:control');
+            const body = parseJsonBody(req.body);
+            const action = requiredString(body.action, 'action');
+            if (!CONTROL_ACTIONS.has(action)) {
+                return sendJson(res, 400, {
+                    ok: false,
+                    error: 'invalid_control_action',
+                    message: 'action must be one of: pause, resume, stop',
+                });
+            }
+            const jobId = requiredString(body.job_id, 'job_id');
+            const job = await store.getMerchantPrintJob({
+                merchantId: context.merchant.merchant_id,
+                jobId,
+            });
+            if (!job) return sendJson(res, 404, { ok: false, error: 'print_job_not_found' });
+
+            if (!job.node_id || typeof store.createNodeCommand !== 'function') {
+                return sendJson(res, 409, {
+                    ok: false,
+                    error: 'job_not_dispatched',
+                    message: 'This job has not been routed to a printer yet.',
+                });
+            }
+
+            const command = await store.createNodeCommand({
+                org_id: context.merchant.org_id,
+                node_id: job.node_id,
+                printer_id: job.printer_id || null,
+                job_id: job.job_id,
+                command_type: CONTROL_COMMAND_TYPES[action],
+                payload: {
+                    // The cloud printer_id UUID means nothing to the local node;
+                    // routing_summary carries the node-side printer id.
+                    local_printer_id: job.routing_summary?.selected_local_printer_id
+                        || job.routing_summary?.local_printer_id
+                        || job.printer_id
+                        || null,
+                    job_id: job.job_id,
+                    action,
+                },
+            });
+
+            return sendJson(res, 202, {
+                ok: true,
+                job_id: job.job_id,
+                action,
+                command,
+            });
+        } catch (error) {
+            const handled = handleMerchantAuthError(res, error);
+            if (handled) return handled;
+            return sendJson(res, 400, {
+                ok: false,
+                error: 'control_print_job_failed',
                 request_id: req.headers?.['x-vercel-id'] || null,
                 message: error.message,
             });

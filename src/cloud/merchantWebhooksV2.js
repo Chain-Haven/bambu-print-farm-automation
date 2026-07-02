@@ -8,8 +8,8 @@ import {
     requiredString,
     safeObject,
 } from './merchantPublicProjections.js';
-import { signWebhookPayload } from './webhooks.js';
 import { assertSafeWebhookUrl } from './urlGuard.js';
+import { deliverOne, replayMerchantWebhookDelivery } from './merchantWebhookDelivery.js';
 
 const WEBHOOK_STATUSES = new Set(['active', 'disabled']);
 const DEFAULT_EVENTS = ['job.created'];
@@ -20,10 +20,6 @@ function withHttpStatus(payload, statusCode) {
         enumerable: false,
     });
     return payload;
-}
-
-function eventId(idGenerator) {
-    return `evt_${idGenerator().replaceAll('-', '')}`;
 }
 
 function defaultSecretGenerator() {
@@ -202,6 +198,7 @@ export function createMerchantWebhooksV2Handlers({
         || '',
     signingSecretEncryptionKey = process.env.MERCHANT_WEBHOOK_SIGNING_SECRET_KEY,
     encryptionIvGenerator = () => crypto.randomBytes(12),
+    fetchImpl = globalThis.fetch,
 } = {}) {
     if (!store) throw new Error('store is required');
 
@@ -314,42 +311,44 @@ export function createMerchantWebhooksV2Handlers({
             throw createHttpError(409, 'webhook_disabled', 'Webhook endpoint is disabled');
         }
 
-        const createdAt = now().toISOString();
-        const payload = {
-            id: eventId(idGenerator),
-            type: 'webhook.test',
-            created_at: createdAt,
-            data: {
-                webhook_id: endpoint.webhook_id,
-                url: endpoint.url,
-            },
-        };
-        const bodyText = JSON.stringify(payload);
-        const timestamp = String(Math.floor(now().getTime() / 1000));
-        const signature = signWebhookPayload({
-            secret: decryptSigningSecret(
+        let secret;
+        try {
+            secret = decryptSigningSecret(
                 safeObject(endpoint.metadata).webhook_signing_secret,
                 signingSecretEncryptionKey,
-            ),
-            timestamp,
-            body: bodyText,
+            );
+        } catch {
+            throw createHttpError(409, 'webhook_secret_unavailable', 'Webhook signing secret is unavailable');
+        }
+
+        const attempt = await deliverOne({
+            endpoint,
+            secret,
+            eventType: 'webhook.test',
+            data: { webhook_id: endpoint.webhook_id, url: endpoint.url },
+            fetchImpl,
+            now,
+            idGenerator,
         });
+
+        const createdAt = attempt.createdAt;
         const delivery = await store.createMerchantWebhookDelivery({
             ...merchantScope(merchant),
             delivery_id: idGenerator(),
             webhook_id: endpoint.webhook_id,
             event_type: 'webhook.test',
-            status: 'mock_recorded',
-            request_payload: payload,
-            response_status: null,
-            response_body: null,
+            status: attempt.delivered ? 'delivered' : 'failed',
+            request_payload: attempt.payload,
+            response_status: attempt.responseStatus,
+            response_body: attempt.responseBody,
             attempt_count: 1,
-            next_retry_at: null,
-            delivered_at: createdAt,
+            next_retry_at: attempt.delivered ? null : createdAt,
+            delivered_at: attempt.delivered ? createdAt : null,
             metadata: {
-                signature,
-                timestamp,
+                signature: attempt.signature,
+                timestamp: attempt.timestamp,
                 endpoint_url: endpoint.url,
+                ...(attempt.failureReason ? { failure_reason: attempt.failureReason } : {}),
             },
             created_at: createdAt,
             updated_at: createdAt,
@@ -357,10 +356,35 @@ export function createMerchantWebhooksV2Handlers({
         await store.updateMerchantWebhookEndpoint({
             merchantId: merchant.merchant_id,
             webhookId: endpoint.webhook_id,
-            fields: {
-                last_delivery_at: createdAt,
-                updated_at: createdAt,
-            },
+            fields: { last_delivery_at: createdAt, updated_at: createdAt },
+        });
+        return publicOk(publicDelivery(delivery), requestId);
+    }
+
+    async function listDeliveries(body = {}, request = null, requestId = undefined) {
+        const merchant = await getAuthenticatedMerchant(authenticateMerchant, request);
+        const source = safeObject(body);
+        const webhookId = optionalString(source.webhook_id);
+        const deliveries = await store.listMerchantWebhookDeliveries({
+            merchantId: merchant.merchant_id,
+            webhookId,
+            limit: normalizeLimit(source.limit, 50, 100),
+        });
+        return publicOk({ deliveries: (Array.isArray(deliveries) ? deliveries : []).map(publicDelivery) }, requestId);
+    }
+
+    async function replayDelivery(body = {}, request = null, requestId = undefined) {
+        const merchant = await getAuthenticatedMerchant(authenticateMerchant, request);
+        const source = safeObject(body);
+        const deliveryId = requiredString(source.delivery_id, 'delivery_id');
+        const delivery = await replayMerchantWebhookDelivery({
+            store,
+            merchant,
+            deliveryId,
+            fetchImpl,
+            now,
+            idGenerator,
+            signingSecretEncryptionKey,
         });
         return publicOk(publicDelivery(delivery), requestId);
     }
@@ -372,5 +396,7 @@ export function createMerchantWebhooksV2Handlers({
         updateEndpoint,
         deleteEndpoint,
         testEndpoint,
+        listDeliveries,
+        replayDelivery,
     };
 }

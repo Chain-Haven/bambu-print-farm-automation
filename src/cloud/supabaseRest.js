@@ -189,6 +189,19 @@ const MERCHANT_API_KEY_SELECT = [
     'created_at',
 ].join(',');
 
+// API key scopes live in a `scopes` jsonb column added by migration
+// 20260702090000. Until that migration is applied on a given environment, the
+// column does not exist and PostgREST would 400 on select/insert — so scopes
+// are only read/written when MERCHANT_API_KEY_SCOPES_ENABLED=true. When off,
+// keys behave as unrestricted (["*"]) for backward compatibility.
+function merchantApiKeyScopesEnabled(env = process.env) {
+    return env?.MERCHANT_API_KEY_SCOPES_ENABLED === 'true';
+}
+
+function merchantApiKeySelect(env = process.env) {
+    return merchantApiKeyScopesEnabled(env) ? `${MERCHANT_API_KEY_SELECT},scopes` : MERCHANT_API_KEY_SELECT;
+}
+
 const MERCHANT_SETUP_TOKEN_SELECT = [
     'setup_token_id',
     'merchant_id',
@@ -254,6 +267,7 @@ const MERCHANT_V2_IDS = {
     merchant_shipments: 'shipment_id',
     merchant_invoices: 'invoice_id',
     merchant_webhook_endpoints: 'webhook_id',
+    merchant_webhook_deliveries: 'delivery_id',
     merchant_realtime_tokens: 'token_id',
 };
 
@@ -898,12 +912,16 @@ export function createSupabaseRestClient({
         },
 
         async createMerchantApiKey(apiKey) {
+            const scopesEnabled = merchantApiKeyScopesEnabled();
+            const body = scopesEnabled
+                ? apiKey
+                : (() => { const { scopes: _scopes, ...rest } = apiKey; return rest; })();
             const rows = await request(
-                `/rest/v1/merchant_api_keys?select=${MERCHANT_API_KEY_SELECT}`,
+                `/rest/v1/merchant_api_keys?select=${merchantApiKeySelect()}`,
                 {
                     method: 'POST',
                     headers: { Prefer: 'return=representation' },
-                    body: apiKey,
+                    body,
                 },
             );
             return firstRow(rows);
@@ -911,14 +929,17 @@ export function createSupabaseRestClient({
 
         async findMerchantApiKeyByHash(keyHash) {
             const rows = await request(
-                `/rest/v1/merchant_api_keys?key_hash=eq.${encodeURIComponent(keyHash)}&revoked_at=is.null&select=${MERCHANT_API_KEY_SELECT}&limit=1`,
+                `/rest/v1/merchant_api_keys?key_hash=eq.${encodeURIComponent(keyHash)}&revoked_at=is.null&select=${merchantApiKeySelect()}&limit=1`,
             );
             return firstRow(rows);
         },
 
         async listMerchantApiKeys(merchantId) {
+            const select = merchantApiKeyScopesEnabled()
+                ? 'key_id,merchant_id,org_id,name,key_prefix,scopes,last_used_at,revoked_at,created_at'
+                : 'key_id,merchant_id,org_id,name,key_prefix,last_used_at,revoked_at,created_at';
             const rows = await request(
-                `/rest/v1/merchant_api_keys?merchant_id=eq.${encodeURIComponent(merchantId)}&select=key_id,merchant_id,org_id,name,key_prefix,last_used_at,revoked_at,created_at&order=created_at.desc`,
+                `/rest/v1/merchant_api_keys?merchant_id=eq.${encodeURIComponent(merchantId)}&select=${select}&order=created_at.desc`,
             );
             return Array.isArray(rows) ? rows : [];
         },
@@ -1807,6 +1828,23 @@ export function createSupabaseRestClient({
         async listMerchantWebhookDeliveries({ merchantId, webhookId = null, limit = 50 }) {
             const filters = webhookId ? [`webhook_id=${eqFilter(webhookId, 'webhook_id')}`] : [];
             return listMerchantV2Rows('merchant_webhook_deliveries', { merchantId, filters, limit });
+        },
+
+        async getMerchantWebhookDelivery({ merchantId, deliveryId }) {
+            return getMerchantV2Row('merchant_webhook_deliveries', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_webhook_deliveries,
+                id: deliveryId,
+            });
+        },
+
+        async updateMerchantWebhookDelivery({ merchantId, deliveryId, fields = {} }) {
+            return updateMerchantV2Row('merchant_webhook_deliveries', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_webhook_deliveries,
+                id: deliveryId,
+                body: fields,
+            });
         },
 
         async createMerchantRealtimeToken(token) {

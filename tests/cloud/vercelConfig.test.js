@@ -68,14 +68,10 @@ describe('Vercel cloud node package config', () => {
         expect(config.functions['api/cloud/admin/migrations.js']).toMatchObject({
             maxDuration: 30,
         });
-        expect(config.functions['api/cloud/admin/migrations.js'].includeFiles).toContain(
-            'supabase/migrations/20260701050000_merchant_api_v2_adapter_backbone.sql',
-        );
-        expect(config.functions['api/cloud/admin/migrations.js'].includeFiles).toContain(
-            'supabase/migrations/20260701153253_merchant_shipping_claims.sql',
-        );
-        expect(config.functions['api/cloud/admin/migrations.js'].includeFiles).toContain(
-            'supabase/migrations/20260702080000_merchant_user_auth.sql',
-        );
+        // A glob keeps the includeFiles string under Vercel's 256-char limit
+        // while shipping every migration the allowlisted runner may apply.
+        expect(config.functions['api/cloud/admin/migrations.js'].includeFiles).toBe('supabase/migrations/*.sql');
+        expect(fs.existsSync('supabase/migrations/20260702080000_merchant_user_auth.sql')).toBe(true);
+        expect(fs.existsSync('supabase/migrations/20260702090000_merchant_api_key_scopes.sql')).toBe(true);
     });
 });

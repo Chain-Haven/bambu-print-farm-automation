@@ -135,7 +135,18 @@
       <p>Create or reset a PrintKinetix super-admin password, then sign in from the cloud console.</p>
     </header>
 
-    <form id="reset-form">
+    <form id="request-form">
+      <p>Enter your operator email and we'll send a password reset link to it — no admin key required.</p>
+      <label>
+        <span>Email</span>
+        <input id="request-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com">
+      </label>
+      <button type="submit">Send Reset Link</button>
+      <div id="request-status" class="status" hidden></div>
+      <p>Already have a reset link? <a href="#" id="show-set">Set your password</a></p>
+    </form>
+
+    <form id="reset-form" hidden>
       <label>
         <span>Reset token</span>
         <input id="reset-token" name="reset_token" type="password" autocomplete="off" required placeholder="pkx_admin_reset_...">
@@ -147,28 +158,70 @@
       <button type="submit">Set Password</button>
       <div id="status" class="status" hidden></div>
       <a id="cloud-link" class="button" href="/cloud" hidden>Open Cloud Console</a>
+      <p>Need a reset link? <a href="#" id="show-request">Request one by email</a></p>
     </form>
   </main>
 
   <script>
-    const form = document.querySelector('#reset-form');
+    const requestForm = document.querySelector('#request-form');
+    const requestStatus = document.querySelector('#request-status');
+    const requestEmail = document.querySelector('#request-email');
+    const resetForm = document.querySelector('#reset-form');
     const statusBox = document.querySelector('#status');
     const cloudLink = document.querySelector('#cloud-link');
     const tokenInput = document.querySelector('#reset-token');
     const passwordInput = document.querySelector('#password');
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
-    if (token) tokenInput.value = token;
 
-    function setStatus(message, isError = false) {
-      statusBox.hidden = false;
-      statusBox.className = `status ${isError ? 'error' : ''}`.trim();
-      statusBox.textContent = message;
+    function showRequest() {
+      requestForm.hidden = false;
+      resetForm.hidden = true;
+    }
+    function showSet() {
+      requestForm.hidden = true;
+      resetForm.hidden = false;
+    }
+    document.querySelector('#show-set').addEventListener('click', (e) => { e.preventDefault(); showSet(); });
+    document.querySelector('#show-request').addEventListener('click', (e) => { e.preventDefault(); showRequest(); });
+
+    if (token) {
+      tokenInput.value = token;
+      showSet();
     }
 
-    form.addEventListener('submit', async (event) => {
+    function setStatus(box, message, isError = false) {
+      box.hidden = false;
+      box.className = `status ${isError ? 'error' : ''}`.trim();
+      box.textContent = message;
+    }
+
+    requestForm.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const button = form.querySelector('button[type="submit"]');
+      const button = requestForm.querySelector('button[type="submit"]');
+      button.disabled = true;
+      try {
+        const response = await fetch('/api/cloud/admin/password-reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: requestEmail.value.trim() }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.ok === false) {
+          throw new Error(payload.message || payload.error || `Request failed (${response.status})`);
+        }
+        setStatus(requestStatus, payload.message || 'If that email belongs to an operator account, a password reset link has been sent.');
+        requestEmail.value = '';
+      } catch (error) {
+        setStatus(requestStatus, error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    resetForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = resetForm.querySelector('button[type="submit"]');
       button.disabled = true;
       cloudLink.hidden = true;
       try {
@@ -184,11 +237,11 @@
         if (!response.ok || payload.ok === false) {
           throw new Error(payload.message || payload.error || `Request failed (${response.status})`);
         }
-        setStatus(`Password set for ${payload.admin?.email || 'admin'}.`);
+        setStatus(statusBox, `Password set for ${payload.admin?.email || 'admin'}.`);
         cloudLink.hidden = false;
         passwordInput.value = '';
       } catch (error) {
-        setStatus(error.message, true);
+        setStatus(statusBox, error.message, true);
       } finally {
         button.disabled = false;
       }

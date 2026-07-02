@@ -58,6 +58,7 @@ describe('merchant API key auth', () => {
             name: 'Production',
             key_prefix: rawKey.slice(0, 18),
             key_hash: hashMerchantApiKey(rawKey, 'pepper'),
+            scopes: ['*'],
         });
         expect(JSON.stringify(payload.record)).not.toContain(rawKey);
     });

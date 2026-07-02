@@ -41,6 +41,8 @@ export function createMemoryCloudStore({ now = () => new Date() } = {}) {
         printJobs: [],
         routingDecisions: [],
         usageEvents: [],
+        merchantWebhookEndpoints: [],
+        merchantWebhookDeliveries: [],
         artifacts: new Map(),
     };
     let publicBaseUrl = '';
@@ -560,6 +562,61 @@ export function createMemoryCloudStore({ now = () => new Date() } = {}) {
             return clone(db.printJobs.find((job) => (
                 job.merchant_id === merchantId && job.options?.idempotency_key === idempotencyKey
             )) || null);
+        },
+
+        // -- merchant webhook endpoints + deliveries (v2) -------------------------
+        async createMerchantWebhookEndpoint(endpoint) {
+            const row = { created_at: ts(), updated_at: ts(), ...clone(endpoint) };
+            db.merchantWebhookEndpoints.push(row);
+            return clone(row);
+        },
+        async getMerchantWebhookEndpoint({ merchantId, webhookId }) {
+            return clone(db.merchantWebhookEndpoints.find((e) => (
+                e.merchant_id === merchantId && e.webhook_id === webhookId
+            )) || null);
+        },
+        async listMerchantWebhookEndpoints({ merchantId, limit = 50 }) {
+            return clone(latest(db.merchantWebhookEndpoints.filter((e) => e.merchant_id === merchantId), limit));
+        },
+        async updateMerchantWebhookEndpoint({ merchantId, webhookId, fields = {} }) {
+            const row = db.merchantWebhookEndpoints.find((e) => (
+                e.merchant_id === merchantId && e.webhook_id === webhookId
+            ));
+            if (!row) return null;
+            Object.assign(row, clone(fields), { updated_at: ts() });
+            return clone(row);
+        },
+        async deleteMerchantWebhookEndpoint({ merchantId, webhookId }) {
+            const row = db.merchantWebhookEndpoints.find((e) => (
+                e.merchant_id === merchantId && e.webhook_id === webhookId
+            ));
+            if (!row) return null;
+            Object.assign(row, { status: 'disabled', updated_at: ts() });
+            return clone(row);
+        },
+        async createMerchantWebhookDelivery(delivery) {
+            const row = { created_at: ts(), updated_at: ts(), ...clone(delivery) };
+            db.merchantWebhookDeliveries.push(row);
+            return clone(row);
+        },
+        async getMerchantWebhookDelivery({ merchantId, deliveryId }) {
+            return clone(db.merchantWebhookDeliveries.find((d) => (
+                d.merchant_id === merchantId && d.delivery_id === deliveryId
+            )) || null);
+        },
+        async listMerchantWebhookDeliveries({ merchantId, webhookId = null, limit = 50 }) {
+            const rows = db.merchantWebhookDeliveries.filter((d) => (
+                d.merchant_id === merchantId && (!webhookId || d.webhook_id === webhookId)
+            ));
+            return clone(latest(rows, limit));
+        },
+        async updateMerchantWebhookDelivery({ merchantId, deliveryId, fields = {} }) {
+            const row = db.merchantWebhookDeliveries.find((d) => (
+                d.merchant_id === merchantId && d.delivery_id === deliveryId
+            ));
+            if (!row) return null;
+            Object.assign(row, clone(fields), { updated_at: ts() });
+            return clone(row);
         },
         async createRoutingDecision(decision) {
             const row = {

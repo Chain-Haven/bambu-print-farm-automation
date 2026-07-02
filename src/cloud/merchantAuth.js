@@ -7,6 +7,46 @@ import { createRpmLimiter } from '../utils/rateLimiter.js';
 const MERCHANT_RATE_LIMIT_RPM = Number.parseInt(process.env.MERCHANT_RATE_LIMIT_RPM || '240', 10);
 const defaultMerchantRateLimiter = MERCHANT_RATE_LIMIT_RPM > 0 ? createRpmLimiter(MERCHANT_RATE_LIMIT_RPM) : null;
 
+// Scope model for merchant API keys. A key with ["*"] is unrestricted (the
+// default for backward compatibility). Otherwise it may only call routes whose
+// required scope is in its set.
+export const API_KEY_SCOPES = Object.freeze([
+    '*',
+    'print:submit',
+    'print:read',
+    'print:control',
+    'files:read',
+    'files:write',
+    'webhooks:manage',
+    'billing:read',
+    'account:read',
+]);
+
+export function normalizeScopes(value) {
+    const raw = Array.isArray(value) ? value : [value];
+    const scopes = raw
+        .map((s) => String(s || '').trim())
+        .filter(Boolean)
+        .map((s) => s.toLowerCase());
+    if (scopes.length === 0) return ['*'];
+    const invalid = scopes.filter((s) => !API_KEY_SCOPES.includes(s));
+    if (invalid.length > 0) {
+        throw new Error(`unsupported api key scope(s): ${invalid.join(', ')}`);
+    }
+    return [...new Set(scopes)];
+}
+
+export function keyHasScope(apiKey, requiredScope) {
+    const scopes = Array.isArray(apiKey?.scopes) && apiKey.scopes.length > 0 ? apiKey.scopes : ['*'];
+    return scopes.includes('*') || scopes.includes(requiredScope);
+}
+
+export function requireScope(apiKey, requiredScope) {
+    if (!keyHasScope(apiKey, requiredScope)) {
+        throw new MerchantAuthError(403, 'insufficient_scope');
+    }
+}
+
 export class MerchantAuthError extends Error {
     constructor(statusCode, code, message = code) {
         super(message);
@@ -61,7 +101,7 @@ export function merchantKeyHashesMatch(receivedHash, expectedHash) {
     return timingSafeEqual(received, expected);
 }
 
-export function buildMerchantApiKeyRecord({ merchant, name, rawKey, pepper }) {
+export function buildMerchantApiKeyRecord({ merchant, name, rawKey, pepper, scopes = ['*'] }) {
     if (!merchant?.merchant_id || !merchant?.org_id) {
         throw new Error('active merchant is required');
     }
@@ -77,6 +117,7 @@ export function buildMerchantApiKeyRecord({ merchant, name, rawKey, pepper }) {
             name: name.trim(),
             key_prefix: rawKey.slice(0, 18),
             key_hash: hashMerchantApiKey(rawKey, pepper),
+            scopes: normalizeScopes(scopes),
         },
     };
 }

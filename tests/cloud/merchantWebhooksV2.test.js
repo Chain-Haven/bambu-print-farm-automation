@@ -4,6 +4,10 @@ import { signWebhookPayload } from '../../src/cloud/webhooks.js';
 
 const now = () => new Date('2026-07-01T12:00:00.000Z');
 
+function okResponse(status = 200, body = '') {
+    return { ok: status >= 200 && status < 300, status, text: async () => body };
+}
+
 function createMockStore(overrides = {}) {
     const endpoints = new Map();
     const deliveries = [];
@@ -71,6 +75,15 @@ function createMockStore(overrides = {}) {
             return row;
         }),
         listMerchantWebhookDeliveries: vi.fn().mockImplementation(async () => deliveries),
+        getMerchantWebhookDelivery: vi.fn().mockImplementation(async ({ deliveryId }) => (
+            deliveries.find((d) => d.delivery_id === deliveryId) || null
+        )),
+        updateMerchantWebhookDelivery: vi.fn().mockImplementation(async ({ deliveryId, fields }) => {
+            const current = deliveries.find((d) => d.delivery_id === deliveryId);
+            if (!current) return null;
+            Object.assign(current, fields);
+            return current;
+        }),
         ...overrides,
     };
 }
@@ -99,6 +112,7 @@ function createHandlers({
             signingSecretEncryptionKey: 'test-webhook-signing-secret-key',
             encryptionIvGenerator: () => Buffer.alloc(12, 7),
             idGenerator: () => '11111111-1111-4111-8111-111111111111',
+            fetchImpl: vi.fn().mockResolvedValue(okResponse(200, '')),
             ...handlerOptions,
         }),
     };
@@ -168,8 +182,9 @@ describe('merchant webhooks v2 public handlers', () => {
         });
         expect(testDelivery).toMatchObject({
             ok: true,
-            status: 'mock_recorded',
+            status: 'delivered',
             event_type: 'webhook.test',
+            response_status: 200,
         });
         expect(deleted).toMatchObject({
             ok: true,
@@ -227,7 +242,8 @@ describe('merchant webhooks v2 public handlers', () => {
             merchant_id: 'merchant-1',
             webhook_id: created.webhook_id,
             event_type: 'webhook.test',
-            status: 'mock_recorded',
+            status: 'delivered',
+            response_status: 200,
             attempt_count: 1,
             request_payload: expect.objectContaining({
                 type: 'webhook.test',
@@ -289,7 +305,8 @@ describe('merchant webhooks v2 public handlers', () => {
         });
         await expect(handlers.testEndpoint({ webhook_id: created.webhook_id })).resolves.toMatchObject({
             ok: true,
-            status: 'mock_recorded',
+            status: 'delivered',
+            response_status: 200,
         });
         await expect(handlers.deleteEndpoint({ webhook_id: created.webhook_id })).resolves.toMatchObject({
             ok: true,
@@ -341,15 +358,79 @@ describe('merchant webhooks v2 public handlers', () => {
         });
     });
 
-    it('exposes thin public route modules for collection, item, and test delivery routes', async () => {
-        const [{ default: indexRoute }, { default: itemRoute }, { default: testRoute }] = await Promise.all([
+    it('exposes thin public route modules for collection, item, test delivery, deliveries list, and replay routes', async () => {
+        const [
+            { default: indexRoute },
+            { default: itemRoute },
+            { default: testRoute },
+            { default: deliveriesRoute },
+            { default: replayRoute },
+        ] = await Promise.all([
             import('../../api/public/webhooks/index.js'),
             import('../../api/public/webhooks/[webhook_id].js'),
             import('../../api/public/webhooks/[webhook_id]/test.js'),
+            import('../../api/public/webhooks/[webhook_id]/deliveries/index.js'),
+            import('../../api/public/webhooks/[webhook_id]/deliveries/[delivery_id]/replay.js'),
         ]);
 
         expect(indexRoute).toEqual(expect.any(Function));
         expect(itemRoute).toEqual(expect.any(Function));
         expect(testRoute).toEqual(expect.any(Function));
+        expect(deliveriesRoute).toEqual(expect.any(Function));
+        expect(replayRoute).toEqual(expect.any(Function));
+    });
+
+    it('lists deliveries for an endpoint and replays a failed delivery', async () => {
+        const store = createMockStore();
+        const handlers = createHandlers({
+            store,
+            handlerOptions: { fetchImpl: vi.fn().mockResolvedValue(okResponse(200, 'ok')) },
+        });
+        const created = await handlers.createEndpoint({
+            url: 'https://merchant.example/webhooks/printkinetix',
+            events: ['job.completed'],
+        });
+
+        const list = await handlers.listDeliveries({ webhook_id: created.webhook_id });
+        expect(list).toMatchObject({ ok: true });
+        expect(Array.isArray(list.deliveries)).toBe(true);
+
+        // Seed a failed delivery manually, then replay it with a succeeding fetch.
+        const failed = await store.createMerchantWebhookDelivery({
+            org_id: 'org-1',
+            merchant_id: 'merchant-1',
+            delivery_id: 'delivery-1',
+            webhook_id: created.webhook_id,
+            event_type: 'job.completed',
+            status: 'failed',
+            request_payload: { id: 'evt_1', type: 'job.completed', created_at: now().toISOString(), data: { job: { job_id: 'job-1' } } },
+            response_status: 500,
+            response_body: 'boom',
+            attempt_count: 1,
+            next_retry_at: now().toISOString(),
+            delivered_at: null,
+            metadata: { signature: 'v1=x', timestamp: '1782907200', endpoint_url: created.url },
+            created_at: now().toISOString(),
+            updated_at: now().toISOString(),
+        });
+        store.getMerchantWebhookDelivery = vi.fn().mockResolvedValue(failed);
+
+        const replayed = await handlers.replayDelivery({ delivery_id: 'delivery-1' });
+        expect(replayed).toMatchObject({
+            ok: true,
+            delivery_id: 'delivery-1',
+            status: 'delivered',
+            response_status: 200,
+            attempt_count: 2,
+        });
+        expect(store.updateMerchantWebhookDelivery).toHaveBeenCalledWith(expect.objectContaining({
+            merchantId: 'merchant-1',
+            deliveryId: 'delivery-1',
+            fields: expect.objectContaining({ status: 'delivered', attempt_count: 2 }),
+        }));
+        expect(store.getMerchantWebhookDelivery).toHaveBeenCalledWith({
+            merchantId: 'merchant-1',
+            deliveryId: 'delivery-1',
+        });
     });
 });

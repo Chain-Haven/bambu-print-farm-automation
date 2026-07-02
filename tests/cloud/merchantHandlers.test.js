@@ -218,6 +218,7 @@ describe('merchant account handler', () => {
                 merchant_id: 'merchant-1',
                 org_id: 'org-1',
                 name: 'Production',
+                scopes: ['*'],
             },
         });
         expect(JSON.stringify(res.body)).not.toContain(keyHash);
@@ -277,6 +278,7 @@ describe('merchant API key handler', () => {
             name: 'Production',
             key_prefix: liveKey.slice(0, 18),
             key_hash: hashMerchantApiKey(liveKey, 'pepper'),
+            scopes: ['*'],
         });
         expect(store.markMerchantSetupTokenUsed).toHaveBeenCalledWith('setup-1', '2026-07-01T12:00:00.000Z');
         expect(res.statusCode).toBe(201);
@@ -288,6 +290,7 @@ describe('merchant API key handler', () => {
                 org_id: 'org-1',
                 name: 'Production',
                 key_prefix: liveKey.slice(0, 18),
+                scopes: ['*'],
                 revoked_at: null,
                 created_at: '2026-07-01T12:00:00.000Z',
             },
@@ -374,6 +377,7 @@ describe('merchant API key handler', () => {
                 org_id: 'org-1',
                 name: 'Production',
                 key_prefix: 'pkx_live_abc',
+                scopes: ['*'],
                 revoked_at: null,
             }],
         });
@@ -429,6 +433,7 @@ describe('merchant API key revoke handler', () => {
                 org_id: 'org-1',
                 name: 'Old key',
                 key_prefix: 'pkx_live_old',
+                scopes: ['*'],
                 revoked_at: '2026-07-01T12:00:00.000Z',
             },
         });

@@ -244,6 +244,12 @@ describe('cloud admin migration database execution', () => {
                 name: 'merchant_user_auth',
                 status: 'applied',
             },
+            {
+                filename: '20260702090000_merchant_api_key_scopes.sql',
+                version: '20260702090000',
+                name: 'merchant_api_key_scopes',
+                status: 'applied',
+            },
         ]);
     });
 

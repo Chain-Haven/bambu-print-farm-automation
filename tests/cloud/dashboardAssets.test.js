@@ -223,6 +223,16 @@ describe('cloud dashboard assets', () => {
         const onboarding = fs.readFileSync('public/merchant-onboarding.html', 'utf8');
         expect(onboarding).toContain('name="password"');
         expect(onboarding).toContain('href="/merchant"');
+
+        // The standalone /admin-reset page lets a locked-out operator request a
+        // reset link by email alone (no CLOUD_ADMIN_TOKEN), then set a password
+        // with the emailed token.
+        const adminReset = fs.readFileSync('public/admin-reset.html', 'utf8');
+        expect(adminReset).toContain('id="request-form"');
+        expect(adminReset).toContain('id="request-email"');
+        expect(adminReset).toContain('id="reset-form"');
+        expect(adminReset).toContain('/api/cloud/admin/password-reset');
+        expect(adminReset).toContain('/api/cloud/admin/password');
     });
 
     it('ships the live Print Fleet board (cards, AMS slots, previews, camera, adoption)', () => {

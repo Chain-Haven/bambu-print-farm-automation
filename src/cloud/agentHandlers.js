@@ -15,6 +15,7 @@ import {
 } from './httpServerUtils.js';
 import { releaseFilamentReservation } from './filamentReservations.js';
 import { deliverMerchantWebhook } from './webhooks.js';
+import { deliverMerchantWebhookEvent } from './merchantWebhookDelivery.js';
 
 const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
 
@@ -84,6 +85,16 @@ async function processJobLifecycleEvents({ store, node, events, now, fetchImpl }
                     const merchant = await store.findMerchantById(job.merchant_id);
                     if (merchant) {
                         await deliverMerchantWebhook({
+                            merchant,
+                            eventType: lifecycle.webhook,
+                            data: { job: updated || { ...job, status: lifecycle.status } },
+                            fetchImpl,
+                            now,
+                        });
+                        // Fan out to v2 webhook endpoints (persisted deliveries +
+                        // retries). No-op when no v2 endpoints are configured.
+                        await deliverMerchantWebhookEvent({
+                            store,
                             merchant,
                             eventType: lifecycle.webhook,
                             data: { job: updated || { ...job, status: lifecycle.status } },

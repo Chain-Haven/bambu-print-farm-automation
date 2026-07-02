@@ -144,6 +144,7 @@ function redactApiKey(apiKey) {
         org_id,
         name,
         key_prefix,
+        scopes,
         last_used_at,
         revoked_at,
         created_at,
@@ -155,6 +156,7 @@ function redactApiKey(apiKey) {
         org_id,
         name,
         key_prefix,
+        scopes: Array.isArray(scopes) && scopes.length > 0 ? scopes : ['*'],
         last_used_at,
         revoked_at,
         created_at,
@@ -214,7 +216,7 @@ async function createSetupTokenForMerchant({ store, merchant, pepper, now, setup
     };
 }
 
-async function createLiveKeyForMerchant({ store, merchant, name, pepper, liveKeyFactory }) {
+async function createLiveKeyForMerchant({ store, merchant, name, pepper, liveKeyFactory, scopes = ['*'] }) {
     if (!pepper) throw new Error('merchant api key pepper is required');
 
     const rawKey = liveKeyFactory();
@@ -223,6 +225,7 @@ async function createLiveKeyForMerchant({ store, merchant, name, pepper, liveKey
         name,
         rawKey,
         pepper,
+        scopes,
     });
     const record = await store.createMerchantApiKey(apiKey.record);
 
@@ -450,12 +453,14 @@ export function createMerchantApiKeysHandler({
                 }
             }
 
+            const keyRequestBody = parseJsonBody(req.body);
             const apiKey = await createLiveKeyForMerchant({
                 store,
                 merchant: context.merchant,
-                name: normalizeKeyName(parseJsonBody(req.body)),
+                name: normalizeKeyName(keyRequestBody),
                 pepper,
                 liveKeyFactory,
+                scopes: keyRequestBody.scopes,
             });
 
             return sendJson(res, 201, {

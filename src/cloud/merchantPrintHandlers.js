@@ -10,6 +10,7 @@ import { reserveFilamentForJob } from './filamentReservations.js';
 import { normalizeRoutingStrategy } from './printIntake.js';
 import { augmentOverviewWithInventory, normalizeFarmAutomationSettings } from './farmAutomation.js';
 import { deliverMerchantWebhook } from './webhooks.js';
+import { deliverMerchantWebhookEvent } from './merchantWebhookDelivery.js';
 
 const MAX_JSON_FILE_BYTES = 25 * 1024 * 1024;
 const SIGNED_URL_TTL_SECONDS = 3600;
@@ -425,6 +426,18 @@ export function createMerchantPrintJobsHandler({
                 now,
             });
             await deliverMerchantWebhook({
+                merchant: context.merchant,
+                eventType: result.job.status === 'needs_approval' ? 'job.needs_approval' : 'job.accepted',
+                data: {
+                    job: redactedJob(result.job),
+                    routing: result.routing,
+                    reservation: result.reservation,
+                },
+                fetchImpl,
+                now,
+            });
+            await deliverMerchantWebhookEvent({
+                store,
                 merchant: context.merchant,
                 eventType: result.job.status === 'needs_approval' ? 'job.needs_approval' : 'job.accepted',
                 data: {

@@ -248,6 +248,7 @@ describe('cloud merchant API key admin handler', () => {
                     org_id: 'org-1',
                     name: 'Production',
                     key_prefix: 'pkx_live_redacted',
+                    scopes: ['*'],
                     created_at: '2026-07-01T12:00:00.000Z',
                 },
             ],
@@ -296,6 +297,7 @@ describe('cloud merchant API key admin handler', () => {
             name: 'Fulfillment API',
             key_prefix: 'pkx_live_secret'.slice(0, 18),
             key_hash: hashMerchantApiKey('pkx_live_secret', 'pepper'),
+            scopes: ['*'],
         });
         expect(res.statusCode).toBe(201);
         expect(res.body).toEqual({
@@ -306,6 +308,7 @@ describe('cloud merchant API key admin handler', () => {
                 org_id: 'org-1',
                 name: 'Fulfillment API',
                 key_prefix: 'pkx_live_secret'.slice(0, 18),
+                scopes: ['*'],
                 created_at: '2026-07-01T12:00:00.000Z',
             },
             api_key_secret: 'pkx_live_secret',
@@ -353,6 +356,7 @@ describe('cloud merchant API key admin handler', () => {
                 org_id: 'org-1',
                 name: 'Production',
                 key_prefix: 'pkx_live_redacted',
+                scopes: ['*'],
                 revoked_at: '2026-07-01T12:00:00.000Z',
             },
         });
