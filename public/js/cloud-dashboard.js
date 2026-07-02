@@ -3,6 +3,7 @@ import { createFleetView } from './fleet-view.js';
 const storageKeys = {
   token: 'pkxCloudAdminToken',
   orgId: 'pkxCloudOrgId',
+  tab: 'pkxCloudTab',
 };
 
 const state = {
@@ -264,6 +265,17 @@ const elements = {
   adminUserEmail: $('#admin-user-email'),
   adminUserRole: $('#admin-user-role'),
   adminUsersOutput: $('#admin-users-output'),
+  // Console tabs + setup actions
+  consoleTabs: $('#console-tabs'),
+  runMigrationsBtn: $('#run-migrations-btn'),
+  migrationsOutput: $('#migrations-output'),
+  // Merchant portal account support
+  merchantPortalForm: $('#merchant-portal-form'),
+  merchantPortalMerchantId: $('#merchant-portal-merchant-id'),
+  merchantPortalReset: $('#merchant-portal-reset'),
+  merchantPortalOutput: $('#merchant-portal-output'),
+  // Security
+  logoutAllBtn: $('#logout-all-btn'),
 };
 
 function setApiState(label, mode = '') {
@@ -679,6 +691,7 @@ function selectMerchant(merchant) {
   elements.merchantActionId.value = merchantId;
   elements.merchantKeyMerchantId.value = merchantId;
   elements.merchantLookupId.value = merchantId;
+  if (elements.merchantPortalMerchantId) elements.merchantPortalMerchantId.value = merchantId;
   if (merchant?.org_id) {
     elements.orgId.value = merchant.org_id;
     elements.nodeOrgId.value = merchant.org_id;
@@ -1071,14 +1084,33 @@ function renderOverview() {
   fleetView.render();
 
   renderTable('#nodes-table', [
-    { label: 'Node', value: (row) => row.name || '-' },
+    { label: 'Node', value: (row) => (row.capabilities?.decommissioned ? `${row.name || '-'} (decommissioned)` : (row.name || '-')) },
     { label: 'Status', value: (row) => makeStatus(row.status) },
     { label: 'Version', value: (row) => row.agent_version || '-' },
     { label: 'Host', value: (row) => row.host_info?.hostname || '-' },
     { label: 'NICs', value: (row) => row.capabilities?.network_interface_count ?? '-' },
     { label: 'Pending Results', value: (row) => row.capabilities?.pending_result_count ?? '-' },
     { label: 'Last seen', value: (row) => formatDate(row.last_seen_at) },
-    { label: 'Detail', value: (row) => makeDetailButton('Open', `Node ${shortId(row.node_id)}`, row) },
+    {
+      label: 'Actions',
+      value: (row) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'row-actions';
+        wrap.append(
+          makeButton('Rename', () => {
+            handleNodeRename(row).catch((error) => showToast(error.message));
+          }, 'ghost-button small-button'),
+          makeButton('Rotate token', () => {
+            handleNodeRotateToken(row).catch((error) => showToast(error.message));
+          }, 'ghost-button small-button'),
+          makeButton('Decommission', () => {
+            handleNodeDecommission(row).catch((error) => showToast(error.message));
+          }, 'ghost-button small-button'),
+          makeDetailButton('Detail', `Node ${shortId(row.node_id)}`, row),
+        );
+        return wrap;
+      },
+    },
   ], overview.nodes, 'No nodes found.');
 
   renderTable('#printers-table', [
@@ -1279,6 +1311,133 @@ function setSignedInAdmin(admin) {
   state.admin = admin || null;
   const superAdmin = state.admin?.role === 'super_admin';
   if (elements.adminUsersSection) elements.adminUsersSection.hidden = !superAdmin;
+}
+
+// ===== Console tabs =====
+function showTab(name) {
+  const target = document.querySelector(`[data-tab-panel="${name}"]`) ? name : 'fleet';
+  document.querySelectorAll('[data-tab-panel]').forEach((panel) => {
+    panel.hidden = panel.dataset.tabPanel !== target;
+  });
+  if (elements.consoleTabs) {
+    elements.consoleTabs.querySelectorAll('.tab-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.tab === target);
+    });
+  }
+  window.localStorage.setItem(storageKeys.tab, target);
+}
+
+function bindTabs() {
+  if (!elements.consoleTabs) return;
+  elements.consoleTabs.addEventListener('click', (event) => {
+    const btn = event.target.closest('.tab-btn');
+    if (btn?.dataset.tab) showTab(btn.dataset.tab);
+  });
+  showTab(window.localStorage.getItem(storageKeys.tab) || 'fleet');
+}
+
+// ===== Backend setup: one-click migration runner =====
+async function handleRunMigrations() {
+  if (elements.runMigrationsBtn) elements.runMigrationsBtn.disabled = true;
+  if (elements.migrationsOutput) {
+    elements.migrationsOutput.hidden = false;
+    elements.migrationsOutput.textContent = 'Applying bundled migrations…';
+  }
+  try {
+    const payload = await apiRequest('/api/cloud/admin/migrations', { method: 'POST', body: {} });
+    const lines = (payload.migrations || []).map((m) => `${m.status.toUpperCase().padEnd(8)} ${m.filename}`);
+    if (elements.migrationsOutput) {
+      elements.migrationsOutput.textContent = lines.length ? lines.join('\n') : 'No bundled migrations.';
+    }
+    showToast('Migrations run — rechecking setup');
+    await refreshDashboard();
+  } catch (error) {
+    if (elements.migrationsOutput) elements.migrationsOutput.textContent = `Migration run failed: ${error.message}`;
+    showToast(error.message);
+  } finally {
+    if (elements.runMigrationsBtn) elements.runMigrationsBtn.disabled = false;
+  }
+}
+
+// ===== Merchant portal accounts (sign-in support) =====
+async function handleMerchantPortalList(event) {
+  if (event) event.preventDefault();
+  const merchantId = elements.merchantPortalMerchantId.value.trim();
+  if (!merchantId) throw new Error('Merchant ID is required');
+  const payload = await apiRequest(`/api/cloud/merchant-users?merchant_id=${encodeURIComponent(merchantId)}`);
+  renderTable('#merchant-portal-users-table', [
+    { label: 'Email', value: (row) => row.email || '-' },
+    { label: 'Role', value: (row) => row.role || '-' },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    { label: 'Last login', value: (row) => formatDate(row.last_login_at) },
+  ], payload.merchant_users || [], 'No portal accounts — the merchant signed up before portal sign-in existed or has not set a password.');
+}
+
+async function handleMerchantPortalReset() {
+  const merchantId = elements.merchantPortalMerchantId.value.trim();
+  if (!merchantId) throw new Error('Merchant ID is required');
+  const payload = await apiRequest('/api/cloud/merchant-users', {
+    method: 'POST',
+    body: { action: 'issue_password_reset', merchant_id: merchantId },
+  });
+  elements.merchantPortalOutput.hidden = false;
+  elements.merchantPortalOutput.textContent = [
+    `EMAIL=${payload.merchant_user?.email || ''}`,
+    `RESET_URL=${payload.reset_url}`,
+    `EXPIRES_AT=${payload.expires_at}`,
+    payload.email_sent ? 'EMAIL_SENT=yes' : 'EMAIL_SENT=no (share the link manually)',
+  ].join('\n');
+  showToast('Portal reset link issued');
+}
+
+// ===== Node lifecycle actions =====
+async function handleNodeRename(node) {
+  const name = window.prompt(`Rename node "${node.name || node.node_id}" to:`, node.name || '');
+  if (!name || !name.trim()) return;
+  await apiRequest('/api/cloud/nodes', {
+    method: 'POST',
+    body: { action: 'rename', node_id: node.node_id, name: name.trim() },
+  });
+  showToast('Node renamed');
+  await refreshOverview();
+}
+
+async function handleNodeRotateToken(node) {
+  if (!window.confirm(`Rotate the token for "${node.name || node.node_id}"?\n\nThe node stops syncing until you paste the new token into its Cloud Link settings (or .env).`)) return;
+  const payload = await apiRequest('/api/cloud/nodes', {
+    method: 'POST',
+    body: { action: 'rotate_token', node_id: node.node_id },
+  });
+  showDetail(`New token for ${payload.node?.name || shortId(node.node_id)}`, {
+    local_node_token: payload.local_node_token,
+    note: 'Copy this now — it is shown only once. Update the node via its dashboard Cloud Link panel or .env.',
+  });
+  showToast('Node token rotated');
+  await refreshOverview();
+}
+
+async function handleNodeDecommission(node) {
+  if (!window.confirm(`Decommission "${node.name || node.node_id}"?\n\nIts token stops authenticating immediately and the node can no longer sync. This cannot be undone (re-provision to bring it back).`)) return;
+  await apiRequest('/api/cloud/nodes', {
+    method: 'POST',
+    body: { action: 'decommission', node_id: node.node_id },
+  });
+  showToast('Node decommissioned');
+  await refreshOverview();
+}
+
+// ===== Security: revoke every session for this admin =====
+async function handleLogoutEverywhere() {
+  try {
+    await apiRequest('/api/cloud/admin/logout', { method: 'POST', body: { all: true } });
+  } catch {
+    /* the local sign-out below still applies */
+  }
+  window.localStorage.removeItem(storageKeys.token);
+  elements.adminToken.value = '';
+  setSignedInAdmin(null);
+  showLogin();
+  showToast('Signed out everywhere');
 }
 
 async function handleAdminLogin(event) {
@@ -1538,6 +1697,7 @@ function syncMerchantFields(id) {
   elements.merchantActionId.value = id;
   elements.merchantKeyMerchantId.value = id;
   elements.merchantLookupId.value = id;
+  if (elements.merchantPortalMerchantId) elements.merchantPortalMerchantId.value = id;
 }
 
 function setCurrentOrganization(organization) {
@@ -1915,6 +2075,24 @@ const fleetView = createFleetView({
 function bindEvents() {
   bindFarmAutomationEditorGuards();
   fleetView.bind();
+  bindTabs();
+
+  if (elements.runMigrationsBtn) {
+    elements.runMigrationsBtn.addEventListener('click', () => {
+      handleRunMigrations().catch((error) => showToast(error.message));
+    });
+  }
+  if (elements.merchantPortalForm) {
+    elements.merchantPortalForm.addEventListener('submit', (event) => {
+      handleMerchantPortalList(event).catch((error) => showToast(error.message));
+    });
+  }
+  if (elements.merchantPortalReset) {
+    elements.merchantPortalReset.addEventListener('click', () => {
+      handleMerchantPortalReset().catch((error) => showToast(error.message));
+    });
+  }
+  if (elements.logoutAllBtn) elements.logoutAllBtn.addEventListener('click', handleLogoutEverywhere);
 
   if (elements.amsPrinter) {
     elements.amsPrinter.addEventListener('change', () => renderAmsPanel());

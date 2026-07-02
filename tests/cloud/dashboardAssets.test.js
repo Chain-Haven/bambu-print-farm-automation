@@ -225,6 +225,53 @@ describe('cloud dashboard assets', () => {
         expect(onboarding).toContain('href="/merchant"');
     });
 
+    it('ships the tabbed console with one-click migrations, node lifecycle, and portal support tools', () => {
+        const html = fs.readFileSync('public/cloud.html', 'utf8');
+        const js = fs.readFileSync('public/js/cloud-dashboard.js', 'utf8');
+        const css = fs.readFileSync('public/css/cloud.css', 'utf8');
+
+        // Tabbed navigation replaces the single giant scroll.
+        expect(html).toContain('id="console-tabs"');
+        for (const tab of ['fleet', 'merchants', 'automation', 'admin']) {
+            expect(html).toContain(`data-tab="${tab}"`);
+            expect(html).toContain(`data-tab-panel="${tab}"`);
+        }
+        for (const marker of ['bindTabs', 'showTab', 'pkxCloudTab']) {
+            expect(js).toContain(marker);
+        }
+        expect(css).toContain('.console-tabs');
+        expect(css).toContain('.tab-btn');
+        expect(css).toContain('.tab-panel');
+
+        // One-click migration runner in Backend Setup.
+        expect(html).toContain('id="run-migrations-btn"');
+        expect(js).toContain('/api/cloud/admin/migrations');
+        expect(js).toContain('handleRunMigrations');
+
+        // Node lifecycle actions from the nodes table.
+        for (const marker of ['handleNodeRename', 'handleNodeRotateToken', 'handleNodeDecommission', "action: 'rotate_token'", "action: 'decommission'"]) {
+            expect(js).toContain(marker);
+        }
+
+        // Merchant portal account support tools + security panel.
+        expect(html).toContain('id="merchant-portal-form"');
+        expect(html).toContain('id="logout-all-btn"');
+        expect(js).toContain('/api/cloud/merchant-users');
+        expect(js).toContain('handleLogoutEverywhere');
+    });
+
+    it('gives the local print server a Cloud Link panel', () => {
+        const appJs = fs.readFileSync('public/js/app.js', 'utf8');
+        const apiJs = fs.readFileSync('public/js/api.js', 'utf8');
+
+        for (const marker of ['showCloudLinkModal', 'saveCloudLinkFromModal', 'testCloudLinkFromModal', 'disconnectCloudLinkFromModal']) {
+            expect(appJs).toContain(marker);
+        }
+        for (const endpoint of ['/cloud-link', '/cloud-link/test']) {
+            expect(apiJs).toContain(endpoint);
+        }
+    });
+
     it('ships the live Print Fleet board (cards, AMS slots, previews, camera, adoption)', () => {
         const html = fs.readFileSync('public/cloud.html', 'utf8');
         const js = fs.readFileSync('public/js/cloud-dashboard.js', 'utf8');

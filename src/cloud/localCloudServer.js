@@ -15,8 +15,13 @@ import {
     createCloudCommandHandler,
     createCloudSetupStatusHandler,
     createCloudFarmAutomationHandler,
+    createCloudMerchantApiKeysHandler,
+    createCloudMerchantJobsHandler,
     createCloudMerchantSettingsHandler,
     createCloudMerchantSetupTokenHandler,
+    createCloudMerchantUsageHandler,
+    createCloudMerchantUsersHandler,
+    createCloudMerchantV2Handler,
     createCloudMerchantsHandler,
     createCloudNodePackageHandler,
     createCloudNodeProvisionHandler,
@@ -85,6 +90,7 @@ export function createLocalCloudApp({
     app.all('/api/cloud/setup', wire(createCloudSetupStatusHandler({
         store,
         adminToken,
+        adminPepper: pepper,
         env: {
             SUPABASE_URL: 'local-store',
             SUPABASE_SERVICE_ROLE_KEY: 'local-store',
@@ -92,15 +98,27 @@ export function createLocalCloudApp({
             CLOUD_ADMIN_TOKEN: adminToken,
         },
     })));
-    app.all('/api/cloud/organizations', wire(createCloudOrganizationHandler({ store, adminToken })));
-    app.all('/api/cloud/nodes', wire(createCloudNodeProvisionHandler({ store, adminToken, pepper })));
-    app.all('/api/cloud/node-package', wire(createCloudNodePackageHandler({ store, adminToken, rootDir })));
-    app.all('/api/cloud/commands', wire(createCloudCommandHandler({ store, adminToken })));
-    app.all('/api/cloud/overview', wire(createCloudOverviewHandler({ store, adminToken })));
-    app.all('/api/cloud/farm-automation', wire(createCloudFarmAutomationHandler({ store, adminToken })));
-    app.all('/api/cloud/merchants', wire(createCloudMerchantsHandler({ store, adminToken, merchantPepper: pepper })));
-    app.all('/api/cloud/merchant-settings', wire(createCloudMerchantSettingsHandler({ store, adminToken })));
-    app.all('/api/cloud/merchant-setup-token', wire(createCloudMerchantSetupTokenHandler({ store, adminToken, merchantPepper: pepper })));
+    app.all('/api/cloud/organizations', wire(createCloudOrganizationHandler({ store, adminToken, adminPepper: pepper })));
+    app.all('/api/cloud/nodes', wire(createCloudNodeProvisionHandler({ store, adminToken, adminPepper: pepper, pepper })));
+    app.all('/api/cloud/node-package', wire(createCloudNodePackageHandler({ store, adminToken, adminPepper: pepper, rootDir })));
+    app.all('/api/cloud/commands', wire(createCloudCommandHandler({ store, adminToken, adminPepper: pepper })));
+    app.all('/api/cloud/overview', wire(createCloudOverviewHandler({ store, adminToken, adminPepper: pepper })));
+    app.all('/api/cloud/farm-automation', wire(createCloudFarmAutomationHandler({ store, adminToken, adminPepper: pepper })));
+    app.all('/api/cloud/merchants', wire(createCloudMerchantsHandler({ store, adminToken, adminPepper: pepper, merchantPepper: pepper })));
+    app.all('/api/cloud/merchant-settings', wire(createCloudMerchantSettingsHandler({ store, adminToken, adminPepper: pepper })));
+    app.all('/api/cloud/merchant-setup-token', wire(createCloudMerchantSetupTokenHandler({ store, adminToken, adminPepper: pepper, merchantPepper: pepper })));
+    app.all('/api/cloud/merchant-api-keys', wire(createCloudMerchantApiKeysHandler({ store, adminToken, adminPepper: pepper, merchantPepper: pepper })));
+    app.all('/api/cloud/merchant-jobs', wire(createCloudMerchantJobsHandler({ store, adminToken, adminPepper: pepper })));
+    app.all('/api/cloud/merchant-usage', wire(createCloudMerchantUsageHandler({ store, adminToken, adminPepper: pepper })));
+    app.all('/api/cloud/merchant-v2', wire(createCloudMerchantV2Handler({ store, adminToken, adminPepper: pepper })));
+    app.all('/api/cloud/merchant-users', wire(createCloudMerchantUsersHandler({
+        store,
+        adminToken,
+        adminPepper: pepper,
+        merchantPepper: pepper,
+        now,
+        mailer: authMailer,
+    })));
 
     // Agent (edge node) endpoints.
     app.all('/api/agent/heartbeat', wire(createHeartbeatHandler({ store, pepper, now })));

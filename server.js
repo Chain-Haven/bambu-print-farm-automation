@@ -14,6 +14,7 @@ import { JobOrchestrator } from './src/services/JobOrchestrator.js';
 import { createAlertDispatcher } from './src/services/AlertDispatcher.js';
 import { createNotificationDispatcher } from './src/services/NotificationService.js';
 import TunnelService from './src/services/TunnelService.js';
+import { autoStartCloudAgent, stopCloudAgent } from './src/cloud/cloudAgentRuntime.js';
 import { errorHandler } from './src/api/middleware/errorHandler.js';
 import { createLogger } from './src/utils/logger.js';
 import { resolveAsset } from './src/utils/runtimePaths.js';
@@ -95,6 +96,13 @@ async function init() {
         // Fan alerts out to configured Discord/Slack/Telegram/webhook channels.
         createNotificationDispatcher().start();
 
+        // Cloud link: when configured (dashboard settings or CLOUD_API_URL +
+        // LOCAL_NODE_TOKEN env), run the cloud node agent in this process —
+        // heartbeats mirror printers to the control plane and cloud commands
+        // execute against the live supervisor. Never fatal: a bad cloud config
+        // must not take down local printing.
+        await autoStartCloudAgent({ logger: log });
+
         // Start server
         const port = parseInt(process.env.PORT) || 3000;
         const host = process.env.HOST || '0.0.0.0';
@@ -106,6 +114,7 @@ async function init() {
         // Graceful shutdown
         const shutdown = async () => {
             log.info('Shutting down...');
+            await stopCloudAgent(); // sends the offline heartbeat while the cloud client is still alive
             await supervisor.stop();
             closeDb();
             server.close();

@@ -403,10 +403,19 @@ export function createCloudAdminSetPasswordHandler({
                 return sendJson(res, 403, { ok: false, error: 'admin_not_active' });
             }
 
+            // Consume the one-time token BEFORE writing the password: the
+            // store consume is conditional (used_at is null) and returns null
+            // when another request already redeemed it, so a double submit
+            // cannot set two passwords, and a failure after this point never
+            // leaves a still-live token behind.
+            const usedAt = now().toISOString();
+            const consumed = await store.markAdminPasswordResetTokenUsed(reset.reset_token_id, usedAt);
+            if (!consumed) {
+                return sendJson(res, 401, { ok: false, error: 'reset_token_used' });
+            }
+
             const passwordHash = await bcrypt.hash(password, bcryptCost);
             const updated = await store.updatePlatformAdminPassword(admin.admin_user_id, passwordHash);
-            const usedAt = now().toISOString();
-            await store.markAdminPasswordResetTokenUsed(reset.reset_token_id, usedAt);
             if (typeof store.revokeAdminSessions === 'function') {
                 await store.revokeAdminSessions(admin.admin_user_id, usedAt);
             }
@@ -548,11 +557,18 @@ export function createCloudAdminLogoutHandler({
             if (!context) return null;
 
             // Bootstrap-token auth has no server-side session to revoke.
-            if (context.type === 'session' && typeof store.revokeAdminSession === 'function') {
-                await store.revokeAdminSession(context.session.session_id, now().toISOString());
+            if (context.type === 'session') {
+                const body = parseJsonBody(req.body);
+                const everywhere = isPlainObject(body) && body.all === true;
+                if (everywhere && typeof store.revokeAdminSessions === 'function') {
+                    await store.revokeAdminSessions(context.adminUser.admin_user_id, now().toISOString());
+                } else if (typeof store.revokeAdminSession === 'function') {
+                    await store.revokeAdminSession(context.session.session_id, now().toISOString());
+                }
+                return sendJson(res, 200, { ok: true, revoked_all: everywhere });
             }
 
-            return sendJson(res, 200, { ok: true });
+            return sendJson(res, 200, { ok: true, revoked_all: false });
         } catch (error) {
             return sendJson(res, 400, {
                 ok: false,

@@ -19,6 +19,7 @@ import {
     createMerchantUserForSignup,
     redactMerchantUser,
 } from './merchantUserHandlers.js';
+import { redactWebhookConfig } from './webhooks.js';
 
 const SETUP_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MIN_PASSWORD_LENGTH = 12;
@@ -112,6 +113,13 @@ function redactMerchant(merchant) {
         updated_at,
     } = merchant;
 
+    // The V1 webhook HMAC signing secret lives at metadata.webhook.secret;
+    // never ship the plaintext to the browser (matches the admin console's
+    // redaction — the secret is returned once when the webhook is configured).
+    const safeMetadata = isPlainObject(metadata) && isPlainObject(metadata.webhook)
+        ? { ...metadata, webhook: redactWebhookConfig(metadata.webhook) }
+        : metadata;
+
     return Object.fromEntries(Object.entries({
         merchant_id,
         org_id,
@@ -121,7 +129,7 @@ function redactMerchant(merchant) {
         website,
         status,
         approval_mode,
-        metadata,
+        metadata: safeMetadata,
         approved_at,
         rejected_at,
         created_at,

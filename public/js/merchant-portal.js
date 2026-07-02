@@ -34,6 +34,7 @@ const elements = {
   newKeyName: $('#new-key-name'),
   keySecretOutput: $('#key-secret-output'),
   keysStatus: $('#keys-status'),
+  logoutEverywhere: $('#logout-everywhere'),
 };
 
 function getSessionToken() {
@@ -266,6 +267,17 @@ function handleLogout() {
   showView('signin');
 }
 
+async function handleLogoutEverywhere() {
+  try {
+    await requestJson('/api/public/merchant/logout', { method: 'POST', body: { all: true } });
+  } catch {
+    /* local sign-out below still applies */
+  }
+  window.localStorage.removeItem(SESSION_KEY);
+  setStatus(elements.loginStatus, 'Signed out on every device.', false);
+  showView('signin');
+}
+
 async function initView() {
   const params = new URLSearchParams(window.location.search);
   if (params.get('reset_token')) {
@@ -292,6 +304,7 @@ elements.forgotForm.addEventListener('submit', handleForgot);
 elements.resetForm.addEventListener('submit', handleReset);
 elements.createKeyForm.addEventListener('submit', handleCreateKey);
 elements.logoutBtn.addEventListener('click', handleLogout);
+if (elements.logoutEverywhere) elements.logoutEverywhere.addEventListener('click', handleLogoutEverywhere);
 elements.showForgot.addEventListener('click', () => {
   elements.forgotForm.hidden = !elements.forgotForm.hidden;
 });
