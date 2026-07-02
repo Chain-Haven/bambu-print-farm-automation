@@ -60,7 +60,8 @@
       <div id="first-setup-card" class="login-card" hidden>
         <h2>First-time setup</h2>
         <p class="login-sub">Create your operator account once using the server's
-          <code>CLOUD_ADMIN_TOKEN</code>. After this, sign in with just email + password.</p>
+          <code>CLOUD_ADMIN_TOKEN</code>. You'll be signed in immediately; after this,
+          sign in with just email + password.</p>
         <form id="first-setup-form">
           <label><span>CLOUD_ADMIN_TOKEN</span>
             <input id="setup-bootstrap-token" type="password" autocomplete="off" required>
@@ -77,12 +78,16 @@
       </div>
 
       <div id="reset-card" class="login-card" hidden>
-        <h2>Reset password</h2>
+        <h2>Forgot password?</h2>
+        <p class="login-sub">Enter your operator email and we'll send a reset link if the
+          account exists. No email set up on this deployment? Use first-time setup with the
+          <code>CLOUD_ADMIN_TOKEN</code>, or ask a super admin to issue a reset link from
+          the console.</p>
         <form id="admin-reset-request-form">
           <label><span>Email</span>
-            <input id="admin-reset-email" type="email" autocomplete="email" placeholder="you@company.com">
+            <input id="admin-reset-email" type="email" autocomplete="email" placeholder="you@company.com" required>
           </label>
-          <button type="submit" class="primary-btn">Issue Reset Link</button>
+          <button type="submit" class="primary-btn">Send Reset Link</button>
         </form>
         <pre id="admin-reset-output" class="secret-output" hidden></pre>
       </div>
@@ -147,6 +152,31 @@
             <button id="refresh-merchant-settings" type="button">Reload</button>
           </div>
         </form>
+
+        <section id="admin-users-section" class="panel" aria-label="Admin accounts" hidden>
+          <div class="panel-heading">
+            <h2>Admin Accounts</h2>
+            <span>Super admin only</span>
+          </div>
+          <div id="admin-users-table"></div>
+          <form id="admin-user-create-form">
+            <div class="split">
+              <label>
+                <span>Invite email</span>
+                <input id="admin-user-email" type="email" placeholder="teammate@company.com" required>
+              </label>
+              <label>
+                <span>Role</span>
+                <select id="admin-user-role">
+                  <option value="admin" selected>admin</option>
+                  <option value="super_admin">super_admin</option>
+                </select>
+              </label>
+            </div>
+            <button type="submit">Create account + reset link</button>
+          </form>
+          <pre id="admin-users-output" class="secret-output" hidden></pre>
+        </section>
 
         <form id="node-quickstart-form" class="panel">
           <div class="panel-heading">

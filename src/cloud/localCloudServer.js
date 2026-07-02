@@ -1,7 +1,16 @@
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createCloudAdminMeHandler } from './adminAuthHandlers.js';
+import {
+    createCloudAdminBootstrapHandler,
+    createCloudAdminLoginHandler,
+    createCloudAdminLogoutHandler,
+    createCloudAdminMeHandler,
+    createCloudAdminPasswordResetHandler,
+    createCloudAdminSetPasswordHandler,
+    createCloudAdminUsersHandler,
+} from './adminAuthHandlers.js';
+import { createMailer } from './mailer.js';
 import {
     createCloudCommandHandler,
     createCloudSetupStatusHandler,
@@ -21,10 +30,18 @@ import {
     createHeartbeatHandler,
 } from './agentHandlers.js';
 import {
+    createMerchantApiKeyRevokeHandler,
     createMerchantApiKeysHandler,
     createMerchantMeHandler,
     createMerchantSignupHandler,
 } from './merchantHandlers.js';
+import {
+    createMerchantLoginHandler,
+    createMerchantLogoutHandler,
+    createMerchantPasswordResetRequestHandler,
+    createMerchantPortalMeHandler,
+    createMerchantSetPasswordHandler,
+} from './merchantUserHandlers.js';
 import {
     createMerchantPrintJobStatusHandler,
     createMerchantPrintJobsHandler,
@@ -43,10 +60,15 @@ export function createLocalCloudApp({
     fetchImpl = globalThis.fetch,
     rootDir = process.cwd(),
     now = () => new Date(),
+    mailer = null,
 }) {
     if (!store) throw new Error('store is required');
     if (!adminToken) throw new Error('adminToken is required');
     if (!pepper) throw new Error('pepper is required');
+
+    // Default mailer runs disabled and logs messages (incl. reset links) to the
+    // console, so self-hosted operators can complete password resets offline.
+    const authMailer = mailer || createMailer();
 
     const app = express();
     app.use(express.json({ limit: '40mb' }));
@@ -88,18 +110,60 @@ export function createLocalCloudApp({
 
     // Public merchant endpoints.
     app.all('/api/public/merchants/signup', wire(createMerchantSignupHandler({ store, pepper, now })));
+    app.all('/api/public/api-keys/revoke', wire(createMerchantApiKeyRevokeHandler({ store, pepper, now })));
     app.all('/api/public/api-keys', wire(createMerchantApiKeysHandler({ store, pepper, now })));
     app.all('/api/public/merchant/me', wire(createMerchantMeHandler({ store, pepper, now })));
     app.all('/api/public/print-jobs', wire(createMerchantPrintJobsHandler({ store, pepper, now, fetchImpl })));
     app.all('/api/public/print-jobs/status', wire(createMerchantPrintJobStatusHandler({ store, pepper, now })));
 
-    // Admin session check used by the console UI's login gate. Locally the
-    // CLOUD_ADMIN_TOKEN (bootstrap) path authenticates directly.
+    // Merchant portal sign-in (email/password sessions + password resets).
+    app.all('/api/public/merchant/login', wire(createMerchantLoginHandler({ store, pepper, now })));
+    app.all('/api/public/merchant/logout', wire(createMerchantLogoutHandler({ store, pepper, now })));
+    app.all('/api/public/merchant/session', wire(createMerchantPortalMeHandler({ store, pepper, now })));
+    app.all('/api/public/merchant/password', wire(createMerchantSetPasswordHandler({ store, pepper, now })));
+    app.all('/api/public/merchant/password-reset', wire(createMerchantPasswordResetRequestHandler({
+        store,
+        pepper,
+        now,
+        mailer: authMailer,
+    })));
+
+    // Admin sign-in: the full email/password + reset suite the Vercel functions
+    // expose, backed by the same store. The CLOUD_ADMIN_TOKEN (bootstrap) path
+    // keeps working for provisioning scripts and first-time setup.
     app.all('/api/cloud/admin/me', wire(createCloudAdminMeHandler({
         store,
         bootstrapToken: adminToken,
         pepper,
         now,
+    })));
+    app.all('/api/cloud/admin/bootstrap', wire(createCloudAdminBootstrapHandler({
+        store,
+        bootstrapToken: adminToken,
+        pepper,
+        now,
+    })));
+    app.all('/api/cloud/admin/login', wire(createCloudAdminLoginHandler({ store, pepper, now })));
+    app.all('/api/cloud/admin/logout', wire(createCloudAdminLogoutHandler({
+        store,
+        bootstrapToken: adminToken,
+        pepper,
+        now,
+    })));
+    app.all('/api/cloud/admin/password', wire(createCloudAdminSetPasswordHandler({ store, pepper, now })));
+    app.all('/api/cloud/admin/password-reset', wire(createCloudAdminPasswordResetHandler({
+        store,
+        bootstrapToken: adminToken,
+        pepper,
+        now,
+        mailer: authMailer,
+    })));
+    app.all('/api/cloud/admin/users', wire(createCloudAdminUsersHandler({
+        store,
+        bootstrapToken: adminToken,
+        pepper,
+        now,
+        mailer: authMailer,
     })));
 
     // Serve the operator console statically (same files Vercel serves) so the
@@ -107,6 +171,12 @@ export function createLocalCloudApp({
     const publicDir = path.join(rootDir, 'public');
     if (fs.existsSync(path.join(publicDir, 'cloud.html'))) {
         app.get('/cloud', (_req, res) => res.sendFile(path.join(publicDir, 'cloud.html')));
+        for (const page of ['merchant', 'merchant-onboarding', 'admin-reset']) {
+            const file = path.join(publicDir, `${page}.html`);
+            if (fs.existsSync(file)) {
+                app.get(`/${page}`, (_req, res) => res.sendFile(file));
+            }
+        }
         app.use(express.static(publicDir));
     }
 

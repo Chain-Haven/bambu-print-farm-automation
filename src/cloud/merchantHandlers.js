@@ -9,8 +9,19 @@ import {
     generateMerchantSetupToken,
     getMerchantSetupToken,
 } from './merchantAuth.js';
+import {
+    MerchantUserAuthError,
+    authenticateMerchantUser,
+    getMerchantUserBearerToken,
+    isMerchantUserSessionToken,
+} from './merchantUserAuth.js';
+import {
+    createMerchantUserForSignup,
+    redactMerchantUser,
+} from './merchantUserHandlers.js';
 
 const SETUP_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const MIN_PASSWORD_LENGTH = 12;
 
 function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -54,6 +65,14 @@ function normalizeEmail(value) {
     return email;
 }
 
+function optionalPassword(value) {
+    if (value === undefined || value === null || value === '') return null;
+    if (typeof value !== 'string' || value.length < MIN_PASSWORD_LENGTH) {
+        throw new Error(`password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+    }
+    return value;
+}
+
 function normalizeSignup(body) {
     const source = isPlainObject(body) ? body : {};
     return {
@@ -61,6 +80,7 @@ function normalizeSignup(body) {
         contact_email: normalizeEmail(source.contact_email),
         contact_name: optionalString(source.contact_name),
         website: optionalString(source.website),
+        password: optionalPassword(source.password),
     };
 }
 
@@ -135,10 +155,24 @@ function redactApiKey(apiKey) {
 }
 
 function handleMerchantAuthError(res, error) {
-    if (error instanceof MerchantAuthError) {
+    if (error instanceof MerchantAuthError || error instanceof MerchantUserAuthError) {
         return sendJson(res, error.statusCode, { ok: false, error: error.code });
     }
     return null;
+}
+
+// Portal sessions (humans signed in with a password) may manage the same
+// resources as API keys. The merchant must be active for farm actions.
+async function authenticateMerchantHumanOrKey(req, { store, pepper, now }) {
+    if (isMerchantUserSessionToken(getMerchantUserBearerToken(req.headers || {}))) {
+        const context = await authenticateMerchantUser(req, { store, pepper, now });
+        if (context.merchant.status !== 'active') {
+            throw new MerchantUserAuthError(403, 'merchant_not_active');
+        }
+        return { merchant: context.merchant, merchantUser: context.merchantUser };
+    }
+
+    return authenticateMerchantRequest(req, { store, pepper, now });
 }
 
 async function getFullAutoEnabled(store) {
@@ -191,6 +225,7 @@ export function createMerchantSignupHandler({
     pepper = process.env.MERCHANT_API_KEY_PEPPER || process.env.NODE_TOKEN_PEPPER,
     now = () => new Date(),
     setupTokenFactory = generateMerchantSetupToken,
+    bcryptCost = 12,
 }) {
     if (!store) throw new Error('store is required');
 
@@ -210,6 +245,13 @@ export function createMerchantSignupHandler({
                 return sendJson(res, 409, { ok: false, error: 'merchant_already_exists' });
             }
 
+            const existingUser = typeof store.findMerchantUserByEmail === 'function'
+                ? await store.findMerchantUserByEmail(body.contact_email)
+                : null;
+            if (existingUser) {
+                return sendJson(res, 409, { ok: false, error: 'merchant_already_exists' });
+            }
+
             const organization = await store.createOrganization({ name: body.company_name });
             const approvedAt = fullAutoEnabled ? now().toISOString() : undefined;
             const merchant = await store.createMerchant({
@@ -224,10 +266,25 @@ export function createMerchantSignupHandler({
                 metadata: { signup_source: 'public_api' },
             });
 
+            // A password at signup creates the portal owner account so the
+            // merchant can sign in immediately (even while pending approval).
+            let merchantUser = null;
+            if (body.password && typeof store.createMerchantUser === 'function') {
+                merchantUser = await createMerchantUserForSignup({
+                    store,
+                    merchant,
+                    email: body.contact_email,
+                    displayName: body.contact_name,
+                    password: body.password,
+                    bcryptCost,
+                });
+            }
+
             if (!fullAutoEnabled) {
                 return sendJson(res, 201, {
                     ok: true,
                     merchant: redactMerchant(merchant),
+                    ...(merchantUser ? { merchant_user: redactMerchantUser(merchantUser) } : {}),
                     approval_required: true,
                 });
             }
@@ -243,6 +300,7 @@ export function createMerchantSignupHandler({
             return sendJson(res, 201, {
                 ok: true,
                 merchant: redactMerchant(merchant),
+                ...(merchantUser ? { merchant_user: redactMerchantUser(merchantUser) } : {}),
                 approval_required: false,
                 merchant_setup_token: setupToken.secret,
                 setup_token_expires_at: setupToken.expires_at,
@@ -270,9 +328,22 @@ export function createMerchantMeHandler({
         }
 
         try {
+            // Portal sessions may look themselves up regardless of merchant
+            // status (owners of pending merchants need to see where they stand).
+            if (isMerchantUserSessionToken(getMerchantUserBearerToken(req.headers || {}))) {
+                const context = await authenticateMerchantUser(req, { store, pepper, now });
+                return sendJson(res, 200, {
+                    ok: true,
+                    auth_type: 'portal_session',
+                    merchant: redactMerchant(context.merchant),
+                    merchant_user: redactMerchantUser(context.merchantUser),
+                });
+            }
+
             const context = await authenticateMerchantRequest(req, { store, pepper, now });
             return sendJson(res, 200, {
                 ok: true,
+                auth_type: 'api_key',
                 merchant: redactMerchant(context.merchant),
                 api_key: redactApiKey(context.apiKey),
             });
@@ -302,13 +373,13 @@ export function createMerchantApiKeysHandler({
             return { ...context, setupToken: context.setupToken };
         }
 
-        return authenticateMerchantRequest(req, { store, pepper, now });
+        return authenticateMerchantHumanOrKey(req, { store, pepper, now });
     }
 
     return async function merchantApiKeysHandler(req, res) {
         if (req.method === 'GET') {
             try {
-                const context = await authenticateMerchantRequest(req, { store, pepper, now });
+                const context = await authenticateMerchantHumanOrKey(req, { store, pepper, now });
                 const apiKeys = await store.listMerchantApiKeys(context.merchant.merchant_id);
                 return sendJson(res, 200, {
                     ok: true,
@@ -385,7 +456,7 @@ export function createMerchantApiKeyRevokeHandler({
         }
 
         try {
-            const context = await authenticateMerchantRequest(req, { store, pepper, now });
+            const context = await authenticateMerchantHumanOrKey(req, { store, pepper, now });
             const revoked = await store.revokeMerchantApiKey({
                 merchantId: context.merchant.merchant_id,
                 keyId: normalizeKeyId(parseJsonBody(req.body)),

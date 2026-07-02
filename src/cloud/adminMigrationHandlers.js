@@ -5,6 +5,7 @@ import { AdminAuthError, authenticateCloudAdmin } from './adminAuth.js';
 export const ALLOWED_SUPABASE_MIGRATION_FILES = Object.freeze([
     '20260701050000_merchant_api_v2_adapter_backbone.sql',
     '20260701153253_merchant_shipping_claims.sql',
+    '20260702080000_merchant_user_auth.sql',
 ]);
 
 const DISALLOWED_SQL_BODY_KEYS = ['sql', 'query', 'statement', 'statements'];

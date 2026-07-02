@@ -46,6 +46,8 @@ const state = {
     adapter_events: [],
   },
   provisionedNode: null,
+  admin: null,
+  adminUsers: [],
 };
 
 let farmAutomationRequestSequence = 0;
@@ -256,6 +258,12 @@ const elements = {
   setupEmail: $('#setup-email'),
   setupNewPassword: $('#setup-new-password'),
   firstSetupOutput: $('#first-setup-output'),
+  // Admin account management (super admin only)
+  adminUsersSection: $('#admin-users-section'),
+  adminUserCreateForm: $('#admin-user-create-form'),
+  adminUserEmail: $('#admin-user-email'),
+  adminUserRole: $('#admin-user-role'),
+  adminUsersOutput: $('#admin-users-output'),
 };
 
 function setApiState(label, mode = '') {
@@ -1262,8 +1270,15 @@ async function refreshDashboard() {
     refreshMerchantSettings(),
     refreshFarmAutomation(),
     refreshMerchants(),
+    refreshAdminUsers(),
   ]);
   setApiState('Connected', 'online');
+}
+
+function setSignedInAdmin(admin) {
+  state.admin = admin || null;
+  const superAdmin = state.admin?.role === 'super_admin';
+  if (elements.adminUsersSection) elements.adminUsersSection.hidden = !superAdmin;
 }
 
 async function handleAdminLogin(event) {
@@ -1276,6 +1291,7 @@ async function handleAdminLogin(event) {
     elements.adminToken.value = payload.admin_session_token;
     window.localStorage.setItem(storageKeys.token, payload.admin_session_token);
     elements.adminLoginPassword.value = '';
+    setSignedInAdmin(payload.admin);
     setAdminAuthState(payload.admin?.email || 'Signed in', 'ready-label');
     showConsole(payload.admin?.email || email);
     showToast('Signed in');
@@ -1283,9 +1299,13 @@ async function handleAdminLogin(event) {
   } catch (error) {
     if (elements.loginError) {
       elements.loginError.hidden = false;
-      elements.loginError.textContent = /invalid_admin_credentials/.test(error.message)
-        ? 'Incorrect email or password.'
-        : error.message;
+      if (/invalid_admin_credentials/.test(error.message)) {
+        elements.loginError.textContent = 'Incorrect email or password.';
+      } else if (/rate_limited/.test(error.message)) {
+        elements.loginError.textContent = 'Too many attempts — wait a minute and try again.';
+      } else {
+        elements.loginError.textContent = error.message;
+      }
     } else {
       showToast(error.message);
     }
@@ -1312,8 +1332,12 @@ function showConsole(email) {
 }
 
 function handleLogout() {
+  // Revoke the server-side session first (best-effort — a dead token still
+  // gets dropped locally either way).
+  apiRequest('/api/cloud/admin/logout', { method: 'POST' }).catch(() => {});
   window.localStorage.removeItem(storageKeys.token);
   elements.adminToken.value = '';
+  setSignedInAdmin(null);
   showLogin();
   showToast('Signed out');
 }
@@ -1324,6 +1348,7 @@ async function initView() {
   if (!token) { showLogin(); return; }
   try {
     const payload = await apiRequest('/api/cloud/admin/me');
+    setSignedInAdmin(payload.admin);
     showConsole(payload.admin?.email || payload.auth_type || 'Admin');
     await refreshDashboard();
   } catch {
@@ -1334,8 +1359,9 @@ async function initView() {
   }
 }
 
-// First-time setup / password recovery: create the operator account with the
-// server's CLOUD_ADMIN_TOKEN, then set a password — so daily use needs no token.
+// First-time setup: one call with the server's CLOUD_ADMIN_TOKEN creates the
+// operator account, sets the password, and returns a live session — so the
+// console signs straight in and daily use never needs the token again.
 async function handleFirstSetup(event) {
   event.preventDefault();
   const bootstrapToken = elements.setupBootstrapToken.value.trim();
@@ -1343,34 +1369,35 @@ async function handleFirstSetup(event) {
   const password = elements.setupNewPassword.value;
   const out = elements.firstSetupOutput;
   try {
-    const bootstrapRes = await fetch('/api/cloud/admin/bootstrap', {
+    const response = await fetch('/api/cloud/admin/bootstrap', {
       method: 'POST',
       headers: { Authorization: `Bearer ${bootstrapToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ issue_reset_tokens: true }),
+      body: JSON.stringify({ email, password }),
     });
-    const bootstrap = await bootstrapRes.json();
-    if (!bootstrapRes.ok || bootstrap.ok === false) {
-      throw new Error(bootstrap.error === 'invalid_admin_token'
-        ? 'That CLOUD_ADMIN_TOKEN is not correct.'
-        : (bootstrap.message || bootstrap.error || 'Bootstrap failed'));
-    }
-    const link = (bootstrap.reset_links || []).find((l) => (l.email || '').toLowerCase() === email);
-    if (!link) {
-      throw new Error(`${email} is not an authorized operator email for this deployment.`);
-    }
-    const setRes = await fetch('/api/cloud/admin/password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reset_token: link.reset_token, password }),
-    });
-    const set = await setRes.json();
-    if (!setRes.ok || set.ok === false) {
-      throw new Error(set.message || set.error || 'Could not set password');
+    const payload = await response.json();
+    if (!response.ok || payload.ok === false) {
+      if (payload.error === 'invalid_admin_token') {
+        throw new Error('That CLOUD_ADMIN_TOKEN is not correct.');
+      }
+      if (payload.error === 'email_not_authorized') {
+        throw new Error(`${email} is not an authorized operator email for this deployment.`);
+      }
+      throw new Error(payload.message || payload.error || 'Setup failed');
     }
     elements.setupBootstrapToken.value = '';
     elements.setupNewPassword.value = '';
-    if (out) { out.hidden = false; out.textContent = `Account ready for ${email}. Sign in above.`; }
     elements.adminLoginEmail.value = email;
+    if (payload.admin_session_token) {
+      elements.adminToken.value = payload.admin_session_token;
+      window.localStorage.setItem(storageKeys.token, payload.admin_session_token);
+      setSignedInAdmin(payload.admin);
+      setAdminAuthState(payload.admin?.email || email, 'ready-label');
+      showConsole(payload.admin?.email || email);
+      showToast('Account ready — signed in');
+      await refreshDashboard();
+      return;
+    }
+    if (out) { out.hidden = false; out.textContent = `Account ready for ${email}. Sign in above.`; }
     showToast('Account created — sign in now');
   } catch (error) {
     if (out) { out.hidden = false; out.textContent = `Setup failed: ${error.message}`; }
@@ -1384,22 +1411,118 @@ async function handleAdminMe() {
   showToast(`Admin: ${payload.admin?.email || payload.auth_type}`);
 }
 
+// Self-service forgot-password: public endpoint, generic response. When the
+// caller happens to be signed in (super admins using it as a support tool) the
+// server returns the actual link, which we surface for copy/paste.
 async function handleAdminResetRequest(event) {
   event.preventDefault();
   const email = elements.adminResetEmail.value.trim();
-  const payload = await apiRequest('/api/cloud/admin/password-reset', {
-    method: 'POST',
-    body: { email },
-  });
+  const token = getAdminToken();
+  const payload = token
+    ? await apiRequest('/api/cloud/admin/password-reset', { method: 'POST', body: { email } })
+    : await postJson('/api/cloud/admin/password-reset', { email });
 
   elements.adminResetOutput.hidden = false;
-  elements.adminResetOutput.textContent = [
-    `EMAIL=${payload.admin?.email || email}`,
-    `RESET_URL=${payload.reset_url}`,
-    `RESET_TOKEN=${payload.reset_token}`,
-    `EXPIRES_AT=${payload.expires_at}`,
-  ].join('\n');
-  showToast('Admin reset link issued');
+  if (payload.reset_url) {
+    elements.adminResetOutput.textContent = [
+      `EMAIL=${payload.admin?.email || email}`,
+      `RESET_URL=${payload.reset_url}`,
+      `EXPIRES_AT=${payload.expires_at}`,
+      payload.email_sent ? 'EMAIL_SENT=yes' : 'EMAIL_SENT=no (share the link manually)',
+    ].join('\n');
+    showToast('Admin reset link issued');
+  } else {
+    elements.adminResetOutput.textContent = payload.message
+      || 'If that email belongs to an operator account, a reset link has been sent.';
+    showToast('Reset requested');
+  }
+}
+
+// ===== Admin account management (super admin only) =====
+async function refreshAdminUsers() {
+  if (state.admin?.role !== 'super_admin') {
+    if (elements.adminUsersSection) elements.adminUsersSection.hidden = true;
+    return;
+  }
+  try {
+    const payload = await apiRequest('/api/cloud/admin/users');
+    state.adminUsers = payload.admins || [];
+    if (elements.adminUsersSection) elements.adminUsersSection.hidden = false;
+    renderAdminUsers();
+  } catch {
+    // Non-fatal: older deployments may not expose the endpoint yet.
+    if (elements.adminUsersSection) elements.adminUsersSection.hidden = true;
+  }
+}
+
+function showAdminUserResult(payload) {
+  if (!elements.adminUsersOutput) return;
+  elements.adminUsersOutput.hidden = false;
+  if (payload.reset_url) {
+    elements.adminUsersOutput.textContent = [
+      `EMAIL=${payload.admin?.email || ''}`,
+      `RESET_URL=${payload.reset_url}`,
+      `EXPIRES_AT=${payload.expires_at}`,
+      payload.email_sent ? 'EMAIL_SENT=yes' : 'EMAIL_SENT=no (share the link manually)',
+    ].join('\n');
+  } else {
+    elements.adminUsersOutput.textContent = `${payload.admin?.email || ''} is now ${payload.admin?.status || 'updated'}.`;
+  }
+}
+
+async function handleAdminUserAction(action, email) {
+  const payload = await apiRequest('/api/cloud/admin/users', {
+    method: 'POST',
+    body: { action, email },
+  });
+  showAdminUserResult(payload);
+  await refreshAdminUsers();
+  showToast(`Admin ${action.replace('_', ' ')} done`);
+}
+
+async function handleAdminUserCreate(event) {
+  event.preventDefault();
+  const payload = await apiRequest('/api/cloud/admin/users', {
+    method: 'POST',
+    body: {
+      action: 'create',
+      email: elements.adminUserEmail.value.trim(),
+      role: elements.adminUserRole.value,
+    },
+  });
+  elements.adminUserEmail.value = '';
+  showAdminUserResult(payload);
+  await refreshAdminUsers();
+  showToast('Admin account created');
+}
+
+function renderAdminUsers() {
+  renderTable('#admin-users-table', [
+    { label: 'Email', value: (row) => row.email || '-' },
+    { label: 'Role', value: (row) => row.role || '-' },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    { label: 'Last login', value: (row) => formatDate(row.last_login_at) },
+    {
+      label: 'Actions',
+      value: (row) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'row-actions';
+        wrap.append(makeButton('Reset link', () => {
+          handleAdminUserAction('reset_link', row.email).catch((error) => showToast(error.message));
+        }, 'ghost-button small-button'));
+        if (row.status === 'active') {
+          wrap.append(makeButton('Disable', () => {
+            handleAdminUserAction('disable', row.email).catch((error) => showToast(error.message));
+          }, 'ghost-button small-button'));
+        } else {
+          wrap.append(makeButton('Enable', () => {
+            handleAdminUserAction('enable', row.email).catch((error) => showToast(error.message));
+          }, 'ghost-button small-button'));
+        }
+        return wrap;
+      },
+    },
+  ], state.adminUsers, 'No admin accounts loaded.');
 }
 
 function syncOrgFields() {
@@ -1837,10 +1960,13 @@ function bindEvents() {
     });
   }
   if (elements.toggleReset) {
-    // Recovery uses the same bootstrap-token setup card (the reset-link flow itself
-    // requires an admin token, which a locked-out operator won't have).
     elements.toggleReset.addEventListener('click', () => {
-      if (elements.firstSetupCard) elements.firstSetupCard.hidden = false;
+      if (elements.resetCard) elements.resetCard.hidden = !elements.resetCard.hidden;
+    });
+  }
+  if (elements.adminUserCreateForm) {
+    elements.adminUserCreateForm.addEventListener('submit', (event) => {
+      handleAdminUserCreate(event).catch((error) => showToast(error.message));
     });
   }
 

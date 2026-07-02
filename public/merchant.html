@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PrintKinetix — Merchant Portal</title>
+  <link rel="icon"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23146c5a'/%3E%3Cpath d='M8 10h16v4H8zM8 18h10v4H8z' fill='white'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f4;
+      --ink: #17201b;
+      --muted: #5f6d66;
+      --line: #d9ded8;
+      --panel: #fff;
+      --accent: #146c5a;
+      --accent-strong: #0d4f43;
+      --danger: #b3261e;
+      --shadow: 0 10px 24px rgba(24, 36, 31, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      width: min(880px, 100%);
+      margin: 0 auto;
+      padding: 32px 20px;
+    }
+
+    header.page {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 18px;
+    }
+
+    h1, h2, p { margin-top: 0; }
+
+    h1 { margin-bottom: 6px; font-size: 2rem; line-height: 1.05; }
+    h2 { font-size: 1.15rem; }
+    p { color: var(--muted); }
+
+    .eyebrow {
+      margin-bottom: 6px;
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    form, .panel {
+      display: grid;
+      gap: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 18px;
+      box-shadow: var(--shadow);
+      margin-bottom: 16px;
+    }
+
+    label { display: grid; gap: 6px; }
+
+    label span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    input, select {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 9px 10px;
+      font: inherit;
+    }
+
+    button, a.button {
+      min-height: 42px;
+      border: 1px solid var(--accent-strong);
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      padding: 10px 14px;
+      text-align: center;
+      text-decoration: none;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+    }
+
+    button.ghost {
+      background: transparent;
+      border-color: var(--line);
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    button.small {
+      min-height: 30px;
+      padding: 4px 10px;
+      font-size: 13px;
+    }
+
+    button:disabled { cursor: wait; opacity: 0.65; }
+
+    .linklike {
+      border: 0;
+      background: none;
+      color: var(--accent);
+      min-height: 0;
+      padding: 0;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+
+    .links { display: flex; gap: 18px; }
+
+    .status-box {
+      border-left: 4px solid var(--accent);
+      border-radius: 6px;
+      background: #f0faf6;
+      padding: 12px;
+    }
+
+    .status-box.error { border-left-color: var(--danger); background: #fff4f3; }
+
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      background: #eef2ef;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .pill.active { background: #e0f2ea; color: var(--accent-strong); }
+    .pill.pending { background: #fdf3e0; color: #8a6116; }
+    .pill.suspended, .pill.rejected { background: #fdeaea; color: var(--danger); }
+
+    table { width: 100%; border-collapse: collapse; }
+
+    th, td {
+      border-top: 1px solid var(--line);
+      padding: 9px 8px;
+      text-align: left;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    th { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+
+    .secret-output {
+      margin: 0;
+      border: 1px dashed var(--line);
+      border-radius: 6px;
+      background: #f4f7f5;
+      padding: 10px;
+      font-size: 13px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .grid-2 { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+    @media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    .kv { display: grid; gap: 2px; }
+    .kv span { color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="page">
+      <div>
+        <p class="eyebrow">PrintKinetix</p>
+        <h1>Merchant Portal</h1>
+        <p id="portal-subtitle">Sign in to manage your print farm account.</p>
+      </div>
+      <button id="logout-btn" type="button" class="ghost" hidden>Sign out</button>
+    </header>
+
+    <!-- ============ SIGN IN ============ -->
+    <section id="signin-view" hidden>
+      <form id="login-form">
+        <h2>Sign in</h2>
+        <label><span>Email</span>
+          <input id="login-email" type="email" autocomplete="username" placeholder="you@company.com" required>
+        </label>
+        <label><span>Password</span>
+          <input id="login-password" type="password" autocomplete="current-password" required>
+        </label>
+        <button type="submit">Sign In</button>
+        <div id="login-status" class="status-box error" hidden></div>
+        <div class="links">
+          <button id="show-forgot" type="button" class="linklike">Forgot password?</button>
+          <a class="linklike" href="/merchant-onboarding">New here? Create an account</a>
+        </div>
+      </form>
+
+      <form id="forgot-form" hidden>
+        <h2>Forgot password</h2>
+        <p>Enter your account email and we'll send a reset link if the account exists.</p>
+        <label><span>Email</span>
+          <input id="forgot-email" type="email" autocomplete="email" placeholder="you@company.com" required>
+        </label>
+        <button type="submit">Send Reset Link</button>
+        <div id="forgot-status" class="status-box" hidden></div>
+      </form>
+    </section>
+
+    <!-- ============ RESET PASSWORD (?reset_token=) ============ -->
+    <section id="reset-view" hidden>
+      <form id="reset-form">
+        <h2>Set a new password</h2>
+        <label><span>New password (min 12 chars)</span>
+          <input id="reset-password" type="password" autocomplete="new-password" minlength="12" required>
+        </label>
+        <button type="submit">Set Password</button>
+        <div id="reset-status" class="status-box" hidden></div>
+      </form>
+    </section>
+
+    <!-- ============ PORTAL (after sign in) ============ -->
+    <section id="portal-view" hidden>
+      <div class="panel">
+        <h2 id="company-name">Your account</h2>
+        <div class="grid-2">
+          <div class="kv"><span>Status</span><div id="merchant-status"></div></div>
+          <div class="kv"><span>Signed in as</span><div id="user-email"></div></div>
+          <div class="kv"><span>Approval mode</span><div id="approval-mode"></div></div>
+          <div class="kv"><span>Member since</span><div id="member-since"></div></div>
+        </div>
+        <div id="pending-notice" class="status-box" hidden>
+          Your account is awaiting approval. You can sign in and look around, but API keys
+          and print jobs unlock once an operator approves the account.
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>API keys</h2>
+        <p>Use API keys to send print jobs from your store or scripts.
+          See the <a class="linklike" href="/merchant-api.html">API documentation</a>.</p>
+        <div id="api-keys-table"></div>
+        <form id="create-key-form" style="box-shadow:none;border:0;padding:0;margin:0;">
+          <div class="grid-2">
+            <label><span>New key name</span>
+              <input id="new-key-name" type="text" placeholder="Production" value="Production">
+            </label>
+            <div style="align-self:end;"><button type="submit">Create API Key</button></div>
+          </div>
+        </form>
+        <pre id="key-secret-output" class="secret-output" hidden></pre>
+        <div id="keys-status" class="status-box error" hidden></div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/js/merchant-portal.js"></script>
+</body>
+</html>

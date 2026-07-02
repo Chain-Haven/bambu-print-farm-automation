@@ -21,6 +21,10 @@ describe('Vercel cloud node package config', () => {
             destination: '/merchant-onboarding.html',
         });
         expect(config.rewrites).toContainEqual({
+            source: '/merchant',
+            destination: '/merchant.html',
+        });
+        expect(config.rewrites).toContainEqual({
             source: '/admin-reset',
             destination: '/admin-reset.html',
         });
@@ -66,6 +70,9 @@ describe('Vercel cloud node package config', () => {
         );
         expect(config.functions['api/cloud/admin/migrations.js'].includeFiles).toContain(
             'supabase/migrations/20260701153253_merchant_shipping_claims.sql',
+        );
+        expect(config.functions['api/cloud/admin/migrations.js'].includeFiles).toContain(
+            'supabase/migrations/20260702080000_merchant_user_auth.sql',
         );
     });
 });

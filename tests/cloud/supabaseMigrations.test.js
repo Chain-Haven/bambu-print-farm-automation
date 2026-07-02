@@ -34,6 +34,24 @@ describe('Supabase migrations', () => {
         expect(adminMigration).toContain("'super_admin'");
     });
 
+    it('adds service-role-only merchant user auth tables for the portal sign-in', () => {
+        const sql = fs.readFileSync('supabase/migrations/20260702080000_merchant_user_auth.sql', 'utf8');
+
+        for (const table of [
+            'merchant_users',
+            'merchant_user_sessions',
+            'merchant_user_password_resets',
+        ]) {
+            expect(sql).toContain(`create table public.${table}`);
+            expect(sql).toContain(`alter table public.${table} enable row level security`);
+            expect(sql).toContain(`grant all on public.${table} to service_role`);
+        }
+
+        expect(sql).toContain("check (role in ('owner', 'member'))");
+        expect(sql).toContain('email text not null unique');
+        expect(sql).toContain('token_hash text not null unique');
+    });
+
     it('includes Merchant API v2 adapter backbone tables', () => {
         const sql = fs.readFileSync('supabase/migrations/20260701050000_merchant_api_v2_adapter_backbone.sql', 'utf8');
         for (const table of [
