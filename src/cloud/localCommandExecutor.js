@@ -123,9 +123,69 @@ async function executeAmsAction(command, deps) {
     };
 }
 
+// Single JPEG frame from the printer camera, base64-encoded so it can ride the
+// durable command-result channel back to the cloud console. In MOCK_MODE a
+// generated placeholder SVG is returned so the remote-camera flow stays
+// testable without hardware.
+async function defaultCaptureCameraFrame(localPrinterId) {
+    const [{ PrinterModel }] = await Promise.all([import('../models/Printer.js')]);
+    const printer = PrinterModel.findById(localPrinterId);
+    if (!printer) throw new Error(`Local printer not found: ${localPrinterId}`);
+
+    if (process.env.MOCK_MODE === 'true') {
+        const stamp = new Date().toISOString().slice(11, 19);
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240">`
+            + '<rect width="320" height="240" fill="#10201a"/>'
+            + '<rect x="60" y="70" width="200" height="110" rx="8" fill="none" stroke="#2f8f6d" stroke-width="3"/>'
+            + '<circle cx="160" cy="125" r="26" fill="none" stroke="#2f8f6d" stroke-width="3"/>'
+            + `<text x="160" y="215" text-anchor="middle" fill="#9fd6be" font-family="monospace" font-size="14">MOCK CAM · ${printer.name || localPrinterId} · ${stamp} UTC</text>`
+            + '</svg>';
+        return {
+            content_type: 'image/svg+xml',
+            image_base64: Buffer.from(svg, 'utf8').toString('base64'),
+            mock: true,
+        };
+    }
+
+    const { default: cameraProxy } = await import('../services/CameraProxy.js');
+    const auth = PrinterModel.getAuth(localPrinterId) || {};
+    if (!cameraProxy.isRunning(localPrinterId)) {
+        await cameraProxy.start(localPrinterId, printer.ip_hostname, auth.access_code || '', printer.model);
+    }
+
+    let frame = cameraProxy.getFrame(localPrinterId);
+    for (let attempt = 0; attempt < 20 && !frame; attempt += 1) {
+        await wait(150);
+        frame = cameraProxy.getFrame(localPrinterId);
+    }
+    if (!frame) {
+        throw new Error(cameraProxy.getError(localPrinterId) || 'Camera frame not yet available');
+    }
+    return {
+        content_type: 'image/jpeg',
+        image_base64: frame.toString('base64'),
+        mock: false,
+    };
+}
+
+async function executeCameraSnapshot(command, deps) {
+    const localPrinterId = requiredString(command.payload?.local_printer_id, 'payload.local_printer_id');
+    const frame = await deps.captureCameraFrame(localPrinterId);
+    return {
+        ok: true,
+        local_printer_id: localPrinterId,
+        captured_at: new Date().toISOString(),
+        ...frame,
+    };
+}
+
 async function executePrinterAction(command, deps) {
     if (command.command_type.startsWith('printer.ams.')) {
         return executeAmsAction(command, deps);
+    }
+
+    if (command.command_type === 'printer.camera.snapshot') {
+        return executeCameraSnapshot(command, deps);
     }
 
     const localPrinterId = requiredString(command.payload?.local_printer_id, 'payload.local_printer_id');
@@ -428,6 +488,93 @@ async function executePrinterSync(command, deps) {
     };
 }
 
+// Register ("adopt") a printer discovered on the LAN. SSDP discovery yields
+// ip/serial/model but never the access code — that comes from the operator in
+// the adopt dialog. PrinterRegistry.create emits printer.created, which the
+// RuntimeSupervisor picks up to spawn a worker immediately, so the printer
+// shows in the next heartbeat without a restart.
+async function defaultAdoptPrinter({ name, model, ip_hostname, access_code, serial }) {
+    const [{ PrinterModel }, { PrinterRegistry }] = await Promise.all([
+        import('../models/Printer.js'),
+        import('../services/PrinterRegistry.js'),
+    ]);
+
+    const existing = PrinterModel.findAll().find((printer) => (
+        printer.ip_hostname === ip_hostname
+    ));
+    if (existing) {
+        return { already_added: true, printer: existing };
+    }
+
+    const printer = PrinterRegistry.create({
+        name,
+        model,
+        ip_hostname,
+        auth: {
+            ...(access_code ? { access_code } : {}),
+            ...(serial ? { serial } : {}),
+        },
+    });
+    return { already_added: false, printer };
+}
+
+const ADOPTABLE_MODELS = ['A1', 'A1 Mini', 'P1P', 'P1S', 'P2S', 'X1', 'X1C', 'X1E', 'H2D'];
+
+function normalizeAdoptModel(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return 'P1S';
+    const match = ADOPTABLE_MODELS.find((model) => model.toLowerCase() === raw.toLowerCase());
+    if (match) return match;
+    const upper = raw.toUpperCase();
+    if (upper.includes('A1') && upper.includes('MINI')) return 'A1 Mini';
+    if (upper.includes('A1')) return 'A1';
+    if (upper.includes('X1E')) return 'X1E';
+    if (upper.includes('X1')) return 'X1C';
+    if (upper.includes('P1P')) return 'P1P';
+    if (upper.includes('P1')) return 'P1S';
+    if (upper.includes('P2')) return 'P2S';
+    if (upper.includes('H2')) return 'H2D';
+    return raw;
+}
+
+async function executePrinterAdopt(command, deps) {
+    const payload = command.payload || {};
+    const ipHostname = requiredString(payload.ip_hostname || payload.ip, 'payload.ip_hostname');
+    const name = requiredString(payload.name, 'payload.name');
+    const model = normalizeAdoptModel(payload.model);
+    const accessCode = typeof payload.access_code === 'string' && payload.access_code.trim()
+        ? payload.access_code.trim()
+        : null;
+    const serial = typeof payload.serial === 'string' && payload.serial.trim() ? payload.serial.trim() : null;
+
+    const adoption = await deps.adoptPrinter({
+        name,
+        model,
+        ip_hostname: ipHostname,
+        access_code: accessCode,
+        serial,
+    });
+
+    // Push the fresh inventory back with the same result so the console updates
+    // without waiting for the next heartbeat.
+    let synced = null;
+    try {
+        synced = await deps.syncPrinters({ sync_ams: true, sync_filament: true });
+    } catch { /* sync is best-effort */ }
+
+    return {
+        ok: true,
+        already_added: adoption.already_added === true,
+        printer: {
+            local_printer_id: adoption.printer?.printer_id || adoption.printer?.local_printer_id || null,
+            name: adoption.printer?.name || name,
+            model: adoption.printer?.model || model,
+            ip_hostname: ipHostname,
+        },
+        synced_printer_count: Array.isArray(synced?.printers) ? synced.printers.length : null,
+    };
+}
+
 async function executeCloudAction(command, deps) {
     if (command.command_type === 'cloud.print.ready') {
         return executeCloudPrintReady(command, deps);
@@ -437,6 +584,9 @@ async function executeCloudAction(command, deps) {
     }
     if (command.command_type === 'cloud.printers.sync') {
         return executePrinterSync(command, deps);
+    }
+    if (command.command_type === 'cloud.printers.adopt') {
+        return executePrinterAdopt(command, deps);
     }
     throw new Error(`Unsupported cloud command: ${command.command_type}`);
 }
@@ -463,6 +613,8 @@ function getDefaultDeps() {
         uploadToPrinter: defaultUploadToPrinter,
         discoverPrinters: defaultDiscoverPrinters,
         syncPrinters: defaultSyncPrinters,
+        adoptPrinter: defaultAdoptPrinter,
+        captureCameraFrame: defaultCaptureCameraFrame,
     };
 }
 

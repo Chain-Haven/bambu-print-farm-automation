@@ -104,6 +104,33 @@
 
       <section id="metrics" class="metrics" aria-label="Cloud metrics"></section>
 
+      <!-- ================= PRINT FLEET (live printer cards) ================= -->
+      <section id="fleet-section" class="fleet-section" aria-label="Print fleet">
+        <div class="panel-heading fleet-heading">
+          <div>
+            <h2>Print Fleet</h2>
+            <span id="fleet-subtitle">Live view of every connected Bambu printer</span>
+          </div>
+          <div class="fleet-actions">
+            <label class="switch-row compact-switch fleet-live-toggle">
+              <input id="fleet-live" type="checkbox" checked>
+              <span>Live updates</span>
+            </label>
+            <button id="fleet-scan" type="button" class="ghost-button">⌖ Scan network</button>
+          </div>
+        </div>
+        <div id="fleet-discovered" class="fleet-discovered" hidden>
+          <div class="fleet-discovered-heading">
+            <strong>Found on the network</strong>
+            <span>Click a printer to adopt it into the farm</span>
+          </div>
+          <div id="fleet-discovered-list" class="fleet-discovered-list"></div>
+        </div>
+        <div id="fleet-grid" class="fleet-grid">
+          <p class="empty">No printers yet — bring a farm node online and its printers appear here automatically.</p>
+        </div>
+      </section>
+
     <section class="admin-layout" aria-label="Admin workflows">
       <div class="control-stack">
         <form id="merchant-settings-form" class="panel">
@@ -249,6 +276,8 @@
               <option value="cloud.print.ready">cloud.print.ready</option>
               <option value="cloud.printers.discover">cloud.printers.discover</option>
               <option value="cloud.printers.sync">cloud.printers.sync</option>
+              <option value="cloud.printers.adopt">cloud.printers.adopt</option>
+              <option value="printer.camera.snapshot">printer.camera.snapshot</option>
             </select>
           </label>
           <div class="split">
@@ -653,6 +682,65 @@
     </div>
     <pre id="detail-body"></pre>
   </aside>
+
+  <!-- Remote camera modal: frames arrive as printer.camera.snapshot command
+       results over the durable node command channel (no inbound ports). -->
+  <div id="camera-modal" class="modal-backdrop" hidden>
+    <div class="modal camera-modal">
+      <div class="panel-heading">
+        <h2 id="camera-modal-title">Camera</h2>
+        <button id="camera-close" type="button" class="ghost-button">Close</button>
+      </div>
+      <div class="camera-frame">
+        <img id="camera-image" alt="Printer camera feed" hidden>
+        <p id="camera-status" class="camera-status">Connecting to printer camera…</p>
+      </div>
+      <p class="field-hint">Frames are relayed securely through the farm node — refreshed every few seconds.</p>
+    </div>
+  </div>
+
+  <!-- Adopt-printer modal: name the discovered printer and give its LAN access
+       code (shown on the printer screen — SSDP can't broadcast it). -->
+  <div id="adopt-modal" class="modal-backdrop" hidden>
+    <form id="adopt-form" class="modal adopt-modal">
+      <div class="panel-heading">
+        <h2>Adopt printer</h2>
+        <button id="adopt-close" type="button" class="ghost-button">Close</button>
+      </div>
+      <p id="adopt-summary" class="adopt-summary"></p>
+      <label>
+        <span>Printer name</span>
+        <input id="adopt-name" type="text" required placeholder="A1 Bay 3">
+      </label>
+      <div class="split">
+        <label>
+          <span>Model</span>
+          <select id="adopt-model">
+            <option value="A1">A1</option>
+            <option value="A1 Mini">A1 Mini</option>
+            <option value="P1P">P1P</option>
+            <option value="P1S">P1S</option>
+            <option value="P2S">P2S</option>
+            <option value="X1C">X1C</option>
+            <option value="X1E">X1E</option>
+            <option value="H2D">H2D</option>
+          </select>
+        </label>
+        <label>
+          <span>IP address</span>
+          <input id="adopt-ip" type="text" required>
+        </label>
+      </div>
+      <label>
+        <span>LAN access code <small>(Printer screen → Settings → WLAN)</small></span>
+        <input id="adopt-access-code" type="text" autocomplete="off" placeholder="12345678">
+      </label>
+      <input id="adopt-serial" type="hidden">
+      <input id="adopt-node" type="hidden">
+      <button type="submit" class="primary-btn">Adopt into farm</button>
+      <p id="adopt-status" class="field-hint" hidden></p>
+    </form>
+  </div>
 
   <div id="toast" class="toast" hidden></div>
   <script type="module" src="/js/cloud-dashboard.js"></script>

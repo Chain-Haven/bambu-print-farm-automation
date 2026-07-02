@@ -170,8 +170,75 @@ describe('cloud dashboard assets', () => {
     });
 
     it('keeps browser controller scripts parseable', () => {
-        for (const file of ['public/js/api.js', 'public/js/ws.js', 'public/js/app.js', 'public/js/cloud-dashboard.js']) {
+        for (const file of ['public/js/api.js', 'public/js/ws.js', 'public/js/app.js']) {
             execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' });
+        }
+        // ES modules (they use import syntax): syntax-check via stdin in module mode.
+        for (const file of ['public/js/cloud-dashboard.js', 'public/js/fleet-view.js']) {
+            execFileSync(process.execPath, ['--check', '--input-type=module'], {
+                stdio: 'pipe',
+                input: fs.readFileSync(file),
+            });
+        }
+    });
+
+    it('ships the live Print Fleet board (cards, AMS slots, previews, camera, adoption)', () => {
+        const html = fs.readFileSync('public/cloud.html', 'utf8');
+        const js = fs.readFileSync('public/js/cloud-dashboard.js', 'utf8');
+        const fleet = fs.readFileSync('public/js/fleet-view.js', 'utf8');
+        const css = fs.readFileSync('public/css/cloud.css', 'utf8');
+
+        for (const id of [
+            'fleet-section',
+            'fleet-grid',
+            'fleet-discovered',
+            'fleet-discovered-list',
+            'fleet-live',
+            'fleet-scan',
+            'camera-modal',
+            'camera-image',
+            'adopt-modal',
+            'adopt-form',
+            'adopt-name',
+            'adopt-access-code',
+        ]) {
+            expect(html).toContain(`id="${id}"`);
+        }
+
+        expect(js).toContain('createFleetView');
+        expect(js).toContain('fleetView.render()');
+        expect(js).toContain('fleetView.bind()');
+
+        for (const marker of [
+            'detectPrinterFamily',
+            'printer.camera.snapshot',
+            'cloud.printers.adopt',
+            'cloud.printers.discover',
+            'current_job',
+            'ams_trays',
+            'live_remaining',
+            'remaining_minutes',
+            'job-preview',
+        ]) {
+            expect(fleet).toContain(marker);
+        }
+
+        for (const selector of [
+            '.fleet-grid',
+            '.printer-card',
+            '.ams-rack',
+            '.ams-slot',
+            '.spool-fill',
+            '.printer-visual',
+            '.job-preview',
+            '.progress-fill',
+            '.time-remaining',
+            '.printer-actions',
+            '.camera-frame',
+            '.adopt-modal',
+            '.discovered-chip',
+        ]) {
+            expect(css).toContain(selector);
         }
     });
 });

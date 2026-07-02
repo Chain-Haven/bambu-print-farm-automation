@@ -111,6 +111,61 @@ describe('agent protocol', () => {
         ]);
     });
 
+    it('carries a sanitized current_job (progress, remaining time, preview) inside status_snapshot', () => {
+        const preview = `data:image/svg+xml;base64,${Buffer.from('<svg/>').toString('base64')}`;
+        const heartbeat = normalizeHeartbeat({
+            status: 'online',
+            printers: [{
+                local_printer_id: 'printer-1',
+                status: 'printing',
+                status_snapshot: { bed_temp: 60 },
+                current_job: {
+                    job_id: 'job-9',
+                    name: 'benchy.gcode.3mf',
+                    state: 'PRINTING',
+                    progress_percent: 41.5,
+                    remaining_minutes: 87,
+                    layer: 55,
+                    total_layers: 190,
+                    preview,
+                },
+            }],
+        });
+
+        expect(heartbeat.printers[0].status).toBe('printing');
+        expect(heartbeat.printers[0].status_snapshot.bed_temp).toBe(60);
+        expect(heartbeat.printers[0].status_snapshot.current_job).toEqual({
+            job_id: 'job-9',
+            name: 'benchy.gcode.3mf',
+            state: 'printing',
+            progress_percent: 41.5,
+            remaining_minutes: 87,
+            layer: 55,
+            total_layers: 190,
+            preview,
+        });
+    });
+
+    it('drops malformed current_job fields instead of trusting the node blindly', () => {
+        const heartbeat = normalizeHeartbeat({
+            printers: [{
+                local_printer_id: 'printer-1',
+                current_job: {
+                    progress_percent: 400,           // clamped to 100
+                    remaining_minutes: -5,           // clamped to 0
+                    preview: 'javascript:alert(1)',  // not a data:image URI — dropped
+                    name: 42,                        // wrong type — dropped
+                },
+            }],
+        });
+
+        const currentJob = heartbeat.printers[0].status_snapshot.current_job;
+        expect(currentJob.progress_percent).toBe(100);
+        expect(currentJob.remaining_minutes).toBe(0);
+        expect(currentJob.preview).toBeNull();
+        expect(currentJob.name).toBeNull();
+    });
+
     it('normalizes agent events and drops malformed rows', () => {
         const events = normalizeAgentEvents(
             {

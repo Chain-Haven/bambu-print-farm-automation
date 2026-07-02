@@ -112,8 +112,8 @@ var require_package = __commonJS({
 // node_modules/dotenv/lib/main.js
 var require_main = __commonJS({
   "node_modules/dotenv/lib/main.js"(exports2, module2) {
-    var fs9 = require("fs");
-    var path12 = require("path");
+    var fs10 = require("fs");
+    var path13 = require("path");
     var os7 = require("os");
     var crypto5 = require("crypto");
     var packageJson = require_package();
@@ -221,7 +221,7 @@ var require_main = __commonJS({
       if (options && options.path && options.path.length > 0) {
         if (Array.isArray(options.path)) {
           for (const filepath of options.path) {
-            if (fs9.existsSync(filepath)) {
+            if (fs10.existsSync(filepath)) {
               possibleVaultPath = filepath.endsWith(".vault") ? filepath : `${filepath}.vault`;
             }
           }
@@ -229,15 +229,15 @@ var require_main = __commonJS({
           possibleVaultPath = options.path.endsWith(".vault") ? options.path : `${options.path}.vault`;
         }
       } else {
-        possibleVaultPath = path12.resolve(process.cwd(), ".env.vault");
+        possibleVaultPath = path13.resolve(process.cwd(), ".env.vault");
       }
-      if (fs9.existsSync(possibleVaultPath)) {
+      if (fs10.existsSync(possibleVaultPath)) {
         return possibleVaultPath;
       }
       return null;
     }
     function _resolveHome(envPath) {
-      return envPath[0] === "~" ? path12.join(os7.homedir(), envPath.slice(1)) : envPath;
+      return envPath[0] === "~" ? path13.join(os7.homedir(), envPath.slice(1)) : envPath;
     }
     function _configVault(options) {
       const debug = Boolean(options && options.debug);
@@ -254,7 +254,7 @@ var require_main = __commonJS({
       return { parsed };
     }
     function configDotenv(options) {
-      const dotenvPath = path12.resolve(process.cwd(), ".env");
+      const dotenvPath = path13.resolve(process.cwd(), ".env");
       let encoding = "utf8";
       const debug = Boolean(options && options.debug);
       const quiet = options && "quiet" in options ? options.quiet : true;
@@ -278,13 +278,13 @@ var require_main = __commonJS({
       }
       let lastError;
       const parsedAll = {};
-      for (const path13 of optionPaths) {
+      for (const path14 of optionPaths) {
         try {
-          const parsed = DotenvModule.parse(fs9.readFileSync(path13, { encoding }));
+          const parsed = DotenvModule.parse(fs10.readFileSync(path14, { encoding }));
           DotenvModule.populate(parsedAll, parsed, options);
         } catch (e) {
           if (debug) {
-            _debug(`Failed to load ${path13} ${e.message}`);
+            _debug(`Failed to load ${path14} ${e.message}`);
           }
           lastError = e;
         }
@@ -299,7 +299,7 @@ var require_main = __commonJS({
         const shortPaths = [];
         for (const filePath of optionPaths) {
           try {
-            const relative = path12.relative(process.cwd(), filePath);
+            const relative = path13.relative(process.cwd(), filePath);
             shortPaths.push(relative);
           } catch (e) {
             if (debug) {
@@ -786,25 +786,25 @@ var require_utils = __commonJS({
       }
       mkdirSync(folder);
     };
-    Utils.prototype.writeFileTo = function(path12, content, overwrite, attr) {
+    Utils.prototype.writeFileTo = function(path13, content, overwrite, attr) {
       const self2 = this;
-      if (self2.fs.existsSync(path12)) {
+      if (self2.fs.existsSync(path13)) {
         if (!overwrite) return false;
-        var stat = self2.fs.statSync(path12);
+        var stat = self2.fs.statSync(path13);
         if (stat.isDirectory()) {
           return false;
         }
       }
-      var folder = pth.dirname(path12);
+      var folder = pth.dirname(path13);
       if (!self2.fs.existsSync(folder)) {
         self2.makeDir(folder);
       }
       var fd;
       try {
-        fd = self2.fs.openSync(path12, "w", 438);
+        fd = self2.fs.openSync(path13, "w", 438);
       } catch (e) {
-        self2.fs.chmodSync(path12, 438);
-        fd = self2.fs.openSync(path12, "w", 438);
+        self2.fs.chmodSync(path13, 438);
+        fd = self2.fs.openSync(path13, "w", 438);
       }
       if (fd) {
         try {
@@ -813,31 +813,31 @@ var require_utils = __commonJS({
           self2.fs.closeSync(fd);
         }
       }
-      self2.fs.chmodSync(path12, attr || 438);
+      self2.fs.chmodSync(path13, attr || 438);
       return true;
     };
-    Utils.prototype.writeFileToAsync = function(path12, content, overwrite, attr, callback) {
+    Utils.prototype.writeFileToAsync = function(path13, content, overwrite, attr, callback) {
       if (typeof attr === "function") {
         callback = attr;
         attr = void 0;
       }
       const self2 = this;
-      self2.fs.exists(path12, function(exist) {
+      self2.fs.exists(path13, function(exist) {
         if (exist && !overwrite) return callback(false);
-        self2.fs.stat(path12, function(err, stat) {
+        self2.fs.stat(path13, function(err, stat) {
           if (exist && stat.isDirectory()) {
             return callback(false);
           }
-          var folder = pth.dirname(path12);
+          var folder = pth.dirname(path13);
           self2.fs.exists(folder, function(exists) {
             if (!exists) self2.makeDir(folder);
-            self2.fs.open(path12, "w", 438, function(err2, fd) {
+            self2.fs.open(path13, "w", 438, function(err2, fd) {
               if (err2) {
-                self2.fs.chmod(path12, 438, function() {
-                  self2.fs.open(path12, "w", 438, function(err3, fd2) {
+                self2.fs.chmod(path13, 438, function() {
+                  self2.fs.open(path13, "w", 438, function(err3, fd2) {
                     self2.fs.write(fd2, content, 0, content.length, 0, function() {
                       self2.fs.close(fd2, function() {
-                        self2.fs.chmod(path12, attr || 438, function() {
+                        self2.fs.chmod(path13, attr || 438, function() {
                           callback(true);
                         });
                       });
@@ -847,13 +847,13 @@ var require_utils = __commonJS({
               } else if (fd) {
                 self2.fs.write(fd, content, 0, content.length, 0, function() {
                   self2.fs.close(fd, function() {
-                    self2.fs.chmod(path12, attr || 438, function() {
+                    self2.fs.chmod(path13, attr || 438, function() {
                       callback(true);
                     });
                   });
                 });
               } else {
-                self2.fs.chmod(path12, attr || 438, function() {
+                self2.fs.chmod(path13, attr || 438, function() {
                   callback(true);
                 });
               }
@@ -862,7 +862,7 @@ var require_utils = __commonJS({
         });
       });
     };
-    Utils.prototype.findFiles = function(path12) {
+    Utils.prototype.findFiles = function(path13) {
       const self2 = this;
       function findSync(dir, pattern, recursive) {
         if (typeof pattern === "boolean") {
@@ -871,16 +871,16 @@ var require_utils = __commonJS({
         }
         let files = [];
         self2.fs.readdirSync(dir).forEach(function(file) {
-          const path13 = pth.join(dir, file);
-          const stat = self2.fs.statSync(path13);
-          if (!pattern || pattern.test(path13)) {
-            files.push(pth.normalize(path13) + (stat.isDirectory() ? self2.sep : ""));
+          const path14 = pth.join(dir, file);
+          const stat = self2.fs.statSync(path14);
+          if (!pattern || pattern.test(path14)) {
+            files.push(pth.normalize(path14) + (stat.isDirectory() ? self2.sep : ""));
           }
-          if (stat.isDirectory() && recursive) files = files.concat(findSync(path13, pattern, recursive));
+          if (stat.isDirectory() && recursive) files = files.concat(findSync(path14, pattern, recursive));
         });
         return files;
       }
-      return findSync(path12, void 0, true);
+      return findSync(path13, void 0, true);
     };
     Utils.prototype.findFilesAsync = function(dir, cb) {
       const self2 = this;
@@ -935,14 +935,14 @@ var require_utils = __commonJS({
           return "UNSUPPORTED (" + method + ")";
       }
     };
-    Utils.canonical = function(path12) {
-      if (!path12) return "";
-      const safeSuffix = pth.posix.normalize("/" + path12.split("\\").join("/"));
+    Utils.canonical = function(path13) {
+      if (!path13) return "";
+      const safeSuffix = pth.posix.normalize("/" + path13.split("\\").join("/"));
       return pth.join(".", safeSuffix);
     };
-    Utils.zipnamefix = function(path12) {
-      if (!path12) return "";
-      const safeSuffix = pth.posix.normalize("/" + path12.split("\\").join("/"));
+    Utils.zipnamefix = function(path13) {
+      if (!path13) return "";
+      const safeSuffix = pth.posix.normalize("/" + path13.split("\\").join("/"));
       return pth.posix.join(".", safeSuffix);
     };
     Utils.findLast = function(arr, callback) {
@@ -959,9 +959,9 @@ var require_utils = __commonJS({
       prefix = pth.resolve(pth.normalize(prefix));
       var parts = name.split("/");
       for (var i = 0, l = parts.length; i < l; i++) {
-        var path12 = pth.normalize(pth.join(prefix, parts.slice(i, l).join(pth.sep)));
-        if (path12.indexOf(prefix) === 0) {
-          return path12;
+        var path13 = pth.normalize(pth.join(prefix, parts.slice(i, l).join(pth.sep)));
+        if (path13.indexOf(prefix) === 0) {
+          return path13;
         }
       }
       return pth.normalize(pth.join(prefix, pth.basename(name)));
@@ -1001,8 +1001,8 @@ var require_utils = __commonJS({
 var require_fattr = __commonJS({
   "node_modules/adm-zip/util/fattr.js"(exports2, module2) {
     var pth = require("path");
-    module2.exports = function(path12, { fs: fs9 }) {
-      var _path = path12 || "", _obj = newAttr(), _stat = null;
+    module2.exports = function(path13, { fs: fs10 }) {
+      var _path = path13 || "", _obj = newAttr(), _stat = null;
       function newAttr() {
         return {
           directory: false,
@@ -1013,8 +1013,8 @@ var require_fattr = __commonJS({
           atime: 0
         };
       }
-      if (_path && fs9.existsSync(_path)) {
-        _stat = fs9.statSync(_path);
+      if (_path && fs10.existsSync(_path)) {
+        _stat = fs10.statSync(_path);
         _obj.directory = _stat.isDirectory();
         _obj.mtime = _stat.mtime;
         _obj.atime = _stat.atime;
@@ -3745,15 +3745,15 @@ var require_sql_wasm = __commonJS({
         "undefined" != typeof __filename ? ya = __filename : ba && (ya = self.location.href);
         var za = "", Aa, Ba;
         if (ca) {
-          var fs9 = require("node:fs");
+          var fs10 = require("node:fs");
           za = __dirname + "/";
           Ba = (a) => {
             a = Ca(a) ? new URL(a) : a;
-            return fs9.readFileSync(a);
+            return fs10.readFileSync(a);
           };
           Aa = async (a) => {
             a = Ca(a) ? new URL(a) : a;
-            return fs9.readFileSync(a, void 0);
+            return fs10.readFileSync(a, void 0);
           };
           1 < process.argv.length && (wa = process.argv[1].replace(/\\/g, "/"));
           process.argv.slice(2);
@@ -4035,7 +4035,7 @@ var require_sql_wasm = __commonJS({
               if (ca) {
                 var b = Buffer.alloc(256), c = 0, d = process.stdin.fd;
                 try {
-                  c = fs9.readSync(d, b, 0, 256);
+                  c = fs10.readSync(d, b, 0, 256);
                 } catch (e) {
                   if (e.toString().includes("EOF")) c = 0;
                   else throw e;
@@ -13555,7 +13555,7 @@ var require_node = __commonJS({
     var tty = require("tty");
     var util = require("util");
     exports2.init = init2;
-    exports2.log = log34;
+    exports2.log = log35;
     exports2.formatArgs = formatArgs;
     exports2.save = save;
     exports2.load = load;
@@ -13690,7 +13690,7 @@ var require_node = __commonJS({
       }
       return (/* @__PURE__ */ new Date()).toISOString() + " ";
     }
-    function log34(...args) {
+    function log35(...args) {
       return process.stderr.write(util.formatWithOptions(exports2.inspectOpts, ...args) + "\n");
     }
     function save(namespaces) {
@@ -14410,7 +14410,7 @@ var require_numbers = __commonJS({
   "node_modules/mqtt-packet/numbers.js"(exports2, module2) {
     var { Buffer: Buffer2 } = require("buffer");
     var max = 65536;
-    var cache = {};
+    var cache2 = {};
     var SubOk = Buffer2.isBuffer(Buffer2.from([1, 2]).subarray(0, 1));
     function generateBuffer(i) {
       const buffer = Buffer2.allocUnsafe(2);
@@ -14420,7 +14420,7 @@ var require_numbers = __commonJS({
     }
     function generateCache() {
       for (let i = 0; i < max; i++) {
-        cache[i] = generateBuffer(i);
+        cache2[i] = generateBuffer(i);
       }
     }
     function genBufVariableByteInt(num3) {
@@ -14445,7 +14445,7 @@ var require_numbers = __commonJS({
       return buffer;
     }
     module2.exports = {
-      cache,
+      cache: cache2,
       generateCache,
       generateNumber: generateBuffer,
       genBufVariableByteInt,
@@ -16093,7 +16093,7 @@ var require_node2 = __commonJS({
     var tty = require("tty");
     var util = require("util");
     exports2.init = init2;
-    exports2.log = log34;
+    exports2.log = log35;
     exports2.formatArgs = formatArgs;
     exports2.save = save;
     exports2.load = load;
@@ -16228,7 +16228,7 @@ var require_node2 = __commonJS({
       }
       return (/* @__PURE__ */ new Date()).toISOString() + " ";
     }
-    function log34(...args) {
+    function log35(...args) {
       return process.stderr.write(util.formatWithOptions(exports2.inspectOpts, ...args) + "\n");
     }
     function save(namespaces) {
@@ -21298,7 +21298,7 @@ var require_node3 = __commonJS({
     var tty = require("tty");
     var util = require("util");
     exports2.init = init2;
-    exports2.log = log34;
+    exports2.log = log35;
     exports2.formatArgs = formatArgs;
     exports2.save = save;
     exports2.load = load;
@@ -21433,7 +21433,7 @@ var require_node3 = __commonJS({
       }
       return (/* @__PURE__ */ new Date()).toISOString() + " ";
     }
-    function log34(...args) {
+    function log35(...args) {
       return process.stderr.write(util.formatWithOptions(exports2.inspectOpts, ...args) + "\n");
     }
     function save(namespaces) {
@@ -21986,18 +21986,18 @@ var require_generate_unique_number = __commonJS({
     var MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER === void 0 ? 9007199254740991 : Number.MAX_SAFE_INTEGER;
     var TWO_TO_THE_POWER_OF_TWENTY_NINE = 536870912;
     var TWO_TO_THE_POWER_OF_THIRTY = TWO_TO_THE_POWER_OF_TWENTY_NINE * 2;
-    var createGenerateUniqueNumber = (cache, lastNumberWeakMap) => {
+    var createGenerateUniqueNumber = (cache2, lastNumberWeakMap) => {
       return (collection) => {
         const lastNumber = lastNumberWeakMap.get(collection);
         let nextNumber = lastNumber === void 0 ? collection.size : lastNumber < TWO_TO_THE_POWER_OF_THIRTY ? lastNumber + 1 : 0;
         if (!collection.has(nextNumber)) {
-          return cache(collection, nextNumber);
+          return cache2(collection, nextNumber);
         }
         if (collection.size < TWO_TO_THE_POWER_OF_TWENTY_NINE) {
           while (collection.has(nextNumber)) {
             nextNumber = Math.floor(Math.random() * TWO_TO_THE_POWER_OF_THIRTY);
           }
-          return cache(collection, nextNumber);
+          return cache2(collection, nextNumber);
         }
         if (collection.size > MAX_SAFE_INTEGER) {
           throw new Error("Congratulations, you created a collection of unique numbers which uses all available integers!");
@@ -22005,7 +22005,7 @@ var require_generate_unique_number = __commonJS({
         while (collection.has(nextNumber)) {
           nextNumber = Math.floor(Math.random() * MAX_SAFE_INTEGER);
         }
-        return cache(collection, nextNumber);
+        return cache2(collection, nextNumber);
       };
     };
     exports2.createGenerateUniqueNumber = createGenerateUniqueNumber;
@@ -22024,8 +22024,8 @@ var require_module = __commonJS({
     var _cache = require_cache();
     var _generateUniqueNumber = require_generate_unique_number();
     var LAST_NUMBER_WEAK_MAP = /* @__PURE__ */ new WeakMap();
-    var cache = (0, _cache.createCache)(LAST_NUMBER_WEAK_MAP);
-    var generateUniqueNumber = exports2.generateUniqueNumber = (0, _generateUniqueNumber.createGenerateUniqueNumber)(cache, LAST_NUMBER_WEAK_MAP);
+    var cache2 = (0, _cache.createCache)(LAST_NUMBER_WEAK_MAP);
+    var generateUniqueNumber = exports2.generateUniqueNumber = (0, _generateUniqueNumber.createGenerateUniqueNumber)(cache2, LAST_NUMBER_WEAK_MAP);
     var addUniqueNumber = exports2.addUniqueNumber = (0, _addUniqueNumber.createAddUniqueNumber)(generateUniqueNumber);
   }
 });
@@ -32267,10 +32267,10 @@ var require_tcp = __commonJS({
           timeout: opts.socksTimeout
         });
       }
-      const { port, path: path12 } = opts;
+      const { port, path: path13 } = opts;
       const host = opts.hostname;
       debug("port %d and host %s", port, host);
-      return net_1.default.createConnection({ port, host, path: path12 });
+      return net_1.default.createConnection({ port, host, path: path13 });
     };
     exports2.default = buildStream;
   }
@@ -35448,7 +35448,7 @@ var require_node4 = __commonJS({
     var tty = require("tty");
     var util = require("util");
     exports2.init = init2;
-    exports2.log = log34;
+    exports2.log = log35;
     exports2.formatArgs = formatArgs;
     exports2.save = save;
     exports2.load = load;
@@ -35583,7 +35583,7 @@ var require_node4 = __commonJS({
       }
       return (/* @__PURE__ */ new Date()).toISOString() + " ";
     }
-    function log34(...args) {
+    function log35(...args) {
       return process.stderr.write(util.format(...args) + "\n");
     }
     function save(namespaces) {
@@ -36440,7 +36440,7 @@ var require_node5 = __commonJS({
     var tty = require("tty");
     var util = require("util");
     exports2.init = init2;
-    exports2.log = log34;
+    exports2.log = log35;
     exports2.formatArgs = formatArgs;
     exports2.save = save;
     exports2.load = load;
@@ -36575,7 +36575,7 @@ var require_node5 = __commonJS({
       }
       return (/* @__PURE__ */ new Date()).toISOString() + " ";
     }
-    function log34(...args) {
+    function log35(...args) {
       return process.stderr.write(util.formatWithOptions(exports2.inspectOpts, ...args) + "\n");
     }
     function save(namespaces) {
@@ -36647,17 +36647,17 @@ var require_dist12 = __commonJS({
         serialNumber = 0;
       },
       // Create a mock port
-      createPort(path12, options = {}) {
+      createPort(path13, options = {}) {
         serialNumber++;
         const optWithDefaults = Object.assign({ echo: false, record: false, manufacturer: "The J5 Robotics Company", vendorId: void 0, productId: void 0, maxReadSize: 1024 }, options);
-        ports[path12] = {
+        ports[path13] = {
           data: Buffer.alloc(0),
           echo: optWithDefaults.echo,
           record: optWithDefaults.record,
           readyData: optWithDefaults.readyData,
           maxReadSize: optWithDefaults.maxReadSize,
           info: {
-            path: path12,
+            path: path13,
             manufacturer: optWithDefaults.manufacturer,
             serialNumber: `${serialNumber}`,
             pnpId: void 0,
@@ -36666,7 +36666,7 @@ var require_dist12 = __commonJS({
             productId: optWithDefaults.productId
           }
         };
-        debug(serialNumber, "created port", JSON.stringify({ path: path12, opt: options }));
+        debug(serialNumber, "created port", JSON.stringify({ path: path13, opt: options }));
       },
       async list() {
         debug(null, "list");
@@ -36684,19 +36684,19 @@ var require_dist12 = __commonJS({
           throw new TypeError('"baudRate" is not a valid baudRate');
         }
         const openOptions = Object.assign({ dataBits: 8, lock: true, stopBits: 1, parity: "none", rtscts: false, xon: false, xoff: false, xany: false, hupcl: true }, options);
-        const { path: path12 } = openOptions;
-        debug(null, `open: opening path ${path12}`);
-        const port = ports[path12];
+        const { path: path13 } = openOptions;
+        debug(null, `open: opening path ${path13}`);
+        const port = ports[path13];
         await resolveNextTick();
         if (!port) {
-          throw new Error(`Port does not exist - please call MockBinding.createPort('${path12}') first`);
+          throw new Error(`Port does not exist - please call MockBinding.createPort('${path13}') first`);
         }
         const serialNumber2 = port.info.serialNumber;
         if ((_a = port.openOpt) === null || _a === void 0 ? void 0 : _a.lock) {
           debug(serialNumber2, "open: Port is locked cannot open");
           throw new Error("Port is locked cannot open");
         }
-        debug(serialNumber2, `open: opened path ${path12}`);
+        debug(serialNumber2, `open: opened path ${path13}`);
         port.openOpt = Object.assign({}, openOptions);
         return new MockPortBinding(port, openOptions);
       }
@@ -37375,7 +37375,7 @@ var require_node6 = __commonJS({
     var tty = require("tty");
     var util = require("util");
     exports2.init = init2;
-    exports2.log = log34;
+    exports2.log = log35;
     exports2.formatArgs = formatArgs;
     exports2.save = save;
     exports2.load = load;
@@ -37510,7 +37510,7 @@ var require_node6 = __commonJS({
       }
       return (/* @__PURE__ */ new Date()).toISOString() + " ";
     }
-    function log34(...args) {
+    function log35(...args) {
       return process.stderr.write(util.format(...args) + "\n");
     }
     function save(namespaces) {
@@ -37557,8 +37557,8 @@ var require_src6 = __commonJS({
 // node_modules/node-gyp-build/node-gyp-build.js
 var require_node_gyp_build = __commonJS({
   "node_modules/node-gyp-build/node-gyp-build.js"(exports2, module2) {
-    var fs9 = require("fs");
-    var path12 = require("path");
+    var fs10 = require("fs");
+    var path13 = require("path");
     var os7 = require("os");
     var runtimeRequire = typeof __webpack_require__ === "function" ? __non_webpack_require__ : require;
     var vars = process.config && process.config.variables || {};
@@ -37575,21 +37575,21 @@ var require_node_gyp_build = __commonJS({
       return runtimeRequire(load.resolve(dir));
     }
     load.resolve = load.path = function(dir) {
-      dir = path12.resolve(dir || ".");
+      dir = path13.resolve(dir || ".");
       try {
-        var name = runtimeRequire(path12.join(dir, "package.json")).name.toUpperCase().replace(/-/g, "_");
+        var name = runtimeRequire(path13.join(dir, "package.json")).name.toUpperCase().replace(/-/g, "_");
         if (process.env[name + "_PREBUILD"]) dir = process.env[name + "_PREBUILD"];
       } catch (err) {
       }
       if (!prebuildsOnly) {
-        var release = getFirst(path12.join(dir, "build/Release"), matchBuild);
+        var release = getFirst(path13.join(dir, "build/Release"), matchBuild);
         if (release) return release;
-        var debug = getFirst(path12.join(dir, "build/Debug"), matchBuild);
+        var debug = getFirst(path13.join(dir, "build/Debug"), matchBuild);
         if (debug) return debug;
       }
       var prebuild = resolve(dir);
       if (prebuild) return prebuild;
-      var nearby = resolve(path12.dirname(process.execPath));
+      var nearby = resolve(path13.dirname(process.execPath));
       if (nearby) return nearby;
       var target = [
         "platform=" + platform,
@@ -37606,26 +37606,26 @@ var require_node_gyp_build = __commonJS({
       ].filter(Boolean).join(" ");
       throw new Error("No native build was found for " + target + "\n    loaded from: " + dir + "\n");
       function resolve(dir2) {
-        var tuples = readdirSync(path12.join(dir2, "prebuilds")).map(parseTuple);
+        var tuples = readdirSync(path13.join(dir2, "prebuilds")).map(parseTuple);
         var tuple = tuples.filter(matchTuple(platform, arch)).sort(compareTuples)[0];
         if (!tuple) return;
-        var prebuilds = path12.join(dir2, "prebuilds", tuple.name);
+        var prebuilds = path13.join(dir2, "prebuilds", tuple.name);
         var parsed = readdirSync(prebuilds).map(parseTags);
         var candidates = parsed.filter(matchTags(runtime, abi));
         var winner = candidates.sort(compareTags(runtime))[0];
-        if (winner) return path12.join(prebuilds, winner.file);
+        if (winner) return path13.join(prebuilds, winner.file);
       }
     };
     function readdirSync(dir) {
       try {
-        return fs9.readdirSync(dir);
+        return fs10.readdirSync(dir);
       } catch (err) {
         return [];
       }
     }
     function getFirst(dir, filter) {
       var files = readdirSync(dir).filter(filter);
-      return files[0] && path12.join(dir, files[0]);
+      return files[0] && path13.join(dir, files[0]);
     }
     function matchBuild(name) {
       return /\.node$/.test(name);
@@ -37712,7 +37712,7 @@ var require_node_gyp_build = __commonJS({
       return typeof window !== "undefined" && window.process && window.process.type === "renderer";
     }
     function isAlpine(platform2) {
-      return platform2 === "linux" && fs9.existsSync("/etc/alpine-release");
+      return platform2 === "linux" && fs10.existsSync("/etc/alpine-release");
     }
     load.parseTags = parseTags;
     load.matchTags = matchTags;
@@ -38248,8 +38248,8 @@ var require_linux_list = __commonJS({
     exports2.linuxList = void 0;
     var child_process_1 = require("child_process");
     var parser_readline_1 = require_dist14();
-    function checkPathOfDevice(path12) {
-      return /(tty(S|WCH|ACM|USB|AMA|MFD|O|XRUSB)|rfcomm)/.test(path12) && path12;
+    function checkPathOfDevice(path13) {
+      return /(tty(S|WCH|ACM|USB|AMA|MFD|O|XRUSB)|rfcomm)/.test(path13) && path13;
     }
     function propName(name) {
       return {
@@ -39628,6 +39628,11 @@ var init_uploadPaths = __esm({
 });
 
 // src/models/Job.js
+var Job_exports = {};
+__export(Job_exports, {
+  JobModel: () => JobModel,
+  default: () => Job_default
+});
 function _pj4(v, fb) {
   if (!v) return fb;
   try {
@@ -39636,7 +39641,7 @@ function _pj4(v, fb) {
     return fb;
   }
 }
-var import_node_fs2, import_node_path4, JobModel;
+var import_node_fs2, import_node_path4, JobModel, Job_default;
 var init_Job = __esm({
   "src/models/Job.js"() {
     init_database();
@@ -39773,6 +39778,7 @@ var init_Job = __esm({
         };
       }
     };
+    Job_default = JobModel;
   }
 });
 
@@ -42319,8 +42325,8 @@ var require_Client = __commonJS({
       /**
        * Set the working directory.
        */
-      async cd(path12) {
-        const validPath = await this.protectWhitespace(path12);
+      async cd(path13) {
+        const validPath = await this.protectWhitespace(path13);
         return this.send("CWD " + validPath);
       }
       /**
@@ -42333,8 +42339,8 @@ var require_Client = __commonJS({
        * Get the last modified time of a file. This is not supported by every FTP server, in which case
        * calling this method will throw an exception.
        */
-      async lastMod(path12) {
-        const validPath = await this.protectWhitespace(path12);
+      async lastMod(path13) {
+        const validPath = await this.protectWhitespace(path13);
         const res = await this.send(`MDTM ${validPath}`);
         const date = res.message.slice(4);
         return (0, parseListMLSD_1.parseMLSxDate)(date);
@@ -42342,8 +42348,8 @@ var require_Client = __commonJS({
       /**
        * Get the size of a file.
        */
-      async size(path12) {
-        const validPath = await this.protectWhitespace(path12);
+      async size(path13) {
+        const validPath = await this.protectWhitespace(path13);
         const command = `SIZE ${validPath}`;
         const res = await this.send(command);
         const size = parseInt(res.message.slice(4), 10);
@@ -42370,8 +42376,8 @@ var require_Client = __commonJS({
        * You can ignore FTP error return codes which won't throw an exception if e.g.
        * the file doesn't exist.
        */
-      async remove(path12, ignoreErrorCodes = false) {
-        const validPath = await this.protectWhitespace(path12);
+      async remove(path13, ignoreErrorCodes = false) {
+        const validPath = await this.protectWhitespace(path13);
         if (ignoreErrorCodes) {
           return this.sendIgnoringError(`DELE ${validPath}`);
         }
@@ -42525,8 +42531,8 @@ var require_Client = __commonJS({
        *
        * @param [path]  Path to remote file or directory.
        */
-      async list(path12 = "") {
-        const validPath = await this.protectWhitespace(path12);
+      async list(path13 = "") {
+        const validPath = await this.protectWhitespace(path13);
         let lastError;
         for (const candidate of this.availableListCommands) {
           const command = validPath === "" ? candidate : `${candidate} ${validPath}`;
@@ -42696,21 +42702,21 @@ var require_Client = __commonJS({
       /**
        * Remove an empty directory, will fail if not empty.
        */
-      async removeEmptyDir(path12) {
-        const validPath = await this.protectWhitespace(path12);
+      async removeEmptyDir(path13) {
+        const validPath = await this.protectWhitespace(path13);
         return this.send(`RMD ${validPath}`);
       }
       /**
        * FTP servers can't handle filenames that have leading whitespace. This method transforms
        * a given path to fix that issue for most cases.
        */
-      async protectWhitespace(path12) {
-        if (!path12.startsWith(" ")) {
-          return path12;
+      async protectWhitespace(path13) {
+        if (!path13.startsWith(" ")) {
+          return path13;
         }
         const pwd = await this.pwd();
         const absolutePathPrefix = pwd.endsWith("/") ? pwd : pwd + "/";
-        return absolutePathPrefix + path12;
+        return absolutePathPrefix + path13;
       }
       async _exitAtCurrentDirectory(func) {
         const userDir = await this.pwd();
@@ -42787,11 +42793,11 @@ var require_Client = __commonJS({
       }
     };
     exports2.Client = Client2;
-    async function ensureLocalDirectory(path12) {
+    async function ensureLocalDirectory(path13) {
       try {
-        await fsStat(path12);
+        await fsStat(path13);
       } catch (_a) {
-        await fsMkDir(path12, { recursive: true });
+        await fsMkDir(path13, { recursive: true });
       }
     }
     async function ignoreError(func) {
@@ -44143,6 +44149,893 @@ var init_AmsService = __esm({
   }
 });
 
+// src/services/JobPreview.js
+var JobPreview_exports = {};
+__export(JobPreview_exports, {
+  buildPreviewFromArtifact: () => buildPreviewFromArtifact,
+  clearPreviewCache: () => clearPreviewCache,
+  default: () => JobPreview_default,
+  getJobPreview: () => getJobPreview,
+  parseGcodeSegments: () => parseGcodeSegments,
+  renderSegmentsToSvg: () => renderSegmentsToSvg
+});
+function isZipBuffer(buffer) {
+  return buffer.length > 4 && buffer[0] === 80 && buffer[1] === 75;
+}
+function extractThumbnailFromZip(buffer) {
+  try {
+    const zip = new import_adm_zip2.default(buffer);
+    for (const name of THUMBNAIL_CANDIDATES) {
+      const entry = zip.getEntry(name);
+      if (!entry) continue;
+      const data = entry.getData();
+      if (data.length > 0 && data.length <= MAX_PREVIEW_BYTES) {
+        return `data:image/png;base64,${data.toString("base64")}`;
+      }
+    }
+    const fallback = zip.getEntries().find((entry) => /^Metadata\/plate_\d+\.png$/.test(entry.entryName));
+    if (fallback) {
+      const data = fallback.getData();
+      if (data.length > 0 && data.length <= MAX_PREVIEW_BYTES) {
+        return `data:image/png;base64,${data.toString("base64")}`;
+      }
+    }
+  } catch {
+  }
+  return null;
+}
+function extractGcodeTextFromZip(buffer) {
+  try {
+    const zip = new import_adm_zip2.default(buffer);
+    const entry = zip.getEntries().find((item) => item.entryName.endsWith(".gcode"));
+    if (!entry) return null;
+    const data = entry.getData();
+    return data.slice(0, MAX_GCODE_PARSE_BYTES).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+function parseGcodeSegments(text, maxSegments = MAX_RAW_SEGMENTS) {
+  const segments = [];
+  let x = 0;
+  let y = 0;
+  let z = 0;
+  let e = 0;
+  let absoluteE = true;
+  for (let start = 0; start < text.length && segments.length < maxSegments; ) {
+    let end = text.indexOf("\n", start);
+    if (end === -1) end = text.length;
+    const line = text.slice(start, end);
+    start = end + 1;
+    if (line.length < 2 || line.charCodeAt(0) === 59) continue;
+    const code = line.slice(0, 3);
+    if (code === "M82") {
+      absoluteE = true;
+      continue;
+    }
+    if (code === "M83") {
+      absoluteE = false;
+      continue;
+    }
+    if (code === "G92") {
+      const match = /E(-?\d+\.?\d*)/.exec(line);
+      if (match) e = Number.parseFloat(match[1]);
+      continue;
+    }
+    if (!/^G[01]\b/.test(line)) continue;
+    let nx = x;
+    let ny = y;
+    let nz = z;
+    let ne = null;
+    const parts = line.split(" ");
+    for (let i = 1; i < parts.length; i += 1) {
+      const part = parts[i];
+      if (!part) continue;
+      const value = Number.parseFloat(part.slice(1));
+      if (!Number.isFinite(value)) continue;
+      const axis = part[0];
+      if (axis === "X") nx = value;
+      else if (axis === "Y") ny = value;
+      else if (axis === "Z") nz = value;
+      else if (axis === "E") ne = value;
+    }
+    const extruded = ne !== null && (absoluteE ? ne > e + 1e-6 : ne > 1e-6);
+    if (extruded && (nx !== x || ny !== y)) {
+      segments.push([x, y, z, nx, ny]);
+    }
+    x = nx;
+    y = ny;
+    z = nz;
+    if (ne !== null) e = absoluteE ? ne : e + ne;
+  }
+  return segments;
+}
+function downsample(segments, target) {
+  if (segments.length <= target) return segments;
+  const stride = segments.length / target;
+  const out = [];
+  for (let i = 0; i < target; i += 1) {
+    out.push(segments[Math.floor(i * stride)]);
+  }
+  return out;
+}
+function renderSegmentsToSvg(rawSegments, { width = 320, height = 300 } = {}) {
+  if (!rawSegments || rawSegments.length === 0) return null;
+  const segments = downsample(rawSegments, MAX_SVG_SEGMENTS);
+  const COS = Math.cos(Math.PI / 6);
+  const SIN = Math.sin(Math.PI / 6);
+  const project = (px, py, pz) => [(px - py) * COS, (px + py) * SIN - pz];
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  const projected = segments.map(([x1, y1, z, x2, y2]) => {
+    const a = project(x1, y1, z);
+    const b = project(x2, y2, z);
+    minX = Math.min(minX, a[0], b[0]);
+    maxX = Math.max(maxX, a[0], b[0]);
+    minY = Math.min(minY, a[1], b[1]);
+    maxY = Math.max(maxY, a[1], b[1]);
+    minZ = Math.min(minZ, z);
+    maxZ = Math.max(maxZ, z);
+    return { a, b, z };
+  });
+  const spanX = Math.max(maxX - minX, 1);
+  const spanY = Math.max(maxY - minY, 1);
+  const scale = Math.min((width - 20) / spanX, (height - 20) / spanY);
+  const offsetX = (width - spanX * scale) / 2 - minX * scale;
+  const offsetY = (height - spanY * scale) / 2 - minY * scale;
+  const zSpan = Math.max(maxZ - minZ, 1e-3);
+  const BANDS = 12;
+  const bands = Array.from({ length: BANDS }, () => []);
+  for (const segment of projected) {
+    const band = Math.min(BANDS - 1, Math.floor((segment.z - minZ) / zSpan * BANDS));
+    bands[band].push(segment);
+  }
+  const paths = bands.map((band, index) => {
+    if (band.length === 0) return "";
+    const t = index / (BANDS - 1);
+    const lightness = 32 + t * 38;
+    const data = band.map(({ a, b }) => `M${(a[0] * scale + offsetX).toFixed(1)} ${(a[1] * scale + offsetY).toFixed(1)}L${(b[0] * scale + offsetX).toFixed(1)} ${(b[1] * scale + offsetY).toFixed(1)}`).join("");
+    return `<path d="${data}" stroke="hsl(160 45% ${lightness.toFixed(0)}%)" stroke-width="0.9" fill="none" stroke-linecap="round"/>`;
+  }).join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">${paths}</svg>`;
+  if (svg.length > MAX_PREVIEW_BYTES) return null;
+  return `data:image/svg+xml;base64,${Buffer.from(svg, "utf8").toString("base64")}`;
+}
+function buildPreviewFromArtifact(buffer, fileName = "") {
+  if (!buffer || buffer.length === 0) return null;
+  if (isZipBuffer(buffer)) {
+    const thumbnail = extractThumbnailFromZip(buffer);
+    if (thumbnail) return thumbnail;
+    const gcodeText = extractGcodeTextFromZip(buffer);
+    if (gcodeText) return renderSegmentsToSvg(parseGcodeSegments(gcodeText));
+    return null;
+  }
+  if (/\.gcode$/i.test(fileName) || buffer.slice(0, 512).toString("utf8").includes("G1")) {
+    const text = buffer.slice(0, MAX_GCODE_PARSE_BYTES).toString("utf8");
+    return renderSegmentsToSvg(parseGcodeSegments(text));
+  }
+  return null;
+}
+function findJobArtifactPath(job) {
+  const root = getUploadRoot();
+  const candidates = [
+    job.transformed_file_name ? `${job.job_id}_${job.transformed_file_name}` : null,
+    job.source_file_name ? `${job.job_id}_${job.source_file_name}` : null
+  ].filter(Boolean);
+  for (const name of candidates) {
+    const filePath = import_node_path6.default.join(root, name);
+    if (import_node_fs4.default.existsSync(filePath)) return filePath;
+  }
+  return null;
+}
+function getJobPreview(job) {
+  if (!job?.job_id) return null;
+  const key = `${job.transformed_file_name || ""}|${job.source_file_name || ""}`;
+  const cached = cache.get(job.job_id);
+  if (cached && cached.key === key) return cached.preview;
+  let preview = null;
+  try {
+    const artifactPath = findJobArtifactPath(job);
+    if (artifactPath) {
+      preview = buildPreviewFromArtifact(import_node_fs4.default.readFileSync(artifactPath), artifactPath);
+    }
+  } catch (error) {
+    log21.warn(`Preview generation failed for job ${job.job_id}: ${error.message}`);
+  }
+  cache.set(job.job_id, { key, preview });
+  if (cache.size > 200) {
+    cache.delete(cache.keys().next().value);
+  }
+  return preview;
+}
+function clearPreviewCache() {
+  cache.clear();
+}
+var import_node_fs4, import_node_path6, import_adm_zip2, log21, MAX_PREVIEW_BYTES, MAX_GCODE_PARSE_BYTES, MAX_RAW_SEGMENTS, MAX_SVG_SEGMENTS, THUMBNAIL_CANDIDATES, cache, JobPreview_default;
+var init_JobPreview = __esm({
+  "src/services/JobPreview.js"() {
+    import_node_fs4 = __toESM(require("node:fs"), 1);
+    import_node_path6 = __toESM(require("node:path"), 1);
+    import_adm_zip2 = __toESM(require_adm_zip(), 1);
+    init_uploadPaths();
+    init_logger();
+    log21 = createLogger("JobPreview");
+    MAX_PREVIEW_BYTES = 350 * 1024;
+    MAX_GCODE_PARSE_BYTES = 24 * 1024 * 1024;
+    MAX_RAW_SEGMENTS = 2e5;
+    MAX_SVG_SEGMENTS = 5e3;
+    THUMBNAIL_CANDIDATES = [
+      "Metadata/plate_1.png",
+      "Metadata/plate_no_light_1.png",
+      "Metadata/plate_1_small.png",
+      "Metadata/top_1.png",
+      "Metadata/pick_1.png"
+    ];
+    cache = /* @__PURE__ */ new Map();
+    JobPreview_default = { getJobPreview, buildPreviewFromArtifact, parseGcodeSegments, renderSegmentsToSvg, clearPreviewCache };
+  }
+});
+
+// src/services/CameraProxy.js
+var CameraProxy_exports = {};
+__export(CameraProxy_exports, {
+  default: () => CameraProxy_default
+});
+async function resolveFfmpegPath() {
+  if (_ffmpegPath) return _ffmpegPath;
+  const mod = await import("@ffmpeg-installer/ffmpeg");
+  _ffmpegPath = mod.path || mod.default?.path || mod.default;
+  if (!_ffmpegPath) throw new Error("ffmpeg binary not available for X1 RTSP streaming");
+  return _ffmpegPath;
+}
+function getCameraFamily(model) {
+  if (!model) return "p1";
+  const m = model.trim();
+  if (CAMERA_FAMILY[m]) return CAMERA_FAMILY[m];
+  const lower = m.toLowerCase();
+  if (lower.includes("x1") || lower.includes("h2d")) return "x1";
+  return "p1";
+}
+function getCameraPort(family) {
+  return family === "x1" ? 322 : 6e3;
+}
+function probePort(ip, port, timeoutMs = 4e3) {
+  return new Promise((resolve) => {
+    const sock = new net.Socket();
+    const timer = setTimeout(() => {
+      sock.destroy();
+      resolve(false);
+    }, timeoutMs);
+    sock.connect(port, ip, () => {
+      clearTimeout(timer);
+      sock.destroy();
+      resolve(true);
+    });
+    sock.on("error", () => {
+      clearTimeout(timer);
+      sock.destroy();
+      resolve(false);
+    });
+  });
+}
+var import_child_process, tls2, net, _ffmpegPath, log22, CAMERA_FAMILY, CameraProxyManager, cameraProxy, CameraProxy_default;
+var init_CameraProxy = __esm({
+  "src/services/CameraProxy.js"() {
+    import_child_process = require("child_process");
+    tls2 = __toESM(require("tls"), 1);
+    net = __toESM(require("net"), 1);
+    init_logger();
+    _ffmpegPath = null;
+    log22 = createLogger("CameraProxy");
+    CAMERA_FAMILY = {
+      "Bambu P1S": "p1",
+      "Bambu P1P": "p1",
+      "Bambu P1": "p1",
+      "Bambu A1": "p1",
+      "Bambu A1 Mini": "p1",
+      "Bambu X1": "x1",
+      "Bambu X1C": "x1",
+      "Bambu X1E": "x1",
+      "Bambu H2D": "x1"
+    };
+    CameraProxyManager = class {
+      constructor() {
+        this.streams = /* @__PURE__ */ new Map();
+      }
+      /**
+       * Start (or reuse) a camera proxy for a given printer.
+       * @param {string} printerId
+       * @param {string} ip
+       * @param {string} accessCode
+       * @param {string} model - Printer model string, e.g. "Bambu P1S"
+       */
+      async start(printerId, ip, accessCode, model) {
+        if (this.streams.has(printerId)) {
+          const existing = this.streams.get(printerId);
+          if (!existing.destroyed) return true;
+          this.stop(printerId);
+        }
+        const family = getCameraFamily(model);
+        const port = getCameraPort(family);
+        log22.info(`Camera for ${printerId}: model="${model}" family=${family} port=${port}`);
+        const reachable = await probePort(ip, port);
+        if (!reachable) {
+          const state = this._createState(printerId, ip, accessCode, model, family);
+          state.lastError = this._buildUnreachableError(family, port, ip, model);
+          log22.warn(`Camera port ${port} unreachable on ${ip} for ${printerId}`);
+          this.streams.set(printerId, state);
+          if (state.retries < 3) {
+            state.retries++;
+            setTimeout(() => {
+              this.streams.delete(printerId);
+              this.start(printerId, ip, accessCode, model);
+            }, 5e3);
+          }
+          return true;
+        }
+        if (family === "p1") {
+          return this._startP1Camera(printerId, ip, accessCode, model);
+        } else {
+          return this._startX1Camera(printerId, ip, accessCode, model);
+        }
+      }
+      // ─── P1 / P1S / A1 family — port 6000 TLS + JPEG stream ────────
+      async _startP1Camera(printerId, ip, accessCode, model) {
+        const state = this._createState(printerId, ip, accessCode, model, "p1");
+        this.streams.set(printerId, state);
+        log22.info(`P1-family camera: connecting TLS to ${ip}:6000`);
+        return new Promise((resolve) => {
+          const socket = tls2.connect({
+            host: ip,
+            port: 6e3,
+            rejectUnauthorized: false,
+            timeout: 1e4
+          }, () => {
+            log22.info(`P1 camera TLS connected to ${ip}:6000`);
+            state.tlsSocket = socket;
+            const authPacket = this._buildP1AuthPacket(accessCode);
+            socket.write(authPacket);
+            log22.info(`P1 camera auth sent (${authPacket.length} bytes)`);
+            this._handleP1Stream(printerId, state, socket);
+            resolve(true);
+          });
+          socket.on("error", (err) => {
+            const msg = err.message || String(err);
+            log22.error(`P1 camera TLS error for ${printerId}: ${msg}`);
+            if (msg.includes("ECONNREFUSED")) {
+              state.lastError = `Port 6000 refused connection on ${ip}. Check: (1) LAN Only Mode enabled, (2) Developer Mode enabled, (3) Printer on same network.`;
+            } else if (msg.includes("ECONNRESET")) {
+              state.lastError = `Port 6000 connection reset \u2014 access code may be invalid.`;
+            } else {
+              state.lastError = `P1 camera connection error: ${msg}`;
+            }
+            resolve(true);
+          });
+          socket.on("timeout", () => {
+            state.lastError = `P1 camera connection timed out on ${ip}:6000. Check network.`;
+            socket.destroy();
+            resolve(true);
+          });
+        });
+      }
+      /**
+       * Build the P1-family camera auth packet.
+       *
+       * Binary format (80 bytes):
+       *   Bytes  0–3:   0x40 0x00 0x00 0x00  — auth command identifier
+       *   Bytes  4–7:   0x00 0x30 0x00 0x00  — flags/subcommand
+       *   Bytes  8–11:  0x00 0x00 0x00 0x00  — sequence_id
+       *   Bytes 12–15:  0x00 0x00 0x00 0x00  — reserved
+       *   Bytes 16–47:  username "bblp" + zero-pad to 32 bytes
+       *   Bytes 48–79:  access_code + zero-pad to 32 bytes
+       */
+      _buildP1AuthPacket(accessCode) {
+        const buf = Buffer.alloc(80, 0);
+        buf.writeUInt32LE(64, 0);
+        buf.writeUInt32LE(12288, 4);
+        Buffer.from("bblp", "ascii").copy(buf, 16);
+        Buffer.from(accessCode, "ascii").copy(buf, 48);
+        return buf;
+      }
+      /**
+       * Handle the P1-family JPEG stream.
+       *
+       * The P1 camera sends framed JPEG images:
+       *   Header (16 bytes):
+       *     Bytes 0–3:  magic / frame type
+       *     Bytes 4–7:  unknown
+       *     Bytes 8–11: JPEG payload size (little-endian uint32)
+       *     Bytes 12–15: unknown
+       *   Then: raw JPEG data of the indicated size
+       *
+       * We also handle the case where the stream just sends raw JPEG data
+       * (some firmware versions may differ).
+       */
+      _handleP1Stream(printerId, state, socket) {
+        let buf = Buffer.alloc(0);
+        let headerParsed = false;
+        let expectedSize = 0;
+        let frameCount = 0;
+        let firstDataReceived = false;
+        socket.on("data", (chunk) => {
+          if (!firstDataReceived) {
+            firstDataReceived = true;
+            log22.info(`P1 camera: first data received (${chunk.length} bytes), header hex: ${chunk.subarray(0, Math.min(32, chunk.length)).toString("hex")}`);
+          }
+          buf = Buffer.concat([buf, chunk]);
+          while (buf.length > 0) {
+            if (!headerParsed) {
+              if (buf.length < 16) break;
+              if (buf[0] === 255 && buf[1] === 216) {
+                const eoi = buf.indexOf(Buffer.from([255, 217]), 2);
+                if (eoi === -1) break;
+                const frame = Buffer.from(buf.subarray(0, eoi + 2));
+                this._deliverFrame(printerId, state, frame, ++frameCount);
+                buf = buf.subarray(eoi + 2);
+                continue;
+              }
+              expectedSize = buf.readUInt32LE(8);
+              if (expectedSize <= 0 || expectedSize > 2 * 1024 * 1024) {
+                const soi = buf.indexOf(Buffer.from([255, 216]), 1);
+                if (soi > 0) {
+                  log22.debug(`P1 camera: skipping ${soi} bytes to next JPEG SOI`);
+                  buf = buf.subarray(soi);
+                } else {
+                  if (buf.length > 1024 * 1024) {
+                    log22.warn(`P1 camera: discarding ${buf.length} bytes of unrecognized data`);
+                    buf = Buffer.alloc(0);
+                  }
+                  break;
+                }
+                continue;
+              }
+              headerParsed = true;
+              buf = buf.subarray(16);
+            }
+            if (headerParsed) {
+              if (buf.length < expectedSize) break;
+              const jpegData = buf.subarray(0, expectedSize);
+              if (jpegData[0] === 255 && jpegData[1] === 216) {
+                const frame = Buffer.from(jpegData);
+                this._deliverFrame(printerId, state, frame, ++frameCount);
+              } else {
+                log22.debug(`P1 camera: frame doesn't start with JPEG SOI, skipping`);
+              }
+              buf = buf.subarray(expectedSize);
+              headerParsed = false;
+              expectedSize = 0;
+            }
+          }
+          if (buf.length > 5 * 1024 * 1024) {
+            log22.warn(`P1 camera buffer overflow for ${printerId}, resetting`);
+            buf = Buffer.alloc(0);
+            headerParsed = false;
+          }
+        });
+        socket.on("close", () => {
+          log22.info(`P1 camera socket closed for ${printerId} (${frameCount} frames received)`);
+          if (frameCount === 0 && !state.lastError) {
+            state.lastError = "P1 camera connection closed without sending frames. Check access code and LAN/Developer mode settings.";
+          }
+          state.destroyed = true;
+          this._cleanupClients(state);
+        });
+        socket.on("error", (err) => {
+          log22.error(`P1 camera stream error for ${printerId}: ${err.message}`);
+        });
+      }
+      // ─── X1 / X1C / H2D family — port 322 RTSPS ────────────────────
+      async _startX1Camera(printerId, ip, accessCode, model) {
+        const state = this._createState(printerId, ip, accessCode, model, "x1");
+        this.streams.set(printerId, state);
+        log22.info(`X1-family camera: connecting TLS to ${ip}:322`);
+        return new Promise((resolve) => {
+          const socket = tls2.connect({
+            host: ip,
+            port: 322,
+            rejectUnauthorized: false,
+            timeout: 1e4
+          }, () => {
+            log22.info(`X1 camera TLS connected to ${ip}:322`);
+            state.tlsSocket = socket;
+            this._rtspHandshake(printerId, state, socket, ip, accessCode).then(() => resolve(true)).catch((err) => {
+              state.lastError = `X1 RTSP handshake failed: ${err.message}`;
+              resolve(true);
+            });
+          });
+          socket.on("error", (err) => {
+            state.lastError = `X1 camera TLS error: ${err.message}`;
+            log22.error(`X1 camera error for ${printerId}: ${err.message}`);
+            resolve(true);
+          });
+          socket.on("timeout", () => {
+            state.lastError = `X1 camera timed out on ${ip}:322.`;
+            socket.destroy();
+            resolve(true);
+          });
+        });
+      }
+      async _rtspHandshake(printerId, state, socket, ip, accessCode) {
+        const baseUrl = `rtsps://${ip}:322/streaming/live/1`;
+        const auth = Buffer.from(`bblp:${accessCode}`).toString("base64");
+        let cseq = 1;
+        socket.write([
+          `DESCRIBE ${baseUrl} RTSP/1.0`,
+          `CSeq: ${cseq++}`,
+          `Authorization: Basic ${auth}`,
+          `Accept: application/sdp`,
+          `User-Agent: Antigravity/1.0`,
+          ``,
+          ``
+        ].join("\r\n"));
+        const descResp = await this._readRtspResponse(socket, "DESCRIBE");
+        let trackUrl = `${baseUrl}/trackID=0`;
+        const trackMatch = descResp.match(/a=control:(.+)/);
+        if (trackMatch) {
+          const t = trackMatch[1].trim();
+          trackUrl = t.startsWith("rtsp") ? t : `${baseUrl}/${t}`;
+        }
+        socket.write([
+          `SETUP ${trackUrl} RTSP/1.0`,
+          `CSeq: ${cseq++}`,
+          `Authorization: Basic ${auth}`,
+          `Transport: RTP/AVP/TCP;unicast;interleaved=0-1`,
+          `User-Agent: Antigravity/1.0`,
+          ``,
+          ``
+        ].join("\r\n"));
+        const setupResp = await this._readRtspResponse(socket, "SETUP");
+        const sesMatch = setupResp.match(/Session:\s*([^\r\n;]+)/i);
+        const sessionId = sesMatch ? sesMatch[1].trim() : "";
+        socket.write([
+          `PLAY ${baseUrl} RTSP/1.0`,
+          `CSeq: ${cseq++}`,
+          `Authorization: Basic ${auth}`,
+          `Session: ${sessionId}`,
+          `Range: npt=0.000-`,
+          `User-Agent: Antigravity/1.0`,
+          ``,
+          ``
+        ].join("\r\n"));
+        await this._readRtspResponse(socket, "PLAY");
+        log22.info(`X1 RTSP PLAY started for ${printerId}`);
+        await this._startX1FfmpegBridge(printerId, state, socket);
+      }
+      _readRtspResponse(socket, label) {
+        return new Promise((resolve, reject) => {
+          let buf = "";
+          const timeout = setTimeout(() => reject(new Error(`${label} timeout`)), 1e4);
+          const onData = (data) => {
+            buf += data.toString();
+            if (buf.includes("\r\n\r\n") && buf.includes("RTSP/1.0")) {
+              clearTimeout(timeout);
+              socket.removeListener("data", onData);
+              const status = buf.split("\r\n")[0];
+              if (status.includes("200")) resolve(buf);
+              else if (status.includes("401")) reject(new Error("Authentication failed (401)"));
+              else reject(new Error(status));
+            }
+          };
+          socket.on("data", onData);
+        });
+      }
+      async _startX1FfmpegBridge(printerId, state, socket) {
+        const ffmpegPath = await resolveFfmpegPath();
+        const proc = (0, import_child_process.spawn)(ffmpegPath, [
+          "-hide_banner",
+          "-loglevel",
+          "warning",
+          "-f",
+          "h264",
+          "-i",
+          "pipe:0",
+          "-f",
+          "image2pipe",
+          "-vcodec",
+          "mjpeg",
+          "-q:v",
+          "5",
+          "-r",
+          "2",
+          "-"
+        ], { stdio: ["pipe", "pipe", "pipe"] });
+        state.ffmpegProc = proc;
+        socket.on("data", (data) => {
+          let offset = 0;
+          while (offset < data.length) {
+            if (data[offset] === 36 && offset + 4 <= data.length) {
+              const channel = data[offset + 1];
+              const len = data.readUInt16BE(offset + 2);
+              if (offset + 4 + len <= data.length && channel === 0) {
+                const rtpPacket = data.subarray(offset + 4, offset + 4 + len);
+                if (rtpPacket.length > 12) {
+                  try {
+                    if (proc.stdin.writable) proc.stdin.write(rtpPacket.subarray(12));
+                  } catch {
+                  }
+                }
+              }
+              offset += 4 + len;
+            } else {
+              offset++;
+            }
+          }
+        });
+        socket.on("close", () => {
+          try {
+            proc.stdin.end();
+          } catch {
+          }
+          state.destroyed = true;
+        });
+        proc.stdout.on("data", (chunk) => this._parseJpegFromPipe(printerId, state, chunk));
+        proc.stderr.on("data", (d) => {
+          const msg = d.toString().trim();
+          if (msg) log22.warn(`[X1 ffmpeg ${printerId}] ${msg}`);
+        });
+        proc.on("close", (code) => log22.info(`X1 ffmpeg for ${printerId} exited code ${code}`));
+      }
+      // ─── Shared helpers ─────────────────────────────────────────────
+      _createState(printerId, ip, accessCode, model, family) {
+        return {
+          printerId,
+          ip,
+          accessCode,
+          model,
+          family,
+          tlsSocket: null,
+          ffmpegProc: null,
+          frame: null,
+          clients: /* @__PURE__ */ new Set(),
+          lastError: null,
+          retries: 0,
+          destroyed: false
+        };
+      }
+      _deliverFrame(printerId, state, frame, count) {
+        state.frame = frame;
+        state.lastError = null;
+        state.retries = 0;
+        if (count <= 3 || count % 100 === 0) {
+          log22.info(`P1 camera frame #${count} for ${printerId}: ${frame.length} bytes`);
+        }
+        for (const res of state.clients) {
+          try {
+            res.write(`--frame\r
+Content-Type: image/jpeg\r
+Content-Length: ${frame.length}\r
+\r
+`);
+            res.write(frame);
+            res.write("\r\n");
+          } catch {
+          }
+        }
+      }
+      _parseJpegFromPipe(printerId, state, chunk) {
+        if (!state._jpegBuf) state._jpegBuf = Buffer.alloc(0);
+        state._jpegBuf = Buffer.concat([state._jpegBuf, chunk]);
+        let startIdx = 0;
+        let count = 0;
+        while (true) {
+          const soi = state._jpegBuf.indexOf(Buffer.from([255, 216]), startIdx);
+          if (soi === -1) break;
+          const eoi = state._jpegBuf.indexOf(Buffer.from([255, 217]), soi + 2);
+          if (eoi === -1) break;
+          this._deliverFrame(printerId, state, Buffer.from(state._jpegBuf.subarray(soi, eoi + 2)), ++count);
+          startIdx = eoi + 2;
+        }
+        if (startIdx > 0) state._jpegBuf = state._jpegBuf.subarray(startIdx);
+        if (state._jpegBuf.length > 5 * 1024 * 1024) state._jpegBuf = Buffer.alloc(0);
+      }
+      _cleanupClients(state) {
+        for (const res of state.clients) {
+          try {
+            res.end();
+          } catch {
+          }
+        }
+        state.clients.clear();
+      }
+      _buildUnreachableError(family, port, ip, model) {
+        if (family === "p1") {
+          return [
+            `Camera port ${port} is unreachable on ${ip} (model: ${model}).`,
+            `Diagnostic checklist:`,
+            `1. Ensure the printer is in LAN Only Mode (Settings \u2192 Network)`,
+            `2. Enable Developer Mode on the printer if available`,
+            `3. Verify the access code is correct`,
+            `4. Confirm the printer is on the same network as this server`,
+            `5. Check firmware is up to date (01.06.00.00+)`
+          ].join("\n");
+        }
+        return [
+          `Camera port ${port} is unreachable on ${ip} (model: ${model}).`,
+          `For X1/H2D printers, ensure LAN Mode Liveview is enabled in printer settings.`
+        ].join("\n");
+      }
+      // ─── Public API (unchanged contract) ────────────────────────────
+      getFrame(printerId) {
+        return this.streams.get(printerId)?.frame || null;
+      }
+      getError(printerId) {
+        return this.streams.get(printerId)?.lastError || null;
+      }
+      isRunning(printerId) {
+        const s = this.streams.get(printerId);
+        return s && !s.destroyed;
+      }
+      addStreamClient(printerId, res) {
+        const state = this.streams.get(printerId);
+        if (!state) return false;
+        state.clients.add(res);
+        res.on("close", () => state.clients.delete(res));
+        if (state.frame) {
+          try {
+            res.write(`--frame\r
+Content-Type: image/jpeg\r
+Content-Length: ${state.frame.length}\r
+\r
+`);
+            res.write(state.frame);
+            res.write("\r\n");
+          } catch {
+          }
+        }
+        return true;
+      }
+      stop(printerId) {
+        const state = this.streams.get(printerId);
+        if (state) {
+          state.destroyed = true;
+          try {
+            state.tlsSocket?.destroy();
+          } catch {
+          }
+          try {
+            state.ffmpegProc?.kill("SIGTERM");
+          } catch {
+          }
+          this._cleanupClients(state);
+          this.streams.delete(printerId);
+          log22.info(`Camera proxy stopped for ${printerId}`);
+        }
+      }
+      stopAll() {
+        for (const [id] of this.streams) this.stop(id);
+      }
+    };
+    cameraProxy = new CameraProxyManager();
+    CameraProxy_default = cameraProxy;
+  }
+});
+
+// src/services/PrinterRegistry.js
+var PrinterRegistry_exports = {};
+__export(PrinterRegistry_exports, {
+  PrinterRegistry: () => PrinterRegistry,
+  default: () => PrinterRegistry_default
+});
+var log23, MODEL_CAPABILITIES, PrinterRegistry, PrinterRegistry_default;
+var init_PrinterRegistry = __esm({
+  "src/services/PrinterRegistry.js"() {
+    init_Printer();
+    init_Accessory();
+    init_Event();
+    init_logger();
+    init_SystemEvents();
+    log23 = createLogger("PrinterRegistry");
+    MODEL_CAPABILITIES = {
+      "Bambu A1": { mqtt_control: true, ams: true, camera: false, max_y: 256, max_x: 256, max_z: 256 },
+      "Bambu A1 Mini": { mqtt_control: true, ams: true, camera: false, max_y: 180, max_x: 180, max_z: 180 },
+      "Bambu P1S": { mqtt_control: true, ams: true, camera: true, max_y: 256, max_x: 256, max_z: 256 },
+      "Bambu P1P": { mqtt_control: true, ams: true, camera: false, max_y: 256, max_x: 256, max_z: 256 },
+      "Bambu X1C": { mqtt_control: true, ams: true, camera: true, max_y: 256, max_x: 256, max_z: 256 },
+      "Bambu X1": { mqtt_control: true, ams: true, camera: true, max_y: 256, max_x: 256, max_z: 256 }
+    };
+    PrinterRegistry = class {
+      /**
+       * Register a new printer.
+       */
+      static create(data) {
+        const capabilities = this.deriveCapabilities(data.model, []);
+        const printer = PrinterModel.create({ ...data, capabilities });
+        EventModel.create({
+          entity_type: "printer",
+          entity_id: printer.printer_id,
+          event_type: "printer.registered",
+          payload: { name: data.name, model: data.model }
+        });
+        SystemEvents_default.emit("printer.created", printer);
+        log23.info(`Printer registered: ${printer.name} (${printer.model})`);
+        return printer;
+      }
+      static findAll() {
+        return PrinterModel.findAll();
+      }
+      static findById(id) {
+        return PrinterModel.findById(id);
+      }
+      // Decrypted printer auth ({ access_code, serial }). Several routes reference
+      // PrinterRegistry.getAuth(); without it they silently fell back to an empty
+      // access code (broken FTPS reachability / camera / diagnostics on real printers).
+      static getAuth(id) {
+        return PrinterModel.getAuth(id);
+      }
+      static update(id, fields) {
+        const printer = PrinterModel.update(id, fields);
+        if (printer && fields.model) {
+          const accessories = AccessoryModel.findByPrinterId(id);
+          const caps = this.deriveCapabilities(fields.model, accessories);
+          PrinterModel.update(id, { capabilities: caps });
+        }
+        return PrinterModel.findById(id);
+      }
+      static delete(id) {
+        const printer = PrinterModel.findById(id);
+        if (printer) {
+          PrinterModel.delete(id);
+          EventModel.create({
+            entity_type: "printer",
+            entity_id: id,
+            event_type: "printer.removed",
+            payload: { name: printer.name }
+          });
+          SystemEvents_default.emit("printer.deleted", id);
+          log23.info(`Printer removed: ${printer.name}`);
+        }
+        return printer;
+      }
+      /**
+       * Derive capabilities from model + attached accessories.
+       */
+      static deriveCapabilities(model, accessories = []) {
+        const base = MODEL_CAPABILITIES[model] || { mqtt_control: true, ams: false, camera: false };
+        const caps = { ...base };
+        for (const acc of accessories) {
+          if (acc.type === "camera") caps.camera = true;
+          if (acc.type === "door_servo") caps.door_servo = true;
+          if (acc.type === "eject_printhead") caps.eject_printhead = true;
+          if (acc.type === "scale") caps.scale = true;
+        }
+        return caps;
+      }
+      /**
+       * Refresh capabilities for a printer (call after accessory changes).
+       */
+      static refreshCapabilities(printerId) {
+        const printer = PrinterModel.findById(printerId);
+        if (!printer) return null;
+        const accessories = AccessoryModel.findByPrinterId(printerId);
+        const model = printer.model;
+        const caps = this.deriveCapabilities(model, accessories);
+        PrinterModel.update(printerId, { capabilities: caps });
+        return caps;
+      }
+      /**
+       * Update printer status snapshot.
+       */
+      static updateStatus(printerId, statusSnapshot) {
+        PrinterModel.updateStatus(printerId, statusSnapshot);
+      }
+      /**
+       * Get printer with full details (accessories, capabilities).
+       */
+      static getFullDetail(printerId) {
+        const printer = PrinterModel.findById(printerId);
+        if (!printer) return null;
+        const accessories = AccessoryModel.findByPrinterId(printerId);
+        return { ...printer, accessories };
+      }
+    };
+    PrinterRegistry_default = PrinterRegistry;
+  }
+});
+
 // node_modules/depd/index.js
 var require_depd = __commonJS({
   "node_modules/depd/index.js"(exports2, module2) {
@@ -44201,7 +45094,7 @@ var require_depd = __commonJS({
       var site = callSiteLocation(stack[1]);
       var file = site[0];
       function deprecate(message) {
-        log34.call(deprecate, message);
+        log35.call(deprecate, message);
       }
       deprecate._file = file;
       deprecate._ignored = isignored(namespace);
@@ -44230,7 +45123,7 @@ var require_depd = __commonJS({
       var str = process.env.TRACE_DEPRECATION || "";
       return containsNamespace(str, namespace);
     }
-    function log34(message, site) {
+    function log35(message, site) {
       var haslisteners = eehaslisteners(process, "deprecation");
       if (!haslisteners && this._ignored) {
         return;
@@ -44370,7 +45263,7 @@ var require_depd = __commonJS({
         "message",
         "site",
         '"use strict"\nreturn function (' + args + ") {log.call(deprecate, message, site)\nreturn fn.apply(this, arguments)\n}"
-      )(fn, log34, this, message, site);
+      )(fn, log35, this, message, site);
       return deprecatedfn;
     }
     function wrapproperty(obj, prop, message) {
@@ -44395,13 +45288,13 @@ var require_depd = __commonJS({
       var set = descriptor.set;
       if (typeof get === "function") {
         descriptor.get = function getter() {
-          log34.call(deprecate, message, site);
+          log35.call(deprecate, message, site);
           return get.apply(this, arguments);
         };
       }
       if (typeof set === "function") {
         descriptor.set = function setter() {
-          log34.call(deprecate, message, site);
+          log35.call(deprecate, message, site);
           return set.apply(this, arguments);
         };
       }
@@ -45192,7 +46085,7 @@ var require_debug = __commonJS({
 var require_browser7 = __commonJS({
   "node_modules/debug/src/browser.js"(exports2, module2) {
     exports2 = module2.exports = require_debug();
-    exports2.log = log34;
+    exports2.log = log35;
     exports2.formatArgs = formatArgs;
     exports2.save = save;
     exports2.load = load;
@@ -45240,7 +46133,7 @@ var require_browser7 = __commonJS({
       });
       args.splice(lastC, 0, c);
     }
-    function log34() {
+    function log35() {
       return "object" === typeof console && console.log && Function.prototype.apply.call(console.log, console, arguments);
     }
     function save(namespaces) {
@@ -45281,7 +46174,7 @@ var require_node7 = __commonJS({
     var util = require("util");
     exports2 = module2.exports = require_debug();
     exports2.init = init2;
-    exports2.log = log34;
+    exports2.log = log35;
     exports2.formatArgs = formatArgs;
     exports2.save = save;
     exports2.load = load;
@@ -45332,7 +46225,7 @@ var require_node7 = __commonJS({
         args[0] = (/* @__PURE__ */ new Date()).toUTCString() + " " + name + " " + args[0];
       }
     }
-    function log34() {
+    function log35() {
       return stream.write(util.format.apply(util, arguments) + "\n");
     }
     function save(namespaces) {
@@ -45357,8 +46250,8 @@ var require_node7 = __commonJS({
           }
           break;
         case "FILE":
-          var fs9 = require("fs");
-          stream2 = new fs9.SyncWriteStream(fd2, { autoClose: false });
+          var fs10 = require("fs");
+          stream2 = new fs10.SyncWriteStream(fd2, { autoClose: false });
           stream2._type = "fs";
           break;
         case "PIPE":
@@ -58145,11 +59038,11 @@ var require_mime_types = __commonJS({
       }
       return exts[0];
     }
-    function lookup(path12) {
-      if (!path12 || typeof path12 !== "string") {
+    function lookup(path13) {
+      if (!path13 || typeof path13 !== "string") {
         return false;
       }
-      var extension2 = extname("x." + path12).toLowerCase().substr(1);
+      var extension2 = extname("x." + path13).toLowerCase().substr(1);
       if (!extension2) {
         return false;
       }
@@ -61664,7 +62557,7 @@ var require_path_to_regexp = __commonJS({
   "node_modules/path-to-regexp/index.js"(exports2, module2) {
     module2.exports = pathToRegexp;
     var MATCHING_GROUP_REGEXP = /\\.|\((?:\?<(.*?)>)?(?!\?)/g;
-    function pathToRegexp(path12, keys, options) {
+    function pathToRegexp(path13, keys, options) {
       options = options || {};
       keys = keys || [];
       var strict = options.strict;
@@ -61678,8 +62571,8 @@ var require_path_to_regexp = __commonJS({
       var pos = 0;
       var backtrack = "";
       var m;
-      if (path12 instanceof RegExp) {
-        while (m = MATCHING_GROUP_REGEXP.exec(path12.source)) {
+      if (path13 instanceof RegExp) {
+        while (m = MATCHING_GROUP_REGEXP.exec(path13.source)) {
           if (m[0][0] === "\\") continue;
           keys.push({
             name: m[1] || name++,
@@ -61687,18 +62580,18 @@ var require_path_to_regexp = __commonJS({
             offset: m.index
           });
         }
-        return path12;
+        return path13;
       }
-      if (Array.isArray(path12)) {
-        path12 = path12.map(function(value) {
+      if (Array.isArray(path13)) {
+        path13 = path13.map(function(value) {
           return pathToRegexp(value, keys, options).source;
         });
-        return new RegExp(path12.join("|"), flags);
+        return new RegExp(path13.join("|"), flags);
       }
-      if (typeof path12 !== "string") {
+      if (typeof path13 !== "string") {
         throw new TypeError("path must be a string, array of strings, or regular expression");
       }
-      path12 = path12.replace(
+      path13 = path13.replace(
         /\\.|(\/)?(\.)?:(\w+)(\(.*?\))?(\*)?(\?)?|[.*]|\/\(/g,
         function(match, slash, format, key, capture, star, optional, offset) {
           if (match[0] === "\\") {
@@ -61715,7 +62608,7 @@ var require_path_to_regexp = __commonJS({
           if (slash || format) {
             backtrack = "";
           } else {
-            backtrack += path12.slice(pos, offset);
+            backtrack += path13.slice(pos, offset);
           }
           pos = offset + match.length;
           if (match === "*") {
@@ -61743,7 +62636,7 @@ var require_path_to_regexp = __commonJS({
           return result;
         }
       );
-      while (m = MATCHING_GROUP_REGEXP.exec(path12)) {
+      while (m = MATCHING_GROUP_REGEXP.exec(path13)) {
         if (m[0][0] === "\\") continue;
         if (keysOffset + i === keys.length || keys[keysOffset + i].offset > m.index) {
           keys.splice(keysOffset + i, 0, {
@@ -61755,13 +62648,13 @@ var require_path_to_regexp = __commonJS({
         }
         i++;
       }
-      path12 += strict ? "" : path12[path12.length - 1] === "/" ? "?" : "/?";
+      path13 += strict ? "" : path13[path13.length - 1] === "/" ? "?" : "/?";
       if (end) {
-        path12 += "$";
-      } else if (path12[path12.length - 1] !== "/") {
-        path12 += lookahead ? "(?=/|$)" : "(?:/|$)";
+        path13 += "$";
+      } else if (path13[path13.length - 1] !== "/") {
+        path13 += lookahead ? "(?=/|$)" : "(?:/|$)";
       }
-      return new RegExp("^" + path12, flags);
+      return new RegExp("^" + path13, flags);
     }
   }
 });
@@ -61774,19 +62667,19 @@ var require_layer = __commonJS({
     var debug = require_src7()("express:router:layer");
     var hasOwnProperty = Object.prototype.hasOwnProperty;
     module2.exports = Layer;
-    function Layer(path12, options, fn) {
+    function Layer(path13, options, fn) {
       if (!(this instanceof Layer)) {
-        return new Layer(path12, options, fn);
+        return new Layer(path13, options, fn);
       }
-      debug("new %o", path12);
+      debug("new %o", path13);
       var opts = options || {};
       this.handle = fn;
       this.name = fn.name || "<anonymous>";
       this.params = void 0;
       this.path = void 0;
-      this.regexp = pathRegexp(path12, this.keys = [], opts);
-      this.regexp.fast_star = path12 === "*";
-      this.regexp.fast_slash = path12 === "/" && opts.end === false;
+      this.regexp = pathRegexp(path13, this.keys = [], opts);
+      this.regexp.fast_star = path13 === "*";
+      this.regexp.fast_slash = path13 === "/" && opts.end === false;
     }
     Layer.prototype.handle_error = function handle_error(error, req, res, next) {
       var fn = this.handle;
@@ -61810,20 +62703,20 @@ var require_layer = __commonJS({
         next(err);
       }
     };
-    Layer.prototype.match = function match(path12) {
+    Layer.prototype.match = function match(path13) {
       var match2;
-      if (path12 != null) {
+      if (path13 != null) {
         if (this.regexp.fast_slash) {
           this.params = {};
           this.path = "";
           return true;
         }
         if (this.regexp.fast_star) {
-          this.params = { "0": decode_param(path12) };
-          this.path = path12;
+          this.params = { "0": decode_param(path13) };
+          this.path = path13;
           return true;
         }
-        match2 = this.regexp.exec(path12);
+        match2 = this.regexp.exec(path13);
       }
       if (!match2) {
         this.params = void 0;
@@ -61916,10 +62809,10 @@ var require_route = __commonJS({
     var slice = Array.prototype.slice;
     var toString = Object.prototype.toString;
     module2.exports = Route;
-    function Route(path12) {
-      this.path = path12;
+    function Route(path13) {
+      this.path = path13;
       this.stack = [];
-      debug("new %o", path12);
+      debug("new %o", path13);
       this.methods = {};
     }
     Route.prototype._handles_method = function _handles_method(method) {
@@ -62131,8 +63024,8 @@ var require_router = __commonJS({
         if (++sync > 100) {
           return setImmediate(next, err);
         }
-        var path12 = getPathname(req);
-        if (path12 == null) {
+        var path13 = getPathname(req);
+        if (path13 == null) {
           return done(layerError);
         }
         var layer;
@@ -62140,7 +63033,7 @@ var require_router = __commonJS({
         var route;
         while (match !== true && idx < stack.length) {
           layer = stack[idx++];
-          match = matchLayer(layer, path12);
+          match = matchLayer(layer, path13);
           route = layer.route;
           if (typeof match !== "boolean") {
             layerError = layerError || match;
@@ -62178,18 +63071,18 @@ var require_router = __commonJS({
           } else if (route) {
             layer.handle_request(req, res, next);
           } else {
-            trim_prefix(layer, layerError, layerPath, path12);
+            trim_prefix(layer, layerError, layerPath, path13);
           }
           sync = 0;
         });
       }
-      function trim_prefix(layer, layerError, layerPath, path12) {
+      function trim_prefix(layer, layerError, layerPath, path13) {
         if (layerPath.length !== 0) {
-          if (layerPath !== path12.slice(0, layerPath.length)) {
+          if (layerPath !== path13.slice(0, layerPath.length)) {
             next(layerError);
             return;
           }
-          var c = path12[layerPath.length];
+          var c = path13[layerPath.length];
           if (c && c !== "/" && c !== ".") return next(layerError);
           debug("trim prefix (%s) from url %s", layerPath, req.url);
           removed = layerPath;
@@ -62267,7 +63160,7 @@ var require_router = __commonJS({
     };
     proto.use = function use(fn) {
       var offset = 0;
-      var path12 = "/";
+      var path13 = "/";
       if (typeof fn !== "function") {
         var arg = fn;
         while (Array.isArray(arg) && arg.length !== 0) {
@@ -62275,7 +63168,7 @@ var require_router = __commonJS({
         }
         if (typeof arg !== "function") {
           offset = 1;
-          path12 = fn;
+          path13 = fn;
         }
       }
       var callbacks = flatten(slice.call(arguments, offset));
@@ -62287,8 +63180,8 @@ var require_router = __commonJS({
         if (typeof fn !== "function") {
           throw new TypeError("Router.use() requires a middleware function but got a " + gettype(fn));
         }
-        debug("use %o %s", path12, fn.name || "<anonymous>");
-        var layer = new Layer(path12, {
+        debug("use %o %s", path13, fn.name || "<anonymous>");
+        var layer = new Layer(path13, {
           sensitive: this.caseSensitive,
           strict: false,
           end: false
@@ -62298,9 +63191,9 @@ var require_router = __commonJS({
       }
       return this;
     };
-    proto.route = function route(path12) {
-      var route2 = new Route(path12);
-      var layer = new Layer(path12, {
+    proto.route = function route(path13) {
+      var route2 = new Route(path13);
+      var layer = new Layer(path13, {
         sensitive: this.caseSensitive,
         strict: this.strict,
         end: true
@@ -62310,8 +63203,8 @@ var require_router = __commonJS({
       return route2;
     };
     methods.concat("all").forEach(function(method) {
-      proto[method] = function(path12) {
-        var route = this.route(path12);
+      proto[method] = function(path13) {
+        var route = this.route(path13);
         route[method].apply(route, slice.call(arguments, 1));
         return this;
       };
@@ -62347,9 +63240,9 @@ var require_router = __commonJS({
       }
       return toString.call(obj).replace(objectRegExp, "$1");
     }
-    function matchLayer(layer, path12) {
+    function matchLayer(layer, path13) {
       try {
-        return layer.match(path12);
+        return layer.match(path13);
       } catch (err) {
         return err;
       }
@@ -62467,13 +63360,13 @@ var require_view = __commonJS({
   "node_modules/express/lib/view.js"(exports2, module2) {
     "use strict";
     var debug = require_src7()("express:view");
-    var path12 = require("path");
-    var fs9 = require("fs");
-    var dirname = path12.dirname;
-    var basename = path12.basename;
-    var extname = path12.extname;
-    var join = path12.join;
-    var resolve = path12.resolve;
+    var path13 = require("path");
+    var fs10 = require("fs");
+    var dirname = path13.dirname;
+    var basename = path13.basename;
+    var extname = path13.extname;
+    var join = path13.join;
+    var resolve = path13.resolve;
     module2.exports = View;
     function View(name, options) {
       var opts = options || {};
@@ -62502,17 +63395,17 @@ var require_view = __commonJS({
       this.path = this.lookup(fileName);
     }
     View.prototype.lookup = function lookup(name) {
-      var path13;
+      var path14;
       var roots = [].concat(this.root);
       debug('lookup "%s"', name);
-      for (var i = 0; i < roots.length && !path13; i++) {
+      for (var i = 0; i < roots.length && !path14; i++) {
         var root = roots[i];
         var loc = resolve(root, name);
         var dir = dirname(loc);
         var file = basename(loc);
-        path13 = this.resolve(dir, file);
+        path14 = this.resolve(dir, file);
       }
-      return path13;
+      return path14;
     };
     View.prototype.render = function render(options, callback) {
       debug('render "%s"', this.path);
@@ -62520,21 +63413,21 @@ var require_view = __commonJS({
     };
     View.prototype.resolve = function resolve2(dir, file) {
       var ext = this.ext;
-      var path13 = join(dir, file);
-      var stat = tryStat(path13);
+      var path14 = join(dir, file);
+      var stat = tryStat(path14);
       if (stat && stat.isFile()) {
-        return path13;
+        return path14;
       }
-      path13 = join(dir, basename(file, ext), "index" + ext);
-      stat = tryStat(path13);
+      path14 = join(dir, basename(file, ext), "index" + ext);
+      stat = tryStat(path14);
       if (stat && stat.isFile()) {
-        return path13;
+        return path14;
       }
     };
-    function tryStat(path13) {
-      debug('stat "%s"', path13);
+    function tryStat(path14) {
+      debug('stat "%s"', path14);
       try {
-        return fs9.statSync(path13);
+        return fs10.statSync(path14);
       } catch (e) {
         return void 0;
       }
@@ -62830,8 +63723,8 @@ var require_types = __commonJS({
 // node_modules/mime/mime.js
 var require_mime = __commonJS({
   "node_modules/mime/mime.js"(exports2, module2) {
-    var path12 = require("path");
-    var fs9 = require("fs");
+    var path13 = require("path");
+    var fs10 = require("fs");
     function Mime() {
       this.types = /* @__PURE__ */ Object.create(null);
       this.extensions = /* @__PURE__ */ Object.create(null);
@@ -62852,7 +63745,7 @@ var require_mime = __commonJS({
     };
     Mime.prototype.load = function(file) {
       this._loading = file;
-      var map = {}, content = fs9.readFileSync(file, "ascii"), lines = content.split(/[\r\n]+/);
+      var map = {}, content = fs10.readFileSync(file, "ascii"), lines = content.split(/[\r\n]+/);
       lines.forEach(function(line) {
         var fields = line.replace(/\s*#.*|^\s*|\s*$/g, "").split(/\s+/);
         map[fields.shift()] = fields;
@@ -62860,8 +63753,8 @@ var require_mime = __commonJS({
       this.define(map);
       this._loading = null;
     };
-    Mime.prototype.lookup = function(path13, fallback) {
-      var ext = path13.replace(/^.*[\.\/\\]/, "").toLowerCase();
+    Mime.prototype.lookup = function(path14, fallback) {
+      var ext = path14.replace(/^.*[\.\/\\]/, "").toLowerCase();
       return this.types[ext] || fallback || this.default_type;
     };
     Mime.prototype.extension = function(mimeType) {
@@ -63090,33 +63983,33 @@ var require_send = __commonJS({
     var escapeHtml = require_escape_html();
     var etag = require_etag();
     var fresh = require_fresh();
-    var fs9 = require("fs");
+    var fs10 = require("fs");
     var mime = require_mime();
     var ms = require_ms8();
     var onFinished = require_on_finished();
     var parseRange = require_range_parser();
-    var path12 = require("path");
+    var path13 = require("path");
     var statuses = require_statuses();
     var Stream = require("stream");
     var util = require("util");
-    var extname = path12.extname;
-    var join = path12.join;
-    var normalize = path12.normalize;
-    var resolve = path12.resolve;
-    var sep = path12.sep;
+    var extname = path13.extname;
+    var join = path13.join;
+    var normalize = path13.normalize;
+    var resolve = path13.resolve;
+    var sep = path13.sep;
     var BYTES_RANGE_REGEXP = /^ *bytes=/;
     var MAX_MAXAGE = 60 * 60 * 24 * 365 * 1e3;
     var UP_PATH_REGEXP = /(?:^|[\\/])\.\.(?:[\\/]|$)/;
     module2.exports = send;
     module2.exports.mime = mime;
-    function send(req, path13, options) {
-      return new SendStream(req, path13, options);
+    function send(req, path14, options) {
+      return new SendStream(req, path14, options);
     }
-    function SendStream(req, path13, options) {
+    function SendStream(req, path14, options) {
       Stream.call(this);
       var opts = options || {};
       this.options = opts;
-      this.path = path13;
+      this.path = path14;
       this.req = req;
       this._acceptRanges = opts.acceptRanges !== void 0 ? Boolean(opts.acceptRanges) : true;
       this._cacheControl = opts.cacheControl !== void 0 ? Boolean(opts.cacheControl) : true;
@@ -63162,8 +64055,8 @@ var require_send = __commonJS({
       this._index = index2;
       return this;
     }, "send.index: pass index as option");
-    SendStream.prototype.root = function root(path13) {
-      this._root = resolve(String(path13));
+    SendStream.prototype.root = function root(path14) {
+      this._root = resolve(String(path14));
       debug("root %s", this._root);
       return this;
     };
@@ -63276,10 +64169,10 @@ var require_send = __commonJS({
       var lastModified = this.res.getHeader("Last-Modified");
       return parseHttpDate(lastModified) <= parseHttpDate(ifRange);
     };
-    SendStream.prototype.redirect = function redirect(path13) {
+    SendStream.prototype.redirect = function redirect(path14) {
       var res = this.res;
       if (hasListeners(this, "directory")) {
-        this.emit("directory", res, path13);
+        this.emit("directory", res, path14);
         return;
       }
       if (this.hasTrailingSlash()) {
@@ -63299,42 +64192,42 @@ var require_send = __commonJS({
     SendStream.prototype.pipe = function pipe(res) {
       var root = this._root;
       this.res = res;
-      var path13 = decode(this.path);
-      if (path13 === -1) {
+      var path14 = decode(this.path);
+      if (path14 === -1) {
         this.error(400);
         return res;
       }
-      if (~path13.indexOf("\0")) {
+      if (~path14.indexOf("\0")) {
         this.error(400);
         return res;
       }
       var parts;
       if (root !== null) {
-        if (path13) {
-          path13 = normalize("." + sep + path13);
+        if (path14) {
+          path14 = normalize("." + sep + path14);
         }
-        if (UP_PATH_REGEXP.test(path13)) {
-          debug('malicious path "%s"', path13);
+        if (UP_PATH_REGEXP.test(path14)) {
+          debug('malicious path "%s"', path14);
           this.error(403);
           return res;
         }
-        parts = path13.split(sep);
-        path13 = normalize(join(root, path13));
+        parts = path14.split(sep);
+        path14 = normalize(join(root, path14));
       } else {
-        if (UP_PATH_REGEXP.test(path13)) {
-          debug('malicious path "%s"', path13);
+        if (UP_PATH_REGEXP.test(path14)) {
+          debug('malicious path "%s"', path14);
           this.error(403);
           return res;
         }
-        parts = normalize(path13).split(sep);
-        path13 = resolve(path13);
+        parts = normalize(path14).split(sep);
+        path14 = resolve(path14);
       }
       if (containsDotFile(parts)) {
         var access = this._dotfiles;
         if (access === void 0) {
           access = parts[parts.length - 1][0] === "." ? this._hidden ? "allow" : "ignore" : "allow";
         }
-        debug('%s dotfile "%s"', access, path13);
+        debug('%s dotfile "%s"', access, path14);
         switch (access) {
           case "allow":
             break;
@@ -63348,13 +64241,13 @@ var require_send = __commonJS({
         }
       }
       if (this._index.length && this.hasTrailingSlash()) {
-        this.sendIndex(path13);
+        this.sendIndex(path14);
         return res;
       }
-      this.sendFile(path13);
+      this.sendFile(path14);
       return res;
     };
-    SendStream.prototype.send = function send2(path13, stat) {
+    SendStream.prototype.send = function send2(path14, stat) {
       var len = stat.size;
       var options = this.options;
       var opts = {};
@@ -63366,9 +64259,9 @@ var require_send = __commonJS({
         this.headersAlreadySent();
         return;
       }
-      debug('pipe "%s"', path13);
-      this.setHeader(path13, stat);
-      this.type(path13);
+      debug('pipe "%s"', path14);
+      this.setHeader(path14, stat);
+      this.type(path14);
       if (this.isConditionalGET()) {
         if (this.isPreconditionFailure()) {
           this.error(412);
@@ -63417,28 +64310,28 @@ var require_send = __commonJS({
         res.end();
         return;
       }
-      this.stream(path13, opts);
+      this.stream(path14, opts);
     };
-    SendStream.prototype.sendFile = function sendFile(path13) {
+    SendStream.prototype.sendFile = function sendFile(path14) {
       var i = 0;
       var self2 = this;
-      debug('stat "%s"', path13);
-      fs9.stat(path13, function onstat(err, stat) {
-        if (err && err.code === "ENOENT" && !extname(path13) && path13[path13.length - 1] !== sep) {
+      debug('stat "%s"', path14);
+      fs10.stat(path14, function onstat(err, stat) {
+        if (err && err.code === "ENOENT" && !extname(path14) && path14[path14.length - 1] !== sep) {
           return next(err);
         }
         if (err) return self2.onStatError(err);
-        if (stat.isDirectory()) return self2.redirect(path13);
-        self2.emit("file", path13, stat);
-        self2.send(path13, stat);
+        if (stat.isDirectory()) return self2.redirect(path14);
+        self2.emit("file", path14, stat);
+        self2.send(path14, stat);
       });
       function next(err) {
         if (self2._extensions.length <= i) {
           return err ? self2.onStatError(err) : self2.error(404);
         }
-        var p = path13 + "." + self2._extensions[i++];
+        var p = path14 + "." + self2._extensions[i++];
         debug('stat "%s"', p);
-        fs9.stat(p, function(err2, stat) {
+        fs10.stat(p, function(err2, stat) {
           if (err2) return next(err2);
           if (stat.isDirectory()) return next();
           self2.emit("file", p, stat);
@@ -63446,7 +64339,7 @@ var require_send = __commonJS({
         });
       }
     };
-    SendStream.prototype.sendIndex = function sendIndex(path13) {
+    SendStream.prototype.sendIndex = function sendIndex(path14) {
       var i = -1;
       var self2 = this;
       function next(err) {
@@ -63454,9 +64347,9 @@ var require_send = __commonJS({
           if (err) return self2.onStatError(err);
           return self2.error(404);
         }
-        var p = join(path13, self2._index[i]);
+        var p = join(path14, self2._index[i]);
         debug('stat "%s"', p);
-        fs9.stat(p, function(err2, stat) {
+        fs10.stat(p, function(err2, stat) {
           if (err2) return next(err2);
           if (stat.isDirectory()) return next();
           self2.emit("file", p, stat);
@@ -63465,10 +64358,10 @@ var require_send = __commonJS({
       }
       next();
     };
-    SendStream.prototype.stream = function stream(path13, options) {
+    SendStream.prototype.stream = function stream(path14, options) {
       var self2 = this;
       var res = this.res;
-      var stream2 = fs9.createReadStream(path13, options);
+      var stream2 = fs10.createReadStream(path14, options);
       this.emit("stream", stream2);
       stream2.pipe(res);
       function cleanup() {
@@ -63483,10 +64376,10 @@ var require_send = __commonJS({
         self2.emit("end");
       });
     };
-    SendStream.prototype.type = function type(path13) {
+    SendStream.prototype.type = function type(path14) {
       var res = this.res;
       if (res.getHeader("Content-Type")) return;
-      var type2 = mime.lookup(path13);
+      var type2 = mime.lookup(path14);
       if (!type2) {
         debug("no content-type");
         return;
@@ -63495,9 +64388,9 @@ var require_send = __commonJS({
       debug("content-type %s", type2);
       res.setHeader("Content-Type", type2 + (charset ? "; charset=" + charset : ""));
     };
-    SendStream.prototype.setHeader = function setHeader(path13, stat) {
+    SendStream.prototype.setHeader = function setHeader(path14, stat) {
       var res = this.res;
-      this.emit("headers", res, path13, stat);
+      this.emit("headers", res, path14, stat);
       if (this._acceptRanges && !res.getHeader("Accept-Ranges")) {
         debug("accept ranges");
         res.setHeader("Accept-Ranges", "bytes");
@@ -63556,9 +64449,9 @@ var require_send = __commonJS({
       }
       return err instanceof Error ? createError(status, err, { expose: false }) : createError(status, err);
     }
-    function decode(path13) {
+    function decode(path14) {
       try {
-        return decodeURIComponent(path13);
+        return decodeURIComponent(path14);
       } catch (err) {
         return -1;
       }
@@ -64467,10 +65360,10 @@ var require_utils6 = __commonJS({
     var querystring = require("querystring");
     exports2.etag = createETagGenerator({ weak: false });
     exports2.wetag = createETagGenerator({ weak: true });
-    exports2.isAbsolute = function(path12) {
-      if ("/" === path12[0]) return true;
-      if (":" === path12[1] && ("\\" === path12[2] || "/" === path12[2])) return true;
-      if ("\\\\" === path12.substring(0, 2)) return true;
+    exports2.isAbsolute = function(path13) {
+      if ("/" === path13[0]) return true;
+      if (":" === path13[1] && ("\\" === path13[2] || "/" === path13[2])) return true;
+      if ("\\\\" === path13.substring(0, 2)) return true;
     };
     exports2.flatten = deprecate.function(
       flatten,
@@ -64681,7 +65574,7 @@ var require_application = __commonJS({
     };
     app2.use = function use(fn) {
       var offset = 0;
-      var path12 = "/";
+      var path13 = "/";
       if (typeof fn !== "function") {
         var arg = fn;
         while (Array.isArray(arg) && arg.length !== 0) {
@@ -64689,7 +65582,7 @@ var require_application = __commonJS({
         }
         if (typeof arg !== "function") {
           offset = 1;
-          path12 = fn;
+          path13 = fn;
         }
       }
       var fns = flatten(slice.call(arguments, offset));
@@ -64700,12 +65593,12 @@ var require_application = __commonJS({
       var router15 = this._router;
       fns.forEach(function(fn2) {
         if (!fn2 || !fn2.handle || !fn2.set) {
-          return router15.use(path12, fn2);
+          return router15.use(path13, fn2);
         }
-        debug(".use app under %s", path12);
-        fn2.mountpath = path12;
+        debug(".use app under %s", path13);
+        fn2.mountpath = path13;
         fn2.parent = this;
-        router15.use(path12, function mounted_app(req, res, next) {
+        router15.use(path13, function mounted_app(req, res, next) {
           var orig = req.app;
           fn2.handle(req, res, function(err) {
             setPrototypeOf(req, orig.request);
@@ -64717,9 +65610,9 @@ var require_application = __commonJS({
       }, this);
       return this;
     };
-    app2.route = function route(path12) {
+    app2.route = function route(path13) {
       this.lazyrouter();
-      return this._router.route(path12);
+      return this._router.route(path13);
     };
     app2.engine = function engine(ext, fn) {
       if (typeof fn !== "function") {
@@ -64770,7 +65663,7 @@ var require_application = __commonJS({
       }
       return this;
     };
-    app2.path = function path12() {
+    app2.path = function path13() {
       return this.parent ? this.parent.path() + this.mountpath : "";
     };
     app2.enabled = function enabled(setting) {
@@ -64786,19 +65679,19 @@ var require_application = __commonJS({
       return this.set(setting, false);
     };
     methods.forEach(function(method) {
-      app2[method] = function(path12) {
+      app2[method] = function(path13) {
         if (method === "get" && arguments.length === 1) {
-          return this.set(path12);
+          return this.set(path13);
         }
         this.lazyrouter();
-        var route = this._router.route(path12);
+        var route = this._router.route(path13);
         route[method].apply(route, slice.call(arguments, 1));
         return this;
       };
     });
-    app2.all = function all(path12) {
+    app2.all = function all(path13) {
       this.lazyrouter();
-      var route = this._router.route(path12);
+      var route = this._router.route(path13);
       var args = slice.call(arguments, 1);
       for (var i = 0; i < methods.length; i++) {
         route[methods[i]].apply(route, args);
@@ -64807,7 +65700,7 @@ var require_application = __commonJS({
     };
     app2.del = deprecate.function(app2.delete, "app.del: Use app.delete instead");
     app2.render = function render(name, options, callback) {
-      var cache = this.cache;
+      var cache2 = this.cache;
       var done = callback;
       var engines = this.engines;
       var opts = options;
@@ -64826,7 +65719,7 @@ var require_application = __commonJS({
         renderOptions.cache = this.enabled("view cache");
       }
       if (renderOptions.cache) {
-        view = cache[name];
+        view = cache2[name];
       }
       if (!view) {
         var View2 = this.get("view");
@@ -64842,7 +65735,7 @@ var require_application = __commonJS({
           return done(err);
         }
         if (renderOptions.cache) {
-          cache[name] = view;
+          cache2[name] = view;
         }
       }
       tryRender(view, renderOptions, done);
@@ -65557,7 +66450,7 @@ var require_request = __commonJS({
       var subdomains2 = !isIP(hostname) ? hostname.split(".").reverse() : [hostname];
       return subdomains2.slice(offset);
     });
-    defineGetter(req, "path", function path12() {
+    defineGetter(req, "path", function path13() {
       return parse(this).pathname;
     });
     defineGetter(req, "hostname", function hostname() {
@@ -65879,7 +66772,7 @@ var require_response = __commonJS({
     var http = require("http");
     var isAbsolute = require_utils6().isAbsolute;
     var onFinished = require_on_finished();
-    var path12 = require("path");
+    var path13 = require("path");
     var statuses = require_statuses();
     var merge = require_utils_merge();
     var sign = require_cookie_signature().sign;
@@ -65888,9 +66781,9 @@ var require_response = __commonJS({
     var setCharset = require_utils6().setCharset;
     var cookie = require_cookie();
     var send = require_send();
-    var extname = path12.extname;
+    var extname = path13.extname;
     var mime = send.mime;
-    var resolve = path12.resolve;
+    var resolve = path13.resolve;
     var vary = require_vary();
     var res = Object.create(http.ServerResponse.prototype);
     module2.exports = res;
@@ -66067,26 +66960,26 @@ var require_response = __commonJS({
       this.type("txt");
       return this.send(body);
     };
-    res.sendFile = function sendFile(path13, options, callback) {
+    res.sendFile = function sendFile(path14, options, callback) {
       var done = callback;
       var req = this.req;
       var res2 = this;
       var next = req.next;
       var opts = options || {};
-      if (!path13) {
+      if (!path14) {
         throw new TypeError("path argument is required to res.sendFile");
       }
-      if (typeof path13 !== "string") {
+      if (typeof path14 !== "string") {
         throw new TypeError("path must be a string to res.sendFile");
       }
       if (typeof options === "function") {
         done = options;
         opts = {};
       }
-      if (!opts.root && !isAbsolute(path13)) {
+      if (!opts.root && !isAbsolute(path14)) {
         throw new TypeError("path must be absolute or specify root to res.sendFile");
       }
-      var pathname = encodeURI(path13);
+      var pathname = encodeURI(path14);
       var file = send(req, pathname, opts);
       sendfile(res2, file, opts, function(err) {
         if (done) return done(err);
@@ -66096,7 +66989,7 @@ var require_response = __commonJS({
         }
       });
     };
-    res.sendfile = function(path13, options, callback) {
+    res.sendfile = function(path14, options, callback) {
       var done = callback;
       var req = this.req;
       var res2 = this;
@@ -66106,7 +66999,7 @@ var require_response = __commonJS({
         done = options;
         opts = {};
       }
-      var file = send(req, path13, opts);
+      var file = send(req, path14, opts);
       sendfile(res2, file, opts, function(err) {
         if (done) return done(err);
         if (err && err.code === "EISDIR") return next();
@@ -66119,7 +67012,7 @@ var require_response = __commonJS({
       res.sendfile,
       "res.sendfile: Use res.sendFile instead"
     );
-    res.download = function download(path13, filename, options, callback) {
+    res.download = function download(path14, filename, options, callback) {
       var done = callback;
       var name = filename;
       var opts = options || null;
@@ -66136,7 +67029,7 @@ var require_response = __commonJS({
         opts = filename;
       }
       var headers = {
-        "Content-Disposition": contentDisposition(name || path13)
+        "Content-Disposition": contentDisposition(name || path14)
       };
       if (opts && opts.headers) {
         var keys = Object.keys(opts.headers);
@@ -66149,7 +67042,7 @@ var require_response = __commonJS({
       }
       opts = Object.create(opts);
       opts.headers = headers;
-      var fullPath = !opts.root ? resolve(path13) : path13;
+      var fullPath = !opts.root ? resolve(path14) : path14;
       return this.sendFile(fullPath, opts, done);
     };
     res.contentType = res.type = function contentType(type) {
@@ -66450,11 +67343,11 @@ var require_serve_static = __commonJS({
         }
         var forwardError = !fallthrough;
         var originalUrl = parseUrl.original(req);
-        var path12 = parseUrl(req).pathname;
-        if (path12 === "/" && originalUrl.pathname.substr(-1) !== "/") {
-          path12 = "";
+        var path13 = parseUrl(req).pathname;
+        if (path13 === "/" && originalUrl.pathname.substr(-1) !== "/") {
+          path13 = "";
         }
-        var stream = send(req, path12, opts);
+        var stream = send(req, path13, opts);
         stream.on("directory", onDirectory);
         if (setHeaders) {
           stream.on("headers", setHeaders);
@@ -70346,7 +71239,7 @@ var require_range2 = __commonJS({
       parseRange(range) {
         const memoOpts = (this.options.includePrerelease && FLAG_INCLUDE_PRERELEASE) | (this.options.loose && FLAG_LOOSE);
         const memoKey = memoOpts + ":" + range;
-        const cached = cache.get(memoKey);
+        const cached = cache2.get(memoKey);
         if (cached) {
           return cached;
         }
@@ -70380,7 +71273,7 @@ var require_range2 = __commonJS({
           rangeMap.delete("");
         }
         const result = [...rangeMap.values()];
-        cache.set(memoKey, result);
+        cache2.set(memoKey, result);
         return result;
       }
       intersects(range, options) {
@@ -70419,7 +71312,7 @@ var require_range2 = __commonJS({
     };
     module2.exports = Range;
     var LRU = require_lrucache();
-    var cache = new LRU();
+    var cache2 = new LRU();
     var parseOptions = require_parse_options();
     var Comparator = require_comparator();
     var debug = require_debug2();
@@ -72298,7 +73191,7 @@ function ensureAdminUser() {
     "INSERT INTO users (user_id, username, password_hash, role) VALUES (?, ?, ?, ?)",
     [generateId(), username, hash, "admin"]
   );
-  log21.info(`Created default admin user: ${username}`);
+  log24.info(`Created default admin user: ${username}`);
 }
 function login(username, password) {
   const user = dbGet("SELECT * FROM users WHERE username = ?", [username]);
@@ -72345,7 +73238,7 @@ function requireAdmin(req, res, next) {
     next();
   });
 }
-var import_bcryptjs, import_jsonwebtoken, log21, JWT_EXPIRES;
+var import_bcryptjs, import_jsonwebtoken, log24, JWT_EXPIRES;
 var init_auth = __esm({
   "src/auth/auth.js"() {
     import_bcryptjs = __toESM(require_bcryptjs(), 1);
@@ -72353,130 +73246,14 @@ var init_auth = __esm({
     init_database();
     init_uuid();
     init_logger();
-    log21 = createLogger("Auth");
+    log24 = createLogger("Auth");
     JWT_EXPIRES = "24h";
-  }
-});
-
-// src/services/PrinterRegistry.js
-var log22, MODEL_CAPABILITIES, PrinterRegistry;
-var init_PrinterRegistry = __esm({
-  "src/services/PrinterRegistry.js"() {
-    init_Printer();
-    init_Accessory();
-    init_Event();
-    init_logger();
-    init_SystemEvents();
-    log22 = createLogger("PrinterRegistry");
-    MODEL_CAPABILITIES = {
-      "Bambu A1": { mqtt_control: true, ams: true, camera: false, max_y: 256, max_x: 256, max_z: 256 },
-      "Bambu A1 Mini": { mqtt_control: true, ams: true, camera: false, max_y: 180, max_x: 180, max_z: 180 },
-      "Bambu P1S": { mqtt_control: true, ams: true, camera: true, max_y: 256, max_x: 256, max_z: 256 },
-      "Bambu P1P": { mqtt_control: true, ams: true, camera: false, max_y: 256, max_x: 256, max_z: 256 },
-      "Bambu X1C": { mqtt_control: true, ams: true, camera: true, max_y: 256, max_x: 256, max_z: 256 },
-      "Bambu X1": { mqtt_control: true, ams: true, camera: true, max_y: 256, max_x: 256, max_z: 256 }
-    };
-    PrinterRegistry = class {
-      /**
-       * Register a new printer.
-       */
-      static create(data) {
-        const capabilities = this.deriveCapabilities(data.model, []);
-        const printer = PrinterModel.create({ ...data, capabilities });
-        EventModel.create({
-          entity_type: "printer",
-          entity_id: printer.printer_id,
-          event_type: "printer.registered",
-          payload: { name: data.name, model: data.model }
-        });
-        SystemEvents_default.emit("printer.created", printer);
-        log22.info(`Printer registered: ${printer.name} (${printer.model})`);
-        return printer;
-      }
-      static findAll() {
-        return PrinterModel.findAll();
-      }
-      static findById(id) {
-        return PrinterModel.findById(id);
-      }
-      // Decrypted printer auth ({ access_code, serial }). Several routes reference
-      // PrinterRegistry.getAuth(); without it they silently fell back to an empty
-      // access code (broken FTPS reachability / camera / diagnostics on real printers).
-      static getAuth(id) {
-        return PrinterModel.getAuth(id);
-      }
-      static update(id, fields) {
-        const printer = PrinterModel.update(id, fields);
-        if (printer && fields.model) {
-          const accessories = AccessoryModel.findByPrinterId(id);
-          const caps = this.deriveCapabilities(fields.model, accessories);
-          PrinterModel.update(id, { capabilities: caps });
-        }
-        return PrinterModel.findById(id);
-      }
-      static delete(id) {
-        const printer = PrinterModel.findById(id);
-        if (printer) {
-          PrinterModel.delete(id);
-          EventModel.create({
-            entity_type: "printer",
-            entity_id: id,
-            event_type: "printer.removed",
-            payload: { name: printer.name }
-          });
-          SystemEvents_default.emit("printer.deleted", id);
-          log22.info(`Printer removed: ${printer.name}`);
-        }
-        return printer;
-      }
-      /**
-       * Derive capabilities from model + attached accessories.
-       */
-      static deriveCapabilities(model, accessories = []) {
-        const base = MODEL_CAPABILITIES[model] || { mqtt_control: true, ams: false, camera: false };
-        const caps = { ...base };
-        for (const acc of accessories) {
-          if (acc.type === "camera") caps.camera = true;
-          if (acc.type === "door_servo") caps.door_servo = true;
-          if (acc.type === "eject_printhead") caps.eject_printhead = true;
-          if (acc.type === "scale") caps.scale = true;
-        }
-        return caps;
-      }
-      /**
-       * Refresh capabilities for a printer (call after accessory changes).
-       */
-      static refreshCapabilities(printerId) {
-        const printer = PrinterModel.findById(printerId);
-        if (!printer) return null;
-        const accessories = AccessoryModel.findByPrinterId(printerId);
-        const model = printer.model;
-        const caps = this.deriveCapabilities(model, accessories);
-        PrinterModel.update(printerId, { capabilities: caps });
-        return caps;
-      }
-      /**
-       * Update printer status snapshot.
-       */
-      static updateStatus(printerId, statusSnapshot) {
-        PrinterModel.updateStatus(printerId, statusSnapshot);
-      }
-      /**
-       * Get printer with full details (accessories, capabilities).
-       */
-      static getFullDetail(printerId) {
-        const printer = PrinterModel.findById(printerId);
-        if (!printer) return null;
-        const accessories = AccessoryModel.findByPrinterId(printerId);
-        return { ...printer, accessories };
-      }
-    };
   }
 });
 
 // src/api/middleware/errorHandler.js
 function errorHandler(err, req, res, _next) {
-  log23.error(`${req.method} ${req.path}`, err.message);
+  log25.error(`${req.method} ${req.path}`, err.message);
   if (err.status) {
     return res.status(err.status).json({ error: err.message });
   }
@@ -72490,11 +73267,11 @@ function asyncHandler(fn) {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
 }
-var log23;
+var log25;
 var init_errorHandler = __esm({
   "src/api/middleware/errorHandler.js"() {
     init_logger();
-    log23 = createLogger("API");
+    log25 = createLogger("API");
   }
 });
 
@@ -72503,7 +73280,7 @@ var BambuClient_exports = {};
 __export(BambuClient_exports, {
   BambuClient: () => BambuClient
 });
-var import_mqtt, import_node_tls2, import_node_net, import_node_crypto5, log24, BambuClient;
+var import_mqtt, import_node_tls2, import_node_net, import_node_crypto5, log26, BambuClient;
 var init_BambuClient = __esm({
   "src/mqtt/BambuClient.js"() {
     import_mqtt = __toESM(require_build2(), 1);
@@ -72512,7 +73289,7 @@ var init_BambuClient = __esm({
     import_node_crypto5 = __toESM(require("node:crypto"), 1);
     init_logger();
     init_Printer();
-    log24 = createLogger("BambuClient");
+    log26 = createLogger("BambuClient");
     BambuClient = class {
       constructor(printerConfig) {
         this.ip = printerConfig.ip;
@@ -72537,13 +73314,13 @@ var init_BambuClient = __esm({
        * @returns {Promise<{success: boolean, diagnostics: object, fingerprint: string|null}>}
        */
       async connect(trustNewCert = false) {
-        log24.info(`[${this.printerId}] Starting connection sequence...`);
+        log26.info(`[${this.printerId}] Starting connection sequence...`);
         try {
           await this._checkTcp();
           this.diagnostics.tcp = { status: "ok", error: null };
         } catch (err) {
           this.diagnostics.tcp = { status: "failed", error: err.message };
-          log24.error(`[${this.printerId}] TCP check failed: ${err.message}`);
+          log26.error(`[${this.printerId}] TCP check failed: ${err.message}`);
           return this._getResult(false);
         }
         let fingerprint = null;
@@ -72558,7 +73335,7 @@ var init_BambuClient = __esm({
           }
         } catch (err) {
           this.diagnostics.tls = { status: "failed", error: err.message, fingerprint };
-          log24.error(`[${this.printerId}] TLS check failed: ${err.message}`);
+          log26.error(`[${this.printerId}] TLS check failed: ${err.message}`);
           return this._getResult(false);
         }
         try {
@@ -72704,540 +73481,6 @@ var init_BambuClient = __esm({
         this.connected = false;
       }
     };
-  }
-});
-
-// src/services/CameraProxy.js
-var CameraProxy_exports = {};
-__export(CameraProxy_exports, {
-  default: () => CameraProxy_default
-});
-async function resolveFfmpegPath() {
-  if (_ffmpegPath) return _ffmpegPath;
-  const mod = await import("@ffmpeg-installer/ffmpeg");
-  _ffmpegPath = mod.path || mod.default?.path || mod.default;
-  if (!_ffmpegPath) throw new Error("ffmpeg binary not available for X1 RTSP streaming");
-  return _ffmpegPath;
-}
-function getCameraFamily(model) {
-  if (!model) return "p1";
-  const m = model.trim();
-  if (CAMERA_FAMILY[m]) return CAMERA_FAMILY[m];
-  const lower = m.toLowerCase();
-  if (lower.includes("x1") || lower.includes("h2d")) return "x1";
-  return "p1";
-}
-function getCameraPort(family) {
-  return family === "x1" ? 322 : 6e3;
-}
-function probePort(ip, port, timeoutMs = 4e3) {
-  return new Promise((resolve) => {
-    const sock = new net2.Socket();
-    const timer = setTimeout(() => {
-      sock.destroy();
-      resolve(false);
-    }, timeoutMs);
-    sock.connect(port, ip, () => {
-      clearTimeout(timer);
-      sock.destroy();
-      resolve(true);
-    });
-    sock.on("error", () => {
-      clearTimeout(timer);
-      sock.destroy();
-      resolve(false);
-    });
-  });
-}
-var import_child_process, tls3, net2, _ffmpegPath, log25, CAMERA_FAMILY, CameraProxyManager, cameraProxy, CameraProxy_default;
-var init_CameraProxy = __esm({
-  "src/services/CameraProxy.js"() {
-    import_child_process = require("child_process");
-    tls3 = __toESM(require("tls"), 1);
-    net2 = __toESM(require("net"), 1);
-    init_logger();
-    _ffmpegPath = null;
-    log25 = createLogger("CameraProxy");
-    CAMERA_FAMILY = {
-      "Bambu P1S": "p1",
-      "Bambu P1P": "p1",
-      "Bambu P1": "p1",
-      "Bambu A1": "p1",
-      "Bambu A1 Mini": "p1",
-      "Bambu X1": "x1",
-      "Bambu X1C": "x1",
-      "Bambu X1E": "x1",
-      "Bambu H2D": "x1"
-    };
-    CameraProxyManager = class {
-      constructor() {
-        this.streams = /* @__PURE__ */ new Map();
-      }
-      /**
-       * Start (or reuse) a camera proxy for a given printer.
-       * @param {string} printerId
-       * @param {string} ip
-       * @param {string} accessCode
-       * @param {string} model - Printer model string, e.g. "Bambu P1S"
-       */
-      async start(printerId, ip, accessCode, model) {
-        if (this.streams.has(printerId)) {
-          const existing = this.streams.get(printerId);
-          if (!existing.destroyed) return true;
-          this.stop(printerId);
-        }
-        const family = getCameraFamily(model);
-        const port = getCameraPort(family);
-        log25.info(`Camera for ${printerId}: model="${model}" family=${family} port=${port}`);
-        const reachable = await probePort(ip, port);
-        if (!reachable) {
-          const state = this._createState(printerId, ip, accessCode, model, family);
-          state.lastError = this._buildUnreachableError(family, port, ip, model);
-          log25.warn(`Camera port ${port} unreachable on ${ip} for ${printerId}`);
-          this.streams.set(printerId, state);
-          if (state.retries < 3) {
-            state.retries++;
-            setTimeout(() => {
-              this.streams.delete(printerId);
-              this.start(printerId, ip, accessCode, model);
-            }, 5e3);
-          }
-          return true;
-        }
-        if (family === "p1") {
-          return this._startP1Camera(printerId, ip, accessCode, model);
-        } else {
-          return this._startX1Camera(printerId, ip, accessCode, model);
-        }
-      }
-      // ─── P1 / P1S / A1 family — port 6000 TLS + JPEG stream ────────
-      async _startP1Camera(printerId, ip, accessCode, model) {
-        const state = this._createState(printerId, ip, accessCode, model, "p1");
-        this.streams.set(printerId, state);
-        log25.info(`P1-family camera: connecting TLS to ${ip}:6000`);
-        return new Promise((resolve) => {
-          const socket = tls3.connect({
-            host: ip,
-            port: 6e3,
-            rejectUnauthorized: false,
-            timeout: 1e4
-          }, () => {
-            log25.info(`P1 camera TLS connected to ${ip}:6000`);
-            state.tlsSocket = socket;
-            const authPacket = this._buildP1AuthPacket(accessCode);
-            socket.write(authPacket);
-            log25.info(`P1 camera auth sent (${authPacket.length} bytes)`);
-            this._handleP1Stream(printerId, state, socket);
-            resolve(true);
-          });
-          socket.on("error", (err) => {
-            const msg = err.message || String(err);
-            log25.error(`P1 camera TLS error for ${printerId}: ${msg}`);
-            if (msg.includes("ECONNREFUSED")) {
-              state.lastError = `Port 6000 refused connection on ${ip}. Check: (1) LAN Only Mode enabled, (2) Developer Mode enabled, (3) Printer on same network.`;
-            } else if (msg.includes("ECONNRESET")) {
-              state.lastError = `Port 6000 connection reset \u2014 access code may be invalid.`;
-            } else {
-              state.lastError = `P1 camera connection error: ${msg}`;
-            }
-            resolve(true);
-          });
-          socket.on("timeout", () => {
-            state.lastError = `P1 camera connection timed out on ${ip}:6000. Check network.`;
-            socket.destroy();
-            resolve(true);
-          });
-        });
-      }
-      /**
-       * Build the P1-family camera auth packet.
-       *
-       * Binary format (80 bytes):
-       *   Bytes  0–3:   0x40 0x00 0x00 0x00  — auth command identifier
-       *   Bytes  4–7:   0x00 0x30 0x00 0x00  — flags/subcommand
-       *   Bytes  8–11:  0x00 0x00 0x00 0x00  — sequence_id
-       *   Bytes 12–15:  0x00 0x00 0x00 0x00  — reserved
-       *   Bytes 16–47:  username "bblp" + zero-pad to 32 bytes
-       *   Bytes 48–79:  access_code + zero-pad to 32 bytes
-       */
-      _buildP1AuthPacket(accessCode) {
-        const buf = Buffer.alloc(80, 0);
-        buf.writeUInt32LE(64, 0);
-        buf.writeUInt32LE(12288, 4);
-        Buffer.from("bblp", "ascii").copy(buf, 16);
-        Buffer.from(accessCode, "ascii").copy(buf, 48);
-        return buf;
-      }
-      /**
-       * Handle the P1-family JPEG stream.
-       *
-       * The P1 camera sends framed JPEG images:
-       *   Header (16 bytes):
-       *     Bytes 0–3:  magic / frame type
-       *     Bytes 4–7:  unknown
-       *     Bytes 8–11: JPEG payload size (little-endian uint32)
-       *     Bytes 12–15: unknown
-       *   Then: raw JPEG data of the indicated size
-       *
-       * We also handle the case where the stream just sends raw JPEG data
-       * (some firmware versions may differ).
-       */
-      _handleP1Stream(printerId, state, socket) {
-        let buf = Buffer.alloc(0);
-        let headerParsed = false;
-        let expectedSize = 0;
-        let frameCount = 0;
-        let firstDataReceived = false;
-        socket.on("data", (chunk) => {
-          if (!firstDataReceived) {
-            firstDataReceived = true;
-            log25.info(`P1 camera: first data received (${chunk.length} bytes), header hex: ${chunk.subarray(0, Math.min(32, chunk.length)).toString("hex")}`);
-          }
-          buf = Buffer.concat([buf, chunk]);
-          while (buf.length > 0) {
-            if (!headerParsed) {
-              if (buf.length < 16) break;
-              if (buf[0] === 255 && buf[1] === 216) {
-                const eoi = buf.indexOf(Buffer.from([255, 217]), 2);
-                if (eoi === -1) break;
-                const frame = Buffer.from(buf.subarray(0, eoi + 2));
-                this._deliverFrame(printerId, state, frame, ++frameCount);
-                buf = buf.subarray(eoi + 2);
-                continue;
-              }
-              expectedSize = buf.readUInt32LE(8);
-              if (expectedSize <= 0 || expectedSize > 2 * 1024 * 1024) {
-                const soi = buf.indexOf(Buffer.from([255, 216]), 1);
-                if (soi > 0) {
-                  log25.debug(`P1 camera: skipping ${soi} bytes to next JPEG SOI`);
-                  buf = buf.subarray(soi);
-                } else {
-                  if (buf.length > 1024 * 1024) {
-                    log25.warn(`P1 camera: discarding ${buf.length} bytes of unrecognized data`);
-                    buf = Buffer.alloc(0);
-                  }
-                  break;
-                }
-                continue;
-              }
-              headerParsed = true;
-              buf = buf.subarray(16);
-            }
-            if (headerParsed) {
-              if (buf.length < expectedSize) break;
-              const jpegData = buf.subarray(0, expectedSize);
-              if (jpegData[0] === 255 && jpegData[1] === 216) {
-                const frame = Buffer.from(jpegData);
-                this._deliverFrame(printerId, state, frame, ++frameCount);
-              } else {
-                log25.debug(`P1 camera: frame doesn't start with JPEG SOI, skipping`);
-              }
-              buf = buf.subarray(expectedSize);
-              headerParsed = false;
-              expectedSize = 0;
-            }
-          }
-          if (buf.length > 5 * 1024 * 1024) {
-            log25.warn(`P1 camera buffer overflow for ${printerId}, resetting`);
-            buf = Buffer.alloc(0);
-            headerParsed = false;
-          }
-        });
-        socket.on("close", () => {
-          log25.info(`P1 camera socket closed for ${printerId} (${frameCount} frames received)`);
-          if (frameCount === 0 && !state.lastError) {
-            state.lastError = "P1 camera connection closed without sending frames. Check access code and LAN/Developer mode settings.";
-          }
-          state.destroyed = true;
-          this._cleanupClients(state);
-        });
-        socket.on("error", (err) => {
-          log25.error(`P1 camera stream error for ${printerId}: ${err.message}`);
-        });
-      }
-      // ─── X1 / X1C / H2D family — port 322 RTSPS ────────────────────
-      async _startX1Camera(printerId, ip, accessCode, model) {
-        const state = this._createState(printerId, ip, accessCode, model, "x1");
-        this.streams.set(printerId, state);
-        log25.info(`X1-family camera: connecting TLS to ${ip}:322`);
-        return new Promise((resolve) => {
-          const socket = tls3.connect({
-            host: ip,
-            port: 322,
-            rejectUnauthorized: false,
-            timeout: 1e4
-          }, () => {
-            log25.info(`X1 camera TLS connected to ${ip}:322`);
-            state.tlsSocket = socket;
-            this._rtspHandshake(printerId, state, socket, ip, accessCode).then(() => resolve(true)).catch((err) => {
-              state.lastError = `X1 RTSP handshake failed: ${err.message}`;
-              resolve(true);
-            });
-          });
-          socket.on("error", (err) => {
-            state.lastError = `X1 camera TLS error: ${err.message}`;
-            log25.error(`X1 camera error for ${printerId}: ${err.message}`);
-            resolve(true);
-          });
-          socket.on("timeout", () => {
-            state.lastError = `X1 camera timed out on ${ip}:322.`;
-            socket.destroy();
-            resolve(true);
-          });
-        });
-      }
-      async _rtspHandshake(printerId, state, socket, ip, accessCode) {
-        const baseUrl = `rtsps://${ip}:322/streaming/live/1`;
-        const auth = Buffer.from(`bblp:${accessCode}`).toString("base64");
-        let cseq = 1;
-        socket.write([
-          `DESCRIBE ${baseUrl} RTSP/1.0`,
-          `CSeq: ${cseq++}`,
-          `Authorization: Basic ${auth}`,
-          `Accept: application/sdp`,
-          `User-Agent: Antigravity/1.0`,
-          ``,
-          ``
-        ].join("\r\n"));
-        const descResp = await this._readRtspResponse(socket, "DESCRIBE");
-        let trackUrl = `${baseUrl}/trackID=0`;
-        const trackMatch = descResp.match(/a=control:(.+)/);
-        if (trackMatch) {
-          const t = trackMatch[1].trim();
-          trackUrl = t.startsWith("rtsp") ? t : `${baseUrl}/${t}`;
-        }
-        socket.write([
-          `SETUP ${trackUrl} RTSP/1.0`,
-          `CSeq: ${cseq++}`,
-          `Authorization: Basic ${auth}`,
-          `Transport: RTP/AVP/TCP;unicast;interleaved=0-1`,
-          `User-Agent: Antigravity/1.0`,
-          ``,
-          ``
-        ].join("\r\n"));
-        const setupResp = await this._readRtspResponse(socket, "SETUP");
-        const sesMatch = setupResp.match(/Session:\s*([^\r\n;]+)/i);
-        const sessionId = sesMatch ? sesMatch[1].trim() : "";
-        socket.write([
-          `PLAY ${baseUrl} RTSP/1.0`,
-          `CSeq: ${cseq++}`,
-          `Authorization: Basic ${auth}`,
-          `Session: ${sessionId}`,
-          `Range: npt=0.000-`,
-          `User-Agent: Antigravity/1.0`,
-          ``,
-          ``
-        ].join("\r\n"));
-        await this._readRtspResponse(socket, "PLAY");
-        log25.info(`X1 RTSP PLAY started for ${printerId}`);
-        await this._startX1FfmpegBridge(printerId, state, socket);
-      }
-      _readRtspResponse(socket, label) {
-        return new Promise((resolve, reject) => {
-          let buf = "";
-          const timeout = setTimeout(() => reject(new Error(`${label} timeout`)), 1e4);
-          const onData = (data) => {
-            buf += data.toString();
-            if (buf.includes("\r\n\r\n") && buf.includes("RTSP/1.0")) {
-              clearTimeout(timeout);
-              socket.removeListener("data", onData);
-              const status = buf.split("\r\n")[0];
-              if (status.includes("200")) resolve(buf);
-              else if (status.includes("401")) reject(new Error("Authentication failed (401)"));
-              else reject(new Error(status));
-            }
-          };
-          socket.on("data", onData);
-        });
-      }
-      async _startX1FfmpegBridge(printerId, state, socket) {
-        const ffmpegPath = await resolveFfmpegPath();
-        const proc = (0, import_child_process.spawn)(ffmpegPath, [
-          "-hide_banner",
-          "-loglevel",
-          "warning",
-          "-f",
-          "h264",
-          "-i",
-          "pipe:0",
-          "-f",
-          "image2pipe",
-          "-vcodec",
-          "mjpeg",
-          "-q:v",
-          "5",
-          "-r",
-          "2",
-          "-"
-        ], { stdio: ["pipe", "pipe", "pipe"] });
-        state.ffmpegProc = proc;
-        socket.on("data", (data) => {
-          let offset = 0;
-          while (offset < data.length) {
-            if (data[offset] === 36 && offset + 4 <= data.length) {
-              const channel = data[offset + 1];
-              const len = data.readUInt16BE(offset + 2);
-              if (offset + 4 + len <= data.length && channel === 0) {
-                const rtpPacket = data.subarray(offset + 4, offset + 4 + len);
-                if (rtpPacket.length > 12) {
-                  try {
-                    if (proc.stdin.writable) proc.stdin.write(rtpPacket.subarray(12));
-                  } catch {
-                  }
-                }
-              }
-              offset += 4 + len;
-            } else {
-              offset++;
-            }
-          }
-        });
-        socket.on("close", () => {
-          try {
-            proc.stdin.end();
-          } catch {
-          }
-          state.destroyed = true;
-        });
-        proc.stdout.on("data", (chunk) => this._parseJpegFromPipe(printerId, state, chunk));
-        proc.stderr.on("data", (d) => {
-          const msg = d.toString().trim();
-          if (msg) log25.warn(`[X1 ffmpeg ${printerId}] ${msg}`);
-        });
-        proc.on("close", (code) => log25.info(`X1 ffmpeg for ${printerId} exited code ${code}`));
-      }
-      // ─── Shared helpers ─────────────────────────────────────────────
-      _createState(printerId, ip, accessCode, model, family) {
-        return {
-          printerId,
-          ip,
-          accessCode,
-          model,
-          family,
-          tlsSocket: null,
-          ffmpegProc: null,
-          frame: null,
-          clients: /* @__PURE__ */ new Set(),
-          lastError: null,
-          retries: 0,
-          destroyed: false
-        };
-      }
-      _deliverFrame(printerId, state, frame, count) {
-        state.frame = frame;
-        state.lastError = null;
-        state.retries = 0;
-        if (count <= 3 || count % 100 === 0) {
-          log25.info(`P1 camera frame #${count} for ${printerId}: ${frame.length} bytes`);
-        }
-        for (const res of state.clients) {
-          try {
-            res.write(`--frame\r
-Content-Type: image/jpeg\r
-Content-Length: ${frame.length}\r
-\r
-`);
-            res.write(frame);
-            res.write("\r\n");
-          } catch {
-          }
-        }
-      }
-      _parseJpegFromPipe(printerId, state, chunk) {
-        if (!state._jpegBuf) state._jpegBuf = Buffer.alloc(0);
-        state._jpegBuf = Buffer.concat([state._jpegBuf, chunk]);
-        let startIdx = 0;
-        let count = 0;
-        while (true) {
-          const soi = state._jpegBuf.indexOf(Buffer.from([255, 216]), startIdx);
-          if (soi === -1) break;
-          const eoi = state._jpegBuf.indexOf(Buffer.from([255, 217]), soi + 2);
-          if (eoi === -1) break;
-          this._deliverFrame(printerId, state, Buffer.from(state._jpegBuf.subarray(soi, eoi + 2)), ++count);
-          startIdx = eoi + 2;
-        }
-        if (startIdx > 0) state._jpegBuf = state._jpegBuf.subarray(startIdx);
-        if (state._jpegBuf.length > 5 * 1024 * 1024) state._jpegBuf = Buffer.alloc(0);
-      }
-      _cleanupClients(state) {
-        for (const res of state.clients) {
-          try {
-            res.end();
-          } catch {
-          }
-        }
-        state.clients.clear();
-      }
-      _buildUnreachableError(family, port, ip, model) {
-        if (family === "p1") {
-          return [
-            `Camera port ${port} is unreachable on ${ip} (model: ${model}).`,
-            `Diagnostic checklist:`,
-            `1. Ensure the printer is in LAN Only Mode (Settings \u2192 Network)`,
-            `2. Enable Developer Mode on the printer if available`,
-            `3. Verify the access code is correct`,
-            `4. Confirm the printer is on the same network as this server`,
-            `5. Check firmware is up to date (01.06.00.00+)`
-          ].join("\n");
-        }
-        return [
-          `Camera port ${port} is unreachable on ${ip} (model: ${model}).`,
-          `For X1/H2D printers, ensure LAN Mode Liveview is enabled in printer settings.`
-        ].join("\n");
-      }
-      // ─── Public API (unchanged contract) ────────────────────────────
-      getFrame(printerId) {
-        return this.streams.get(printerId)?.frame || null;
-      }
-      getError(printerId) {
-        return this.streams.get(printerId)?.lastError || null;
-      }
-      isRunning(printerId) {
-        const s = this.streams.get(printerId);
-        return s && !s.destroyed;
-      }
-      addStreamClient(printerId, res) {
-        const state = this.streams.get(printerId);
-        if (!state) return false;
-        state.clients.add(res);
-        res.on("close", () => state.clients.delete(res));
-        if (state.frame) {
-          try {
-            res.write(`--frame\r
-Content-Type: image/jpeg\r
-Content-Length: ${state.frame.length}\r
-\r
-`);
-            res.write(state.frame);
-            res.write("\r\n");
-          } catch {
-          }
-        }
-        return true;
-      }
-      stop(printerId) {
-        const state = this.streams.get(printerId);
-        if (state) {
-          state.destroyed = true;
-          try {
-            state.tlsSocket?.destroy();
-          } catch {
-          }
-          try {
-            state.ffmpegProc?.kill("SIGTERM");
-          } catch {
-          }
-          this._cleanupClients(state);
-          this.streams.delete(printerId);
-          log25.info(`Camera proxy stopped for ${printerId}`);
-        }
-      }
-      stopAll() {
-        for (const [id] of this.streams) this.stop(id);
-      }
-    };
-    cameraProxy = new CameraProxyManager();
-    CameraProxy_default = cameraProxy;
   }
 });
 
@@ -73747,7 +73990,7 @@ ${err}\r
 });
 
 // src/services/AccessoryRegistry.js
-var log26, AccessoryRegistry;
+var log27, AccessoryRegistry;
 var init_AccessoryRegistry = __esm({
   "src/services/AccessoryRegistry.js"() {
     init_Accessory();
@@ -73755,7 +73998,7 @@ var init_AccessoryRegistry = __esm({
     init_PrinterRegistry();
     init_DriverManager();
     init_logger();
-    log26 = createLogger("AccessoryRegistry");
+    log27 = createLogger("AccessoryRegistry");
     AccessoryRegistry = class {
       static create(data) {
         const accessory = AccessoryModel.create(data);
@@ -73768,7 +74011,7 @@ var init_AccessoryRegistry = __esm({
           event_type: "accessory.registered",
           payload: { type: data.type, printer_id: data.printer_id }
         });
-        log26.info(`Accessory registered: ${accessory.type} [${accessory.accessory_id}]`);
+        log27.info(`Accessory registered: ${accessory.type} [${accessory.accessory_id}]`);
         return accessory;
       }
       static findAll() {
@@ -73797,7 +74040,7 @@ var init_AccessoryRegistry = __esm({
           if (accessory.printer_id) {
             PrinterRegistry.refreshCapabilities(accessory.printer_id);
           }
-          log26.info(`Accessory removed: ${accessory.type} [${id}]`);
+          log27.info(`Accessory removed: ${accessory.type} [${id}]`);
         }
         return accessory;
       }
@@ -73978,25 +74221,25 @@ function is3mfFilename(filename) {
   return lower.endsWith(".3mf") || lower.endsWith(".gcode.3mf");
 }
 async function extractGcodeFrom3mf2(buffer, filename = "") {
-  log27.info(`Extracting G-code from 3MF: ${filename} (${buffer.length} bytes)`);
+  log28.info(`Extracting G-code from 3MF: ${filename} (${buffer.length} bytes)`);
   if (!isZipFile(buffer)) {
     throw new Error("File is not a valid ZIP/3MF archive");
   }
   const eocd = findEOCD(buffer);
   if (!eocd) throw new Error("Could not find ZIP End of Central Directory record");
   const entries = parseCentralDirectory(buffer, eocd);
-  log27.info(`Found ${entries.length} entries in 3MF archive`);
+  log28.info(`Found ${entries.length} entries in 3MF archive`);
   const gcodeEntry = entries.find((e) => e.name.toLowerCase().endsWith(".gcode"));
   if (!gcodeEntry) {
     throw new Error(`No .gcode file found inside 3MF. Entries: ${entries.map((e) => e.name).join(", ")}`);
   }
-  log27.info(`Found G-code entry: ${gcodeEntry.name} (${gcodeEntry.uncompressedSize} bytes, method=${gcodeEntry.method})`);
+  log28.info(`Found G-code entry: ${gcodeEntry.name} (${gcodeEntry.uncompressedSize} bytes, method=${gcodeEntry.method})`);
   const content = await extractEntry(buffer, gcodeEntry);
-  log27.info(`Extracted ${content.length} characters of G-code`);
+  log28.info(`Extracted ${content.length} characters of G-code`);
   return { content, entryName: gcodeEntry.name };
 }
 function repack3mf2(originalBuffer, newGcodeContent) {
-  log27.info("Repacking 3MF with transformed G-code");
+  log28.info("Repacking 3MF with transformed G-code");
   const eocd = findEOCD(originalBuffer);
   if (!eocd) throw new Error("Cannot repack: no EOCD found");
   const entries = parseCentralDirectory(originalBuffer, eocd);
@@ -74033,7 +74276,7 @@ function repack3mf2(originalBuffer, newGcodeContent) {
   const localBuffer = Buffer.concat(localParts);
   const eocdBuffer = buildEOCD(cdEntries.length, cdBuffer.length, cdOffset);
   const result = Buffer.concat([localBuffer, cdBuffer, eocdBuffer]);
-  log27.info(`Repacked 3MF: ${result.length} bytes (original: ${originalBuffer.length})`);
+  log28.info(`Repacked 3MF: ${result.length} bytes (original: ${originalBuffer.length})`);
   return result;
 }
 function findEOCD(buffer) {
@@ -74174,12 +74417,12 @@ function buildEOCD(entryCount, cdSize, cdOffset) {
   buf.writeUInt16LE(0, 20);
   return buf;
 }
-var import_node_zlib2, log27, Extract3mf_default;
+var import_node_zlib2, log28, Extract3mf_default;
 var init_Extract3mf = __esm({
   "src/gcode/Extract3mf.js"() {
     import_node_zlib2 = require("node:zlib");
     init_logger();
-    log27 = createLogger("Extract3mf");
+    log28 = createLogger("Extract3mf");
     Extract3mf_default = { isZipFile, is3mfFilename, extractGcodeFrom3mf: extractGcodeFrom3mf2, repack3mf: repack3mf2 };
   }
 });
@@ -74557,19 +74800,19 @@ var require_utils7 = __commonJS({
       if (decode)
         return decode(data, hint);
     }
-    function basename(path12) {
-      if (typeof path12 !== "string")
+    function basename(path13) {
+      if (typeof path13 !== "string")
         return "";
-      for (let i = path12.length - 1; i >= 0; --i) {
-        switch (path12.charCodeAt(i)) {
+      for (let i = path13.length - 1; i >= 0; --i) {
+        switch (path13.charCodeAt(i)) {
           case 47:
           // '/'
           case 92:
-            path12 = path12.slice(i + 1);
-            return path12 === ".." || path12 === "." ? "" : path12;
+            path13 = path13.slice(i + 1);
+            return path13 === ".." || path13 === "." ? "" : path13;
         }
       }
-      return path12 === ".." || path12 === "." ? "" : path12;
+      return path13 === ".." || path13 === "." ? "" : path13;
     }
     var TOKEN = [
       0,
@@ -78441,8 +78684,8 @@ var require_make_middleware = __commonJS({
 // node_modules/mkdirp/index.js
 var require_mkdirp = __commonJS({
   "node_modules/mkdirp/index.js"(exports2, module2) {
-    var path12 = require("path");
-    var fs9 = require("fs");
+    var path13 = require("path");
+    var fs10 = require("fs");
     var _0777 = parseInt("0777", 8);
     module2.exports = mkdirP.mkdirp = mkdirP.mkdirP = mkdirP;
     function mkdirP(p, opts, f, made) {
@@ -78453,7 +78696,7 @@ var require_mkdirp = __commonJS({
         opts = { mode: opts };
       }
       var mode = opts.mode;
-      var xfs = opts.fs || fs9;
+      var xfs = opts.fs || fs10;
       if (mode === void 0) {
         mode = _0777;
       }
@@ -78461,7 +78704,7 @@ var require_mkdirp = __commonJS({
       var cb = f || /* istanbul ignore next */
       function() {
       };
-      p = path12.resolve(p);
+      p = path13.resolve(p);
       xfs.mkdir(p, mode, function(er) {
         if (!er) {
           made = made || p;
@@ -78469,8 +78712,8 @@ var require_mkdirp = __commonJS({
         }
         switch (er.code) {
           case "ENOENT":
-            if (path12.dirname(p) === p) return cb(er);
-            mkdirP(path12.dirname(p), opts, function(er2, made2) {
+            if (path13.dirname(p) === p) return cb(er);
+            mkdirP(path13.dirname(p), opts, function(er2, made2) {
               if (er2) cb(er2, made2);
               else mkdirP(p, opts, cb, made2);
             });
@@ -78492,19 +78735,19 @@ var require_mkdirp = __commonJS({
         opts = { mode: opts };
       }
       var mode = opts.mode;
-      var xfs = opts.fs || fs9;
+      var xfs = opts.fs || fs10;
       if (mode === void 0) {
         mode = _0777;
       }
       if (!made) made = null;
-      p = path12.resolve(p);
+      p = path13.resolve(p);
       try {
         xfs.mkdirSync(p, mode);
         made = made || p;
       } catch (err0) {
         switch (err0.code) {
           case "ENOENT":
-            made = sync(path12.dirname(p), opts, made);
+            made = sync(path13.dirname(p), opts, made);
             sync(p, opts, made);
             break;
           // In the case of any other error, just see if there's a dir
@@ -78529,9 +78772,9 @@ var require_mkdirp = __commonJS({
 // node_modules/multer/storage/disk.js
 var require_disk = __commonJS({
   "node_modules/multer/storage/disk.js"(exports2, module2) {
-    var fs9 = require("fs");
+    var fs10 = require("fs");
     var os7 = require("os");
-    var path12 = require("path");
+    var path13 = require("path");
     var crypto5 = require("crypto");
     var mkdirp = require_mkdirp();
     function getFilename(req, file, cb) {
@@ -78559,8 +78802,8 @@ var require_disk = __commonJS({
         if (err) return cb(err);
         that.getFilename(req, file, function(err2, filename) {
           if (err2) return cb(err2);
-          var finalPath = path12.join(destination, filename);
-          var outStream = fs9.createWriteStream(finalPath);
+          var finalPath = path13.join(destination, filename);
+          var outStream = fs10.createWriteStream(finalPath);
           file.stream.pipe(outStream);
           outStream.on("error", cb);
           outStream.on("finish", function() {
@@ -78575,11 +78818,11 @@ var require_disk = __commonJS({
       });
     };
     DiskStorage.prototype._removeFile = function _removeFile(req, file, cb) {
-      var path13 = file.path;
+      var path14 = file.path;
       delete file.destination;
       delete file.filename;
       delete file.path;
-      fs9.unlink(path13, cb);
+      fs10.unlink(path14, cb);
     };
     module2.exports = function(opts) {
       return new DiskStorage(opts);
@@ -80551,7 +80794,7 @@ var require_typedarray = __commonJS({
     var LN2 = Math.LN2;
     var abs = Math.abs;
     var floor = Math.floor;
-    var log34 = Math.log;
+    var log35 = Math.log;
     var min = Math.min;
     var pow = Math.pow;
     var round3 = Math.round;
@@ -80699,7 +80942,7 @@ var require_typedarray = __commonJS({
         s = v < 0;
         v = abs(v);
         if (v >= pow(2, 1 - bias)) {
-          e = min(floor(log34(v) / LN2), 1023);
+          e = min(floor(log35(v) / LN2), 1023);
           f = roundToEven(v / pow(2, e) * pow(2, fbits));
           if (f / pow(2, fbits) >= 2) {
             e = e + 1;
@@ -81296,7 +81539,7 @@ var require_multer = __commonJS({
 });
 
 // src/api/routes/jobs.js
-var import_express4, import_multer, import_node_fs5, import_node_path7, UPLOADS_DIR2, router4, upload, jobs_default;
+var import_express4, import_multer, import_node_fs6, import_node_path8, UPLOADS_DIR2, router4, upload, jobs_default;
 var init_jobs = __esm({
   "src/api/routes/jobs.js"() {
     import_express4 = __toESM(require_express2(), 1);
@@ -81308,8 +81551,8 @@ var init_jobs = __esm({
     init_errorHandler();
     init_Extract3mf();
     import_multer = __toESM(require_multer(), 1);
-    import_node_fs5 = __toESM(require("node:fs"), 1);
-    import_node_path7 = __toESM(require("node:path"), 1);
+    import_node_fs6 = __toESM(require("node:fs"), 1);
+    import_node_path8 = __toESM(require("node:path"), 1);
     init_uploadPaths();
     UPLOADS_DIR2 = getUploadRoot();
     router4 = (0, import_express4.Router)();
@@ -81408,13 +81651,13 @@ var init_jobs = __esm({
       const type = req.query.type || "transformed";
       let filePath, downloadName;
       if (type === "original") {
-        filePath = import_node_path7.default.join(UPLOADS_DIR2, `${job.job_id}_${job.source_file_name}`);
+        filePath = import_node_path8.default.join(UPLOADS_DIR2, `${job.job_id}_${job.source_file_name}`);
         downloadName = job.source_file_name;
       } else {
-        filePath = import_node_path7.default.join(UPLOADS_DIR2, `${job.job_id}_${job.transformed_file_name || job.source_file_name}`);
+        filePath = import_node_path8.default.join(UPLOADS_DIR2, `${job.job_id}_${job.transformed_file_name || job.source_file_name}`);
         downloadName = job.transformed_file_name || job.source_file_name;
       }
-      if (!filePath || !import_node_fs5.default.existsSync(filePath)) {
+      if (!filePath || !import_node_fs6.default.existsSync(filePath)) {
         return res.status(404).json({ error: `No ${type} file found for this job` });
       }
       res.download(filePath, downloadName);
@@ -81556,9 +81799,9 @@ var init_JobTemplate = __esm({
 
 // src/api/routes/jobTemplates.js
 function ensureTemplatesDir() {
-  import_node_fs6.default.mkdirSync(TEMPLATES_DIR, { recursive: true });
+  import_node_fs7.default.mkdirSync(TEMPLATES_DIR, { recursive: true });
 }
-var import_express5, import_multer2, import_node_fs6, import_node_path8, router5, TEMPLATES_DIR, upload2, jobTemplates_default;
+var import_express5, import_multer2, import_node_fs7, import_node_path9, router5, TEMPLATES_DIR, upload2, jobTemplates_default;
 var init_jobTemplates = __esm({
   "src/api/routes/jobTemplates.js"() {
     import_express5 = __toESM(require_express2(), 1);
@@ -81566,8 +81809,8 @@ var init_jobTemplates = __esm({
     init_auth();
     init_errorHandler();
     import_multer2 = __toESM(require_multer(), 1);
-    import_node_fs6 = __toESM(require("node:fs"), 1);
-    import_node_path8 = __toESM(require("node:path"), 1);
+    import_node_fs7 = __toESM(require("node:fs"), 1);
+    import_node_path9 = __toESM(require("node:path"), 1);
     init_uploadPaths();
     router5 = (0, import_express5.Router)();
     TEMPLATES_DIR = getUploadPath("templates");
@@ -81603,8 +81846,8 @@ var init_jobTemplates = __esm({
           transform_overrides: parsedOverrides || {}
         });
         ensureTemplatesDir();
-        source_file_path = import_node_path8.default.join(TEMPLATES_DIR, `${tmpl2.template_id}_${source_file_name}`);
-        import_node_fs6.default.writeFileSync(source_file_path, req.file.buffer);
+        source_file_path = import_node_path9.default.join(TEMPLATES_DIR, `${tmpl2.template_id}_${source_file_name}`);
+        import_node_fs7.default.writeFileSync(source_file_path, req.file.buffer);
         const updated = JobTemplateModel.update(tmpl2.template_id, { source_file_name, source_file_path });
         return res.status(201).json(updated);
       }
@@ -81633,21 +81876,21 @@ var init_jobTemplates = __esm({
         updates.ams_roles = JSON.parse(updates.ams_roles);
       }
       if (req.file) {
-        if (existing.source_file_path && import_node_fs6.default.existsSync(existing.source_file_path)) {
-          import_node_fs6.default.unlinkSync(existing.source_file_path);
+        if (existing.source_file_path && import_node_fs7.default.existsSync(existing.source_file_path)) {
+          import_node_fs7.default.unlinkSync(existing.source_file_path);
         }
         ensureTemplatesDir();
         updates.source_file_name = req.file.originalname;
-        updates.source_file_path = import_node_path8.default.join(TEMPLATES_DIR, `${req.params.id}_${req.file.originalname}`);
-        import_node_fs6.default.writeFileSync(updates.source_file_path, req.file.buffer);
+        updates.source_file_path = import_node_path9.default.join(TEMPLATES_DIR, `${req.params.id}_${req.file.originalname}`);
+        import_node_fs7.default.writeFileSync(updates.source_file_path, req.file.buffer);
       }
       const tmpl = JobTemplateModel.update(req.params.id, updates);
       res.json(tmpl);
     }));
     router5.delete("/:id", requireAuth, asyncHandler(async (req, res) => {
       const existing = JobTemplateModel.findById(req.params.id);
-      if (existing?.source_file_path && import_node_fs6.default.existsSync(existing.source_file_path)) {
-        import_node_fs6.default.unlinkSync(existing.source_file_path);
+      if (existing?.source_file_path && import_node_fs7.default.existsSync(existing.source_file_path)) {
+        import_node_fs7.default.unlinkSync(existing.source_file_path);
       }
       JobTemplateModel.delete(req.params.id);
       res.json({ deleted: true });
@@ -81655,7 +81898,7 @@ var init_jobTemplates = __esm({
     router5.get("/:id/file", requireAuth, asyncHandler(async (req, res) => {
       const tmpl = JobTemplateModel.findById(req.params.id);
       if (!tmpl) return res.status(404).json({ error: "Template not found" });
-      if (!tmpl.source_file_path || !import_node_fs6.default.existsSync(tmpl.source_file_path)) {
+      if (!tmpl.source_file_path || !import_node_fs7.default.existsSync(tmpl.source_file_path)) {
         return res.status(404).json({ error: "No file stored for this template" });
       }
       res.download(tmpl.source_file_path, tmpl.source_file_name);
@@ -81663,10 +81906,10 @@ var init_jobTemplates = __esm({
     router5.post("/:id/submit", requireAuth, asyncHandler(async (req, res) => {
       const tmpl = JobTemplateModel.findById(req.params.id);
       if (!tmpl) return res.status(404).json({ error: "Template not found" });
-      if (!tmpl.source_file_path || !import_node_fs6.default.existsSync(tmpl.source_file_path)) {
+      if (!tmpl.source_file_path || !import_node_fs7.default.existsSync(tmpl.source_file_path)) {
         return res.status(400).json({ error: "Template has no stored file \u2014 upload a G-code file first" });
       }
-      const rawBuffer = import_node_fs6.default.readFileSync(tmpl.source_file_path);
+      const rawBuffer = import_node_fs7.default.readFileSync(tmpl.source_file_path);
       let fileContent;
       let fileName = tmpl.source_file_name;
       let rawBuffer3mf = null;
@@ -82094,7 +82337,7 @@ function transformGcode(content, profile, meta = {}) {
   const startTime = Date.now();
   const originalLines = content.split("\n");
   const lines = [...originalLines];
-  log28.info(`Starting transform: ${originalLines.length} lines, profile="${profile.name || "unnamed"}"`);
+  log29.info(`Starting transform: ${originalLines.length} lines, profile="${profile.name || "unnamed"}"`);
   const report = {
     profile_id: profile.profile_id || null,
     profile_name: profile.name || "unnamed",
@@ -82124,14 +82367,14 @@ function transformGcode(content, profile, meta = {}) {
   const detection = detectSections(lines);
   report.printer_model = detection.printerModel || "unknown";
   report.purge_recognizer = detection.purgeWindow?.method || "none";
-  log28.info(`Detection: model=${report.printer_model}, purge=${detection.purgeWindow?.method || "none"} (${detection.purgeWindow ? `L${detection.purgeWindow.start}-L${detection.purgeWindow.end}` : "n/a"}), anchor=${detection.insertionAnchor?.method}@L${detection.insertionAnchor?.line}, zMax=${detection.zMax}, fans:P2=${detection.fanChannels.hasP2},P3=${detection.fanChannels.hasP3}`);
+  log29.info(`Detection: model=${report.printer_model}, purge=${detection.purgeWindow?.method || "none"} (${detection.purgeWindow ? `L${detection.purgeWindow.start}-L${detection.purgeWindow.end}` : "n/a"}), anchor=${detection.insertionAnchor?.method}@L${detection.insertionAnchor?.line}, zMax=${detection.zMax}, fans:P2=${detection.fanChannels.hasP2},P3=${detection.fanChannels.hasP3}`);
   const eMotionBefore = collectEMotionLines(lines);
   let purgeStart = -1, purgeEnd = -1;
   let ejectInsertStart = -1, ejectInsertEnd = -1;
   if (profile.remove_front_prime_line !== false) {
     if (!detection.purgeWindow) {
       report.warnings.push("Purge removal requested but no recognized purge window found \u2014 skipped (fail-safe)");
-      log28.warn("No recognized purge window \u2014 skipping purge removal");
+      log29.warn("No recognized purge window \u2014 skipping purge removal");
     }
     const primeReport = removePrimeLine(lines, detection.purgeWindow);
     report.prime_line = primeReport;
@@ -82140,7 +82383,7 @@ function transformGcode(content, profile, meta = {}) {
       purgeStart = primeReport.window_start;
       purgeEnd = primeReport.window_end;
     }
-    log28.info(`Purge removal: method=${primeReport.method_used}, disabled=${primeReport.lines_disabled_count}`);
+    log29.info(`Purge removal: method=${primeReport.method_used}, disabled=${primeReport.lines_disabled_count}`);
   }
   const ejectResult = insertAutoEject(lines, profile, detection);
   report.auto_eject = ejectResult;
@@ -82148,7 +82391,7 @@ function transformGcode(content, profile, meta = {}) {
   report.z_clear_travel = ejectResult.z_clear_travel;
   ejectInsertStart = ejectResult.insertedAt;
   ejectInsertEnd = ejectResult.insertedAt + ejectResult.linesInserted - 1;
-  log28.info(`Auto-eject: anchor=${ejectResult.anchor_method}, at=L${ejectResult.insertedAt}, Z_CLEAR=${ejectResult.z_clear_travel}, cool=${ejectResult.cool_command}, lanes=${ejectResult.sweep_lanes.length}`);
+  log29.info(`Auto-eject: anchor=${ejectResult.anchor_method}, at=L${ejectResult.insertedAt}, Z_CLEAR=${ejectResult.z_clear_travel}, cool=${ejectResult.cool_command}, lanes=${ejectResult.sweep_lanes.length}`);
   const eMotionAfter = collectEMotionLines(lines);
   const eMotionViolations = verifyEMotionIntegrity(
     eMotionBefore,
@@ -82166,10 +82409,10 @@ function transformGcode(content, profile, meta = {}) {
   };
   if (eMotionViolations.length > 0) {
     const errMsg = `E-MOTION SAFETY VIOLATION: ${eMotionViolations.length} E-motion line(s) changed outside allowed regions. First: ${eMotionViolations[0]}`;
-    log28.error(errMsg);
+    log29.error(errMsg);
     throw new Error(errMsg);
   }
-  log28.info(`E-motion safety: ${eMotionBefore.length} original E-motions, 0 violations \u2713`);
+  log29.info(`E-motion safety: ${eMotionBefore.length} original E-motions, 0 violations \u2713`);
   const insertedLines = lines.slice(ejectInsertStart, ejectInsertEnd + 1);
   const hasM190R = insertedLines.some((l) => /^M190\s+R/i.test(l.trim()));
   const hasM190S = insertedLines.some((l) => /^M190\s+S/i.test(l.trim()));
@@ -82194,7 +82437,7 @@ function transformGcode(content, profile, meta = {}) {
   });
   report.loops = { requested: nLoops, applied: loopCount, dwell_sec: profile.inter_loop_dwell_sec || 2 };
   if (loopCount > 1) {
-    log28.info(`Loops: ${loopCount} copies with ${profile.inter_loop_dwell_sec || 2}s dwell`);
+    log29.info(`Loops: ${loopCount} copies with ${profile.inter_loop_dwell_sec || 2}s dwell`);
   }
   const hash = import_node_crypto6.default.createHash("sha256").update(finalOutput).digest("hex");
   report.hash = `sha256:${hash}`;
@@ -82205,18 +82448,18 @@ function transformGcode(content, profile, meta = {}) {
   const stem = baseName.slice(0, baseName.length - ext.length);
   const loopSuffix = loopCount > 1 ? `.x${loopCount}` : "";
   const outputFilename = `${stem}.AG${loopSuffix}${ext}`;
-  log28.info("=== TRANSFORM VALIDATION REPORT ===");
-  log28.info(`  Printer model:       ${report.printer_model}`);
-  log28.info(`  Purge recognizer:    ${report.purge_recognizer}`);
-  log28.info(`  Eject anchor:        ${report.eject_anchor}`);
-  log28.info(`  M190 S present:      ${hasM190S} \u2713`);
-  log28.info(`  M190 R in block:     ${hasM190R} (must be false) \u2713`);
-  log28.info(`  E-motion violations: ${eMotionViolations.length} (must be 0) \u2713`);
-  log28.info(`  Z_CLEAR_TRAVEL:      ${report.z_clear_travel} mm`);
-  log28.info(`  Loops:               ${loopCount} (dwell ${profile.inter_loop_dwell_sec || 2}s)`);
-  log28.info(`  Output:              ${outputFilename}`);
-  log28.info(`  Transform time:      ${report.transform_time_ms}ms`);
-  log28.info("=== END REPORT ===");
+  log29.info("=== TRANSFORM VALIDATION REPORT ===");
+  log29.info(`  Printer model:       ${report.printer_model}`);
+  log29.info(`  Purge recognizer:    ${report.purge_recognizer}`);
+  log29.info(`  Eject anchor:        ${report.eject_anchor}`);
+  log29.info(`  M190 S present:      ${hasM190S} \u2713`);
+  log29.info(`  M190 R in block:     ${hasM190R} (must be false) \u2713`);
+  log29.info(`  E-motion violations: ${eMotionViolations.length} (must be 0) \u2713`);
+  log29.info(`  Z_CLEAR_TRAVEL:      ${report.z_clear_travel} mm`);
+  log29.info(`  Loops:               ${loopCount} (dwell ${profile.inter_loop_dwell_sec || 2}s)`);
+  log29.info(`  Output:              ${outputFilename}`);
+  log29.info(`  Transform time:      ${report.transform_time_ms}ms`);
+  log29.info("=== END REPORT ===");
   return {
     output: finalOutput,
     outputFilename,
@@ -82262,7 +82505,7 @@ function verifyEMotionIntegrity(before, after, originalLines, transformedLines, 
   }
   return violations;
 }
-var import_node_crypto6, log28;
+var import_node_crypto6, log29;
 var init_GcodeTransformer = __esm({
   "src/gcode/GcodeTransformer.js"() {
     import_node_crypto6 = __toESM(require("node:crypto"), 1);
@@ -82272,7 +82515,7 @@ var init_GcodeTransformer = __esm({
     init_WrapLoops();
     init_GcodeValidator();
     init_logger();
-    log28 = createLogger("GcodeTransformer");
+    log29 = createLogger("GcodeTransformer");
   }
 });
 
@@ -82356,10 +82599,10 @@ function orcaOverrides(settings = {}) {
   return { process: process2, filament };
 }
 function writeDerivedPreset(basePath, overrides, outPath) {
-  const obj = JSON.parse(import_node_fs7.default.readFileSync(basePath, "utf-8"));
+  const obj = JSON.parse(import_node_fs8.default.readFileSync(basePath, "utf-8"));
   delete obj.setting_id;
   Object.assign(obj, overrides);
-  import_node_fs7.default.writeFileSync(outPath, JSON.stringify(obj, null, 2));
+  import_node_fs8.default.writeFileSync(outPath, JSON.stringify(obj, null, 2));
   return outPath;
 }
 function detectCliEngine() {
@@ -82370,7 +82613,7 @@ function detectCliEngine() {
   ].filter(Boolean);
   for (const candidate of candidates) {
     try {
-      if (import_node_fs7.default.existsSync(candidate)) return { path: candidate, label: import_node_path9.default.basename(candidate) };
+      if (import_node_fs8.default.existsSync(candidate)) return { path: candidate, label: import_node_path10.default.basename(candidate) };
     } catch {
     }
   }
@@ -82389,16 +82632,16 @@ function runProcess(exe, args, { cwd, timeoutMs } = {}) {
     );
   });
 }
-var import_node_fs7, import_node_os4, import_node_path9, import_node_child_process, log29, DEFAULT_CLI_CANDIDATES, ORCA_RESOURCES, ORCA_PRESETS, SLICER_SETTING_FIELDS, SUPPORTED_INPUT_FORMATS, BACKENDS, BACKEND_PRIORITY, SliceService;
+var import_node_fs8, import_node_os4, import_node_path10, import_node_child_process, log30, DEFAULT_CLI_CANDIDATES, ORCA_RESOURCES, ORCA_PRESETS, SLICER_SETTING_FIELDS, SUPPORTED_INPUT_FORMATS, BACKENDS, BACKEND_PRIORITY, SliceService;
 var init_SliceService = __esm({
   "src/services/SliceService.js"() {
-    import_node_fs7 = __toESM(require("node:fs"), 1);
+    import_node_fs8 = __toESM(require("node:fs"), 1);
     import_node_os4 = __toESM(require("node:os"), 1);
-    import_node_path9 = __toESM(require("node:path"), 1);
+    import_node_path10 = __toESM(require("node:path"), 1);
     import_node_child_process = require("node:child_process");
     init_logger();
     init_AutomatorZip();
-    log29 = createLogger("SliceService");
+    log30 = createLogger("SliceService");
     DEFAULT_CLI_CANDIDATES = [
       "C:\\Program Files\\OrcaSlicer\\orca-slicer.exe",
       "C:\\Program Files (x86)\\OrcaSlicer\\orca-slicer.exe",
@@ -82495,7 +82738,7 @@ var init_SliceService = __esm({
         }
         const backend = preferredBackend ? { id: preferredBackend, ...BACKENDS[preferredBackend]?.detect?.() } : this.getActiveBackend();
         if (!backend || !backend.available) {
-          log29.warn(`Slice requested but no backend available (model=${job.modelName})`);
+          log30.warn(`Slice requested but no backend available (model=${job.modelName})`);
           return {
             ok: false,
             code: "no_backend",
@@ -82503,12 +82746,12 @@ var init_SliceService = __esm({
             report: { backends: this.getBackends() }
           };
         }
-        log29.info(`Slice job: backend=${backend.id}, model=${job.modelName} (${job.modelBuffer.length} bytes)`);
+        log30.info(`Slice job: backend=${backend.id}, model=${job.modelName} (${job.modelBuffer.length} bytes)`);
         try {
           const result = await this._dispatch(backend.id, job);
           return { ...result, report: { ...result.report || {}, backend: backend.id, durationMs: Date.now() - started } };
         } catch (err) {
-          log29.error(`Slice failed (${backend.id}): ${err.message}`);
+          log30.error(`Slice failed (${backend.id}): ${err.message}`);
           return { ok: false, code: "engine_error", error: err.message, report: { backend: backend.id } };
         }
       },
@@ -82535,24 +82778,24 @@ var init_SliceService = __esm({
         if (!engine) return { ok: false, code: "no_backend", error: "No CLI engine found" };
         const model = job.options?.printer_model || job.profile?.printer_model || "P1S";
         const preset = ORCA_PRESETS[model] || ORCA_PRESETS.P1S;
-        const machineJson = import_node_path9.default.join(ORCA_RESOURCES, "machine", `${preset.machine}.json`);
-        const processJson = import_node_path9.default.join(ORCA_RESOURCES, "process", `${preset.process}.json`);
-        const filamentJson = import_node_path9.default.join(ORCA_RESOURCES, "filament", `${preset.filament}.json`);
+        const machineJson = import_node_path10.default.join(ORCA_RESOURCES, "machine", `${preset.machine}.json`);
+        const processJson = import_node_path10.default.join(ORCA_RESOURCES, "process", `${preset.process}.json`);
+        const filamentJson = import_node_path10.default.join(ORCA_RESOURCES, "filament", `${preset.filament}.json`);
         for (const [label, f] of [["machine", machineJson], ["process", processJson], ["filament", filamentJson]]) {
-          if (!import_node_fs7.default.existsSync(f)) {
+          if (!import_node_fs8.default.existsSync(f)) {
             return { ok: false, code: "preset_missing", error: `Slicer ${label} preset not found: ${f}` };
           }
         }
-        const work = import_node_fs7.default.mkdtempSync(import_node_path9.default.join(import_node_os4.default.tmpdir(), "ag-slice-"));
+        const work = import_node_fs8.default.mkdtempSync(import_node_path10.default.join(import_node_os4.default.tmpdir(), "ag-slice-"));
         const ext = (job.modelName.split(".").pop() || "stl").toLowerCase();
-        const modelPath = import_node_path9.default.join(work, `input.${ext}`);
-        import_node_fs7.default.writeFileSync(modelPath, job.modelBuffer);
+        const modelPath = import_node_path10.default.join(work, `input.${ext}`);
+        import_node_fs8.default.writeFileSync(modelPath, job.modelBuffer);
         const ov = orcaOverrides(job.options?.settings);
         let processArg = processJson, filamentArg = filamentJson;
-        if (Object.keys(ov.process).length) processArg = writeDerivedPreset(processJson, ov.process, import_node_path9.default.join(work, "process.json"));
-        if (Object.keys(ov.filament).length) filamentArg = writeDerivedPreset(filamentJson, ov.filament, import_node_path9.default.join(work, "filament.json"));
+        if (Object.keys(ov.process).length) processArg = writeDerivedPreset(processJson, ov.process, import_node_path10.default.join(work, "process.json"));
+        if (Object.keys(ov.filament).length) filamentArg = writeDerivedPreset(filamentJson, ov.filament, import_node_path10.default.join(work, "filament.json"));
         const appliedSettings = { ...ov.process, ...ov.filament };
-        if (Object.keys(appliedSettings).length) log29.info(`Slice overrides: ${JSON.stringify(appliedSettings)}`);
+        if (Object.keys(appliedSettings).length) log30.info(`Slice overrides: ${JSON.stringify(appliedSettings)}`);
         const args = [
           modelPath,
           "--load-settings",
@@ -82569,7 +82812,7 @@ var init_SliceService = __esm({
         ];
         try {
           const { stdout } = await runProcess(engine.path, args, { cwd: void 0, timeoutMs: 18e4 });
-          const plates = import_node_fs7.default.readdirSync(work).map((f) => ({ f, m: /^plate_(\d+)\.gcode$/i.exec(f) })).filter((x) => x.m).map((x) => ({ index: parseInt(x.m[1], 10), gcode: import_node_fs7.default.readFileSync(import_node_path9.default.join(work, x.f), "utf-8") })).sort((a, b) => a.index - b.index);
+          const plates = import_node_fs8.default.readdirSync(work).map((f) => ({ f, m: /^plate_(\d+)\.gcode$/i.exec(f) })).filter((x) => x.m).map((x) => ({ index: parseInt(x.m[1], 10), gcode: import_node_fs8.default.readFileSync(import_node_path10.default.join(work, x.f), "utf-8") })).sort((a, b) => a.index - b.index);
           if (!plates.length) {
             const tail = (stdout || "").split("\n").slice(-4).join(" ");
             return { ok: false, code: "no_output", error: `Slicer produced no plate gcode. ${tail}` };
@@ -82584,7 +82827,7 @@ var init_SliceService = __esm({
           };
         } finally {
           try {
-            import_node_fs7.default.rmSync(work, { recursive: true, force: true });
+            import_node_fs8.default.rmSync(work, { recursive: true, force: true });
           } catch {
           }
         }
@@ -83492,31 +83735,31 @@ function resolveCloudflaredPath() {
   if (process.env.CLOUDFLARED_PATH) return process.env.CLOUDFLARED_PATH;
   const home = import_node_os5.default.homedir() || process.env.USERPROFILE || process.env.HOME || ".";
   const candidates = process.platform === "win32" ? [
-    import_node_path10.default.join(home, "cloudflared.exe"),
+    import_node_path11.default.join(home, "cloudflared.exe"),
     "C:\\Program Files (x86)\\cloudflared\\cloudflared.exe"
   ] : [
     "/usr/local/bin/cloudflared",
     "/usr/bin/cloudflared",
-    import_node_path10.default.join(home, ".cloudflared", "cloudflared"),
-    import_node_path10.default.join(home, "cloudflared")
+    import_node_path11.default.join(home, ".cloudflared", "cloudflared"),
+    import_node_path11.default.join(home, "cloudflared")
   ];
   for (const candidate of candidates) {
     try {
-      if (import_node_fs8.default.existsSync(candidate)) return candidate;
+      if (import_node_fs9.default.existsSync(candidate)) return candidate;
     } catch {
     }
   }
   return "cloudflared";
 }
-var import_node_child_process2, import_node_fs8, import_node_os5, import_node_path10, log30, TunnelService, service, TunnelService_default;
+var import_node_child_process2, import_node_fs9, import_node_os5, import_node_path11, log31, TunnelService, service, TunnelService_default;
 var init_TunnelService = __esm({
   "src/services/TunnelService.js"() {
     import_node_child_process2 = require("node:child_process");
-    import_node_fs8 = __toESM(require("node:fs"), 1);
+    import_node_fs9 = __toESM(require("node:fs"), 1);
     import_node_os5 = __toESM(require("node:os"), 1);
-    import_node_path10 = __toESM(require("node:path"), 1);
+    import_node_path11 = __toESM(require("node:path"), 1);
     init_logger();
-    log30 = createLogger("TunnelService");
+    log31 = createLogger("TunnelService");
     TunnelService = class {
       constructor() {
         this.process = null;
@@ -83550,7 +83793,7 @@ var init_TunnelService = __esm({
         this._emitStatus();
         try {
           const executable = resolveCloudflaredPath();
-          log30.info(`Starting tunnel with: ${executable}`);
+          log31.info(`Starting tunnel with: ${executable}`);
           this.process = (0, import_node_child_process2.spawn)(executable, ["tunnel", "--url", "http://localhost:3000"]);
           this.process.stdout.on("data", (data) => {
             this._parseOutput(data.toString());
@@ -83559,19 +83802,19 @@ var init_TunnelService = __esm({
             this._parseOutput(data.toString());
           });
           this.process.on("close", (code) => {
-            log30.info(`Tunnel process exited with code ${code}`);
+            log31.info(`Tunnel process exited with code ${code}`);
             this.status = "stopped";
             this.url = null;
             this.process = null;
             this._emitStatus();
           });
           this.process.on("error", (err) => {
-            log30.error("Failed to start tunnel process", err);
+            log31.error("Failed to start tunnel process", err);
             this.status = "error";
             this._emitStatus();
           });
         } catch (err) {
-          log30.error("Error starting tunnel", err);
+          log31.error("Error starting tunnel", err);
           this.status = "error";
           this._emitStatus();
         }
@@ -83579,7 +83822,7 @@ var init_TunnelService = __esm({
       }
       stop() {
         if (this.process) {
-          log30.info("Stopping tunnel...");
+          log31.info("Stopping tunnel...");
           this.process.kill();
           this.process = null;
         }
@@ -83594,7 +83837,7 @@ var init_TunnelService = __esm({
         if (match && !this.url) {
           this.url = match[0];
           this.status = "running";
-          log30.info(`Tunnel URL found: ${this.url}`);
+          log31.info(`Tunnel URL found: ${this.url}`);
           this._emitStatus();
         }
       }
@@ -83709,12 +83952,12 @@ function initWebSocket(server2) {
       }
       ws.user = user;
     }
-    log31.info(`WebSocket client connected (${wss.clients.size} total)`);
+    log32.info(`WebSocket client connected (${wss.clients.size} total)`);
     ws.on("close", () => {
-      log31.debug(`WebSocket client disconnected (${wss.clients.size} remaining)`);
+      log32.debug(`WebSocket client disconnected (${wss.clients.size} remaining)`);
     });
     ws.on("error", (err) => {
-      log31.error(`WebSocket error: ${err.message}`);
+      log32.error(`WebSocket error: ${err.message}`);
     });
     ws.send(JSON.stringify({ type: "connected", data: { timestamp: (/* @__PURE__ */ new Date()).toISOString() } }));
   });
@@ -83729,13 +83972,13 @@ function broadcast(message) {
     }
   }
 }
-var log31, wss;
+var log32, wss;
 var init_websocket = __esm({
   "src/api/websocket.js"() {
     init_wrapper();
     init_auth();
     init_logger();
-    log31 = createLogger("WebSocket");
+    log32 = createLogger("WebSocket");
     wss = null;
   }
 });
@@ -83830,7 +84073,7 @@ async function init() {
     runMigrations();
     seedDefaultProfiles();
     ensureAdminUser();
-    log32.info("Database initialized");
+    log33.info("Database initialized");
     const wss2 = initWebSocket(server);
     JobOrchestrator.setWsBroadcast(broadcast);
     TunnelService_default.setWsBroadcast(broadcast);
@@ -83842,11 +84085,11 @@ async function init() {
     const port = parseInt(process.env.PORT) || 3e3;
     const host = process.env.HOST || "0.0.0.0";
     server.listen(port, host, () => {
-      log32.info(`\u{1F680} Antigravity running at http://${host}:${port}`);
-      log32.info(`   Mode: ${process.env.MOCK_MODE === "true" ? "MOCK (simulators)" : "LIVE"}`);
+      log33.info(`\u{1F680} Antigravity running at http://${host}:${port}`);
+      log33.info(`   Mode: ${process.env.MOCK_MODE === "true" ? "MOCK (simulators)" : "LIVE"}`);
     });
     const shutdown = async () => {
-      log32.info("Shutting down...");
+      log33.info("Shutting down...");
       await supervisor.stop();
       closeDb();
       server.close();
@@ -83855,18 +84098,18 @@ async function init() {
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
   } catch (err) {
-    log32.error("Init failed", err.message);
+    log33.error("Init failed", err.message);
     console.error(err);
     process.exit(1);
   }
 }
-var import_express15, import_node_http, import_node_path11, import_node_url2, import_meta2, __dirname3, publicDir, log32, app, server;
+var import_express15, import_node_http, import_node_path12, import_node_url2, import_meta2, __dirname3, publicDir, log33, app, server;
 var init_server = __esm({
   "server.js"() {
     init_config();
     import_express15 = __toESM(require_express2(), 1);
     import_node_http = require("node:http");
-    import_node_path11 = __toESM(require("node:path"), 1);
+    import_node_path12 = __toESM(require("node:path"), 1);
     import_node_url2 = require("node:url");
     init_database();
     init_default_profiles();
@@ -83882,9 +84125,9 @@ var init_server = __esm({
     init_logger();
     init_runtimePaths();
     import_meta2 = {};
-    __dirname3 = import_meta2.url ? import_node_path11.default.dirname((0, import_node_url2.fileURLToPath)(import_meta2.url)) : process.env.PKX_ASSET_ROOT || process.cwd();
-    publicDir = resolveAsset("public", import_node_path11.default.join(__dirname3, "public"));
-    log32 = createLogger("Server");
+    __dirname3 = import_meta2.url ? import_node_path12.default.dirname((0, import_node_url2.fileURLToPath)(import_meta2.url)) : process.env.PKX_ASSET_ROOT || process.cwd();
+    publicDir = resolveAsset("public", import_node_path12.default.join(__dirname3, "public"));
+    log33 = createLogger("Server");
     app = (0, import_express15.default)();
     server = (0, import_node_http.createServer)(app);
     app.use(import_express15.default.json({ limit: "200mb" }));
@@ -83898,19 +84141,19 @@ var init_server = __esm({
     });
     app.use(import_express15.default.static(publicDir));
     app.get("/cloud", (req, res) => {
-      res.sendFile(import_node_path11.default.join(publicDir, "cloud.html"));
+      res.sendFile(import_node_path12.default.join(publicDir, "cloud.html"));
     });
     app.get("/merchant-onboarding", (req, res) => {
-      res.sendFile(import_node_path11.default.join(publicDir, "merchant-onboarding.html"));
+      res.sendFile(import_node_path12.default.join(publicDir, "merchant-onboarding.html"));
     });
     app.get("/admin-reset", (req, res) => {
-      res.sendFile(import_node_path11.default.join(publicDir, "admin-reset.html"));
+      res.sendFile(import_node_path12.default.join(publicDir, "admin-reset.html"));
     });
     app.use("/api", router_default);
     app.use(errorHandler);
     app.get("*", (req, res) => {
       if (!req.path.startsWith("/api")) {
-        res.sendFile(import_node_path11.default.join(publicDir, "index.html"));
+        res.sendFile(import_node_path12.default.join(publicDir, "index.html"));
       }
     });
     init();
@@ -83923,7 +84166,7 @@ var import_node_os6 = __toESM(require("node:os"), 1);
 
 // src/cloud/localCommandExecutor.js
 var import_node_crypto3 = require("node:crypto");
-var import_adm_zip2 = __toESM(require_adm_zip(), 1);
+var import_adm_zip3 = __toESM(require_adm_zip(), 1);
 
 // src/cloud/localPrinterSnapshot.js
 init_FilamentCatalog();
@@ -83965,6 +84208,25 @@ function collectAmsTrays(amsStatus) {
     };
   }).filter(Boolean);
 }
+function buildCurrentJobView(worker, activeJob, preview = null) {
+  const status = worker?.latestStatus || {};
+  const printingState = String(status.gcode_state || status.state || "").toLowerCase();
+  if (!activeJob && !["printing", "running", "pause", "paused", "prepare"].includes(printingState)) {
+    return null;
+  }
+  const progress = Number(status.progress);
+  const remaining = Number(status.remaining_time);
+  return {
+    job_id: activeJob?.job_id || null,
+    name: activeJob?.name || status.subtask_name || status.gcode_file || null,
+    state: printingState || "printing",
+    progress_percent: Number.isFinite(progress) ? Math.max(0, Math.min(progress, 100)) : null,
+    remaining_minutes: Number.isFinite(remaining) ? Math.max(0, remaining) : null,
+    layer: Number.isFinite(Number(status.layer)) ? Number(status.layer) : null,
+    total_layers: Number.isFinite(Number(status.total_layers)) ? Number(status.total_layers) : null,
+    preview: typeof preview === "string" && preview.startsWith("data:") ? preview : null
+  };
+}
 function buildSyncedPrinterRecord(printer, worker, options = {}, amsStatus = null) {
   const statusSnapshot = printer.status_snapshot && typeof printer.status_snapshot === "object" ? { ...printer.status_snapshot } : {};
   const liveState = worker?.state && worker.state !== "unknown" ? worker.state : statusSnapshot.state;
@@ -83981,6 +84243,9 @@ function buildSyncedPrinterRecord(printer, worker, options = {}, amsStatus = nul
   };
   if (!record.capabilities.build_volume_mm) {
     record.capabilities.build_volume_mm = getBuildVolumeForModel(printer.model);
+  }
+  if (printer.ip_hostname && !record.capabilities.ip_hostname) {
+    record.capabilities.ip_hostname = printer.ip_hostname;
   }
   if (record.capabilities.auto_eject === void 0) {
     record.capabilities.auto_eject = true;
@@ -84009,10 +84274,12 @@ async function collectLocalPrinterRecords(options = {}) {
     sync_filament: options.sync_filament !== false,
     ...options
   };
-  const [{ PrinterModel: PrinterModel2 }, { RuntimeSupervisor: RuntimeSupervisor2 }, { AmsService: AmsService2 }] = await Promise.all([
+  const [{ PrinterModel: PrinterModel2 }, { RuntimeSupervisor: RuntimeSupervisor2 }, { AmsService: AmsService2 }, { JobModel: JobModel2 }, jobPreview] = await Promise.all([
     Promise.resolve().then(() => (init_Printer(), Printer_exports)),
     Promise.resolve().then(() => (init_RuntimeSupervisor(), RuntimeSupervisor_exports)),
-    Promise.resolve().then(() => (init_AmsService(), AmsService_exports))
+    Promise.resolve().then(() => (init_AmsService(), AmsService_exports)),
+    Promise.resolve().then(() => (init_Job(), Job_exports)),
+    Promise.resolve().then(() => (init_JobPreview(), JobPreview_exports))
   ]);
   const supervisor = RuntimeSupervisor2.getInstance();
   const registeredPrinters = effective.include_saved_printers === false ? [] : PrinterModel2.findAll();
@@ -84024,7 +84291,15 @@ async function collectLocalPrinterRecords(options = {}) {
       } catch {
       }
     }
-    return buildSyncedPrinterRecord(printer, supervisor?.getWorker?.(printer.printer_id), effective, amsStatus);
+    const worker = supervisor?.getWorker?.(printer.printer_id);
+    const record = buildSyncedPrinterRecord(printer, worker, effective, amsStatus);
+    try {
+      const activeJob = worker?.activeJobId ? JobModel2.findById(worker.activeJobId) : JobModel2.findAll({ printer_id: printer.printer_id, status: "printing", limit: 1 })[0] || null;
+      const currentJob = buildCurrentJobView(worker, activeJob, activeJob ? jobPreview.getJobPreview(activeJob) : null);
+      if (currentJob) record.current_job = currentJob;
+    } catch {
+    }
+    return record;
   });
 }
 
@@ -84033,7 +84308,7 @@ function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function buildGcode3mf2(gcode) {
-  const zip = new import_adm_zip2.default();
+  const zip = new import_adm_zip3.default();
   const gcodeBuffer = Buffer.from(gcode, "utf8");
   const md5 = (0, import_node_crypto3.createHash)("md5").update(gcodeBuffer).digest("hex");
   const contentTypes = `<?xml version="1.0" encoding="UTF-8"?>
@@ -84133,9 +84408,54 @@ async function executeAmsAction(command, deps) {
     status: amsService.getFullStatus(localPrinterId)
   };
 }
+async function defaultCaptureCameraFrame(localPrinterId) {
+  const [{ PrinterModel: PrinterModel2 }] = await Promise.all([Promise.resolve().then(() => (init_Printer(), Printer_exports))]);
+  const printer = PrinterModel2.findById(localPrinterId);
+  if (!printer) throw new Error(`Local printer not found: ${localPrinterId}`);
+  if (process.env.MOCK_MODE === "true") {
+    const stamp = (/* @__PURE__ */ new Date()).toISOString().slice(11, 19);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240"><rect width="320" height="240" fill="#10201a"/><rect x="60" y="70" width="200" height="110" rx="8" fill="none" stroke="#2f8f6d" stroke-width="3"/><circle cx="160" cy="125" r="26" fill="none" stroke="#2f8f6d" stroke-width="3"/><text x="160" y="215" text-anchor="middle" fill="#9fd6be" font-family="monospace" font-size="14">MOCK CAM \xB7 ${printer.name || localPrinterId} \xB7 ${stamp} UTC</text></svg>`;
+    return {
+      content_type: "image/svg+xml",
+      image_base64: Buffer.from(svg, "utf8").toString("base64"),
+      mock: true
+    };
+  }
+  const { default: cameraProxy2 } = await Promise.resolve().then(() => (init_CameraProxy(), CameraProxy_exports));
+  const auth = PrinterModel2.getAuth(localPrinterId) || {};
+  if (!cameraProxy2.isRunning(localPrinterId)) {
+    await cameraProxy2.start(localPrinterId, printer.ip_hostname, auth.access_code || "", printer.model);
+  }
+  let frame = cameraProxy2.getFrame(localPrinterId);
+  for (let attempt = 0; attempt < 20 && !frame; attempt += 1) {
+    await wait(150);
+    frame = cameraProxy2.getFrame(localPrinterId);
+  }
+  if (!frame) {
+    throw new Error(cameraProxy2.getError(localPrinterId) || "Camera frame not yet available");
+  }
+  return {
+    content_type: "image/jpeg",
+    image_base64: frame.toString("base64"),
+    mock: false
+  };
+}
+async function executeCameraSnapshot(command, deps) {
+  const localPrinterId = requiredString(command.payload?.local_printer_id, "payload.local_printer_id");
+  const frame = await deps.captureCameraFrame(localPrinterId);
+  return {
+    ok: true,
+    local_printer_id: localPrinterId,
+    captured_at: (/* @__PURE__ */ new Date()).toISOString(),
+    ...frame
+  };
+}
 async function executePrinterAction(command, deps) {
   if (command.command_type.startsWith("printer.ams.")) {
     return executeAmsAction(command, deps);
+  }
+  if (command.command_type === "printer.camera.snapshot") {
+    return executeCameraSnapshot(command, deps);
   }
   const localPrinterId = requiredString(command.payload?.local_printer_id, "payload.local_printer_id");
   const worker = await getRequiredWorker(localPrinterId, deps);
@@ -84386,6 +84706,74 @@ async function executePrinterSync(command, deps) {
     }
   };
 }
+async function defaultAdoptPrinter({ name, model, ip_hostname, access_code, serial }) {
+  const [{ PrinterModel: PrinterModel2 }, { PrinterRegistry: PrinterRegistry2 }] = await Promise.all([
+    Promise.resolve().then(() => (init_Printer(), Printer_exports)),
+    Promise.resolve().then(() => (init_PrinterRegistry(), PrinterRegistry_exports))
+  ]);
+  const existing = PrinterModel2.findAll().find((printer2) => printer2.ip_hostname === ip_hostname);
+  if (existing) {
+    return { already_added: true, printer: existing };
+  }
+  const printer = PrinterRegistry2.create({
+    name,
+    model,
+    ip_hostname,
+    auth: {
+      ...access_code ? { access_code } : {},
+      ...serial ? { serial } : {}
+    }
+  });
+  return { already_added: false, printer };
+}
+var ADOPTABLE_MODELS = ["A1", "A1 Mini", "P1P", "P1S", "P2S", "X1", "X1C", "X1E", "H2D"];
+function normalizeAdoptModel(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "P1S";
+  const match = ADOPTABLE_MODELS.find((model) => model.toLowerCase() === raw.toLowerCase());
+  if (match) return match;
+  const upper = raw.toUpperCase();
+  if (upper.includes("A1") && upper.includes("MINI")) return "A1 Mini";
+  if (upper.includes("A1")) return "A1";
+  if (upper.includes("X1E")) return "X1E";
+  if (upper.includes("X1")) return "X1C";
+  if (upper.includes("P1P")) return "P1P";
+  if (upper.includes("P1")) return "P1S";
+  if (upper.includes("P2")) return "P2S";
+  if (upper.includes("H2")) return "H2D";
+  return raw;
+}
+async function executePrinterAdopt(command, deps) {
+  const payload = command.payload || {};
+  const ipHostname = requiredString(payload.ip_hostname || payload.ip, "payload.ip_hostname");
+  const name = requiredString(payload.name, "payload.name");
+  const model = normalizeAdoptModel(payload.model);
+  const accessCode = typeof payload.access_code === "string" && payload.access_code.trim() ? payload.access_code.trim() : null;
+  const serial = typeof payload.serial === "string" && payload.serial.trim() ? payload.serial.trim() : null;
+  const adoption = await deps.adoptPrinter({
+    name,
+    model,
+    ip_hostname: ipHostname,
+    access_code: accessCode,
+    serial
+  });
+  let synced = null;
+  try {
+    synced = await deps.syncPrinters({ sync_ams: true, sync_filament: true });
+  } catch {
+  }
+  return {
+    ok: true,
+    already_added: adoption.already_added === true,
+    printer: {
+      local_printer_id: adoption.printer?.printer_id || adoption.printer?.local_printer_id || null,
+      name: adoption.printer?.name || name,
+      model: adoption.printer?.model || model,
+      ip_hostname: ipHostname
+    },
+    synced_printer_count: Array.isArray(synced?.printers) ? synced.printers.length : null
+  };
+}
 async function executeCloudAction(command, deps) {
   if (command.command_type === "cloud.print.ready") {
     return executeCloudPrintReady(command, deps);
@@ -84395,6 +84783,9 @@ async function executeCloudAction(command, deps) {
   }
   if (command.command_type === "cloud.printers.sync") {
     return executePrinterSync(command, deps);
+  }
+  if (command.command_type === "cloud.printers.adopt") {
+    return executePrinterAdopt(command, deps);
   }
   throw new Error(`Unsupported cloud command: ${command.command_type}`);
 }
@@ -84419,7 +84810,9 @@ function getDefaultDeps() {
     downloadArtifact: defaultDownloadArtifact,
     uploadToPrinter: defaultUploadToPrinter,
     discoverPrinters: defaultDiscoverPrinters,
-    syncPrinters: defaultSyncPrinters
+    syncPrinters: defaultSyncPrinters,
+    adoptPrinter: defaultAdoptPrinter,
+    captureCameraFrame: defaultCaptureCameraFrame
   };
 }
 async function executeCloudCommand(command, deps = {}) {
@@ -84564,8 +84957,8 @@ function requireValue(value, name) {
 function normalizeCloudUrl(url) {
   return requireValue(url, "CLOUD_API_URL").replace(/\/+$/, "");
 }
-function buildUrl(baseUrl, path12, query = null) {
-  const url = new URL(`${baseUrl}${path12}`);
+function buildUrl(baseUrl, path13, query = null) {
+  const url = new URL(`${baseUrl}${path13}`);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value !== void 0 && value !== null) {
@@ -84616,8 +85009,8 @@ function createLocalNodeClient({
   if (typeof fetchImpl !== "function") throw new Error("fetch implementation is required");
   const retryConfig = normalizeRetryConfig(retry);
   const timeoutMs = Math.max(0, Number.parseInt(requestTimeoutMs, 10) || 0);
-  async function request(path12, { method = "GET", query = null, body = null } = {}) {
-    const url = buildUrl(baseUrl, path12, query);
+  async function request(path13, { method = "GET", query = null, body = null } = {}) {
+    const url = buildUrl(baseUrl, path13, query);
     let lastError = null;
     for (let attempt = 1; attempt <= retryConfig.maxAttempts; attempt += 1) {
       const controller = timeoutMs > 0 ? new AbortController() : null;
@@ -84676,16 +85069,16 @@ function createLocalNodeClient({
 }
 
 // src/cloud/localResultOutbox.js
-var import_node_fs4 = __toESM(require("node:fs"), 1);
-var import_node_path6 = __toESM(require("node:path"), 1);
+var import_node_fs5 = __toESM(require("node:fs"), 1);
+var import_node_path7 = __toESM(require("node:path"), 1);
 var import_node_crypto4 = require("node:crypto");
 function ensureDirectory(filePath) {
-  import_node_fs4.default.mkdirSync(import_node_path6.default.dirname(filePath), { recursive: true });
+  import_node_fs5.default.mkdirSync(import_node_path7.default.dirname(filePath), { recursive: true });
 }
 function readEntries(filePath) {
-  if (!import_node_fs4.default.existsSync(filePath)) return [];
+  if (!import_node_fs5.default.existsSync(filePath)) return [];
   try {
-    const parsed = JSON.parse(import_node_fs4.default.readFileSync(filePath, "utf8"));
+    const parsed = JSON.parse(import_node_fs5.default.readFileSync(filePath, "utf8"));
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -84694,9 +85087,9 @@ function readEntries(filePath) {
 function writeEntries(filePath, entries) {
   ensureDirectory(filePath);
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  import_node_fs4.default.writeFileSync(tempPath, `${JSON.stringify(entries, null, 2)}
+  import_node_fs5.default.writeFileSync(tempPath, `${JSON.stringify(entries, null, 2)}
 `);
-  import_node_fs4.default.renameSync(tempPath, filePath);
+  import_node_fs5.default.renameSync(tempPath, filePath);
 }
 function requireString(value, name) {
   if (typeof value !== "string" || value.trim() === "") {
@@ -84767,7 +85160,7 @@ function createLocalResultOutbox({
 init_localNetwork();
 init_SystemEvents();
 init_logger();
-var log33 = createLogger("CloudNode");
+var log34 = createLogger("CloudNode");
 function getHostInfo() {
   return {
     hostname: import_node_os6.default.hostname(),
@@ -84785,7 +85178,7 @@ async function sendHeartbeat(client, status = "online", resultOutbox = null) {
   try {
     printers = await collectLocalPrinterRecords({ sync_ams: true, sync_filament: true });
   } catch (error) {
-    log33.warn(`Printer snapshot for heartbeat failed: ${error.message}`);
+    log34.warn(`Printer snapshot for heartbeat failed: ${error.message}`);
   }
   return client.sendHeartbeat({
     status,
@@ -84827,14 +85220,14 @@ async function main() {
     maxPollIntervalMs: parseEnvInt("CLOUD_COMMAND_MAX_POLL_INTERVAL_MS", 3e4),
     resultOutbox,
     outboxFlushLimit: parseEnvInt("CLOUD_RESULT_OUTBOX_FLUSH_LIMIT", 25),
-    logger: log33
+    logger: log34
   });
   await Promise.resolve().then(() => (init_server(), server_exports));
   SystemEvents_default.on("printer.alert", (alert) => {
     client.sendEvents([{
       event_type: alert?.kind === "auto_canceled" ? "printer.auto_canceled" : "printer.alert",
       payload: alert
-    }]).catch((error) => log33.warn(`Cloud alert forward failed: ${error.message}`));
+    }]).catch((error) => log34.warn(`Cloud alert forward failed: ${error.message}`));
   });
   const forwardJobLifecycle = (eventType) => ({ job, printer_id, reason } = {}) => {
     const cloudJobId = job?.metadata?.cloud_job_id;
@@ -84848,7 +85241,7 @@ async function main() {
         local_printer_id: printer_id || job.printer_id || null,
         reason: reason || null
       }
-    }]).catch((error) => log33.warn(`Cloud job status forward failed (${eventType}): ${error.message}`));
+    }]).catch((error) => log34.warn(`Cloud job status forward failed (${eventType}): ${error.message}`));
   };
   SystemEvents_default.on("job.started", forwardJobLifecycle("print_job.started"));
   SystemEvents_default.on("job.completed", forwardJobLifecycle("print_job.completed"));
@@ -84856,29 +85249,29 @@ async function main() {
   try {
     await sendHeartbeat(client, "online", resultOutbox);
   } catch (error) {
-    log33.warn(`Initial cloud heartbeat failed (will keep retrying): ${error.message}`);
+    log34.warn(`Initial cloud heartbeat failed (will keep retrying): ${error.message}`);
   }
   const heartbeatTimer = setInterval(() => {
     sendHeartbeat(client, "online", resultOutbox).catch((error) => {
-      log33.warn(`Cloud heartbeat failed: ${error.message}`);
+      log34.warn(`Cloud heartbeat failed: ${error.message}`);
     });
   }, heartbeatIntervalMs);
   agent.start();
-  log33.info(`Cloud-connected local node started; polling every ${pollIntervalMs}ms; result outbox=${resultOutbox.filePath}`);
+  log34.info(`Cloud-connected local node started; polling every ${pollIntervalMs}ms; result outbox=${resultOutbox.filePath}`);
   const shutdown = async () => {
     clearInterval(heartbeatTimer);
     agent.stop();
     try {
       await sendHeartbeat(client, "offline", resultOutbox);
     } catch (error) {
-      log33.warn(`Cloud offline heartbeat failed: ${error.message}`);
+      log34.warn(`Cloud offline heartbeat failed: ${error.message}`);
     }
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 }
 main().catch((error) => {
-  log33.error(`Cloud node failed to start: ${error.message}`);
+  log34.error(`Cloud node failed to start: ${error.message}`);
   process.exit(1);
 });
 /*! Bundled license information:

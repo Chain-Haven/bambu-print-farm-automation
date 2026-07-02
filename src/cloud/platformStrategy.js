@@ -190,34 +190,71 @@ function readinessGate(gate, label, ready, blocked, nextAction) {
     };
 }
 
-function buildReadiness({ overview, automationPlan }) {
+// A node claiming "online" only counts if it has actually heartbeated recently
+// (default heartbeat interval is 30s; allow generous slack for slow links and
+// serverless clock drift). Nodes without last_seen_at are treated as fresh so
+// stores that never populated the column keep working.
+const NODE_ONLINE_STALE_MS = 10 * 60 * 1000;
+
+function isNodeFreshlyOnline(node, nowMs) {
+    if (!isOnline(node.status)) return false;
+    if (!node.last_seen_at) return true;
+    const lastSeen = Date.parse(node.last_seen_at);
+    if (!Number.isFinite(lastSeen)) return true;
+    return nowMs - lastSeen <= NODE_ONLINE_STALE_MS;
+}
+
+// Loaded AMS filament synced from a printer heartbeat counts as traceable
+// inventory: the material/color data is live from the device, so the gate
+// must not stay blocked just because no manual spool rows were entered.
+function printerHasLoadedFilament(printer) {
+    const sources = [
+        printer?.capabilities?.ams_trays,
+        printer?.capabilities?.trays,
+        printer?.status_snapshot?.ams,
+    ];
+    return sources.some((source) => hasTrayWithFilament(source));
+}
+
+function hasTrayWithFilament(source) {
+    if (Array.isArray(source)) return source.some((item) => hasTrayWithFilament(item));
+    if (!isPlainObject(source)) return false;
+    if (source.material || source.tray_type || source.type || source.color || source.color_hex || source.tray_color) {
+        return true;
+    }
+    return ['tray', 'trays', 'ams', 'ams_trays', 'filaments', 'slots']
+        .some((key) => hasTrayWithFilament(source[key]));
+}
+
+function buildReadiness({ overview, automationPlan, now }) {
     const nodes = asArray(overview.nodes);
     const printers = asArray(overview.printers);
     const commands = asArray(overview.commands);
     const featureMap = automationPlan?.feature_map || {};
     const summary = automationPlan?.summary || {};
+    const nowMs = now().getTime();
 
     return [
         readinessGate(
             'edge_agent_online',
             'Windows edge agent online',
-            nodes.some((node) => isOnline(node.status)),
+            nodes.some((node) => isNodeFreshlyOnline(node, nowMs)),
             true,
-            'Bring at least one Windows edge agent online.',
+            'Provision a node in Farm Nodes, download the Windows package, and double-click "Start Farm Node.bat" (no install needed).',
         ),
         readinessGate(
             'printer_inventory',
             'Printer inventory registered',
             printers.length > 0,
             true,
-            'Register printers through the Windows manager discovery flow.',
+            'On the node computer open http://localhost:3000, add LAN printers (discovery finds them automatically), then wait for the next heartbeat to mirror them here.',
         ),
         readinessGate(
             'command_intents',
             'Durable command intents',
             commands.length > 0,
             false,
-            'Queue and complete at least one cloud command through the local agent.',
+            'Queue one cloud command (e.g. Discover LAN Printers in Local Printer Sync) through the online node.',
         ),
         readinessGate(
             'smart_material_queue',
@@ -229,9 +266,9 @@ function buildReadiness({ overview, automationPlan }) {
         readinessGate(
             'inventory_traceability',
             'Spool and AMS inventory',
-            Number(summary.spools_total || 0) > 0,
+            Number(summary.spools_total || 0) > 0 || printers.some(printerHasLoadedFilament),
             true,
-            'Add spool inventory with material, color, grams remaining, and AMS assignment.',
+            'Load filament into an AMS (it syncs automatically) or add spool inventory with material, color, and grams remaining.',
         ),
         readinessGate(
             'auto_ejection_policy',
@@ -305,9 +342,10 @@ function buildRoadmapPhases(readiness) {
 export function buildPlatformStrategy({
     overview = {},
     automationPlan = {},
+    now = () => new Date(),
 } = {}) {
     const printers = asArray(overview.printers);
-    const readiness = buildReadiness({ overview, automationPlan });
+    const readiness = buildReadiness({ overview, automationPlan, now });
 
     return {
         integration_modes: INTEGRATION_MODES,

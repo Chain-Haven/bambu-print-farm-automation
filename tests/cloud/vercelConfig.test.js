@@ -44,6 +44,17 @@ describe('Vercel cloud node package config', () => {
         expect(config.functions['api/cloud/node-package.js'].includeFiles).toContain('public/**');
     });
 
+    it('ships the portable no-install bundle with the node-package function', () => {
+        const config = JSON.parse(fs.readFileSync('vercel.json', 'utf8'));
+
+        // Without dist/windows-node/** the deployed download silently falls back
+        // to the source ZIP that requires Node 24 + npm install — the portable
+        // "works out of the box" package only ships when these files deploy.
+        expect(config.functions['api/cloud/node-package.js'].includeFiles).toContain('dist/windows-node/**');
+        expect(fs.existsSync('dist/windows-node/farm-node.cjs')).toBe(true);
+        expect(fs.existsSync('dist/windows-node/sql-wasm.wasm')).toBe(true);
+    });
+
     it('bundles allowlisted Supabase SQL migrations for the admin migration endpoint', () => {
         const config = JSON.parse(fs.readFileSync('vercel.json', 'utf8'));
 

@@ -60,6 +60,35 @@ function collectAmsTrays(amsStatus) {
         .filter(Boolean);
 }
 
+/**
+ * Live "what is printing right now" view for a printer: job identity, progress,
+ * remaining time, layers, and a visual preview (slicer plate render or
+ * isometric toolpath SVG) so the cloud fleet view can show the model inside the
+ * printer card. Everything is best-effort — a printer with no active job (or a
+ * failed preview) still syncs.
+ */
+export function buildCurrentJobView(worker, activeJob, preview = null) {
+    const status = worker?.latestStatus || {};
+    const printingState = String(status.gcode_state || status.state || '').toLowerCase();
+    if (!activeJob && !['printing', 'running', 'pause', 'paused', 'prepare'].includes(printingState)) {
+        return null;
+    }
+
+    const progress = Number(status.progress);
+    const remaining = Number(status.remaining_time);
+
+    return {
+        job_id: activeJob?.job_id || null,
+        name: activeJob?.name || status.subtask_name || status.gcode_file || null,
+        state: printingState || 'printing',
+        progress_percent: Number.isFinite(progress) ? Math.max(0, Math.min(progress, 100)) : null,
+        remaining_minutes: Number.isFinite(remaining) ? Math.max(0, remaining) : null,
+        layer: Number.isFinite(Number(status.layer)) ? Number(status.layer) : null,
+        total_layers: Number.isFinite(Number(status.total_layers)) ? Number(status.total_layers) : null,
+        preview: typeof preview === 'string' && preview.startsWith('data:') ? preview : null,
+    };
+}
+
 export function buildSyncedPrinterRecord(printer, worker, options = {}, amsStatus = null) {
     const statusSnapshot = printer.status_snapshot && typeof printer.status_snapshot === 'object'
         ? { ...printer.status_snapshot }
@@ -84,6 +113,13 @@ export function buildSyncedPrinterRecord(printer, worker, options = {}, amsStatu
 
     if (!record.capabilities.build_volume_mm) {
         record.capabilities.build_volume_mm = getBuildVolumeForModel(printer.model);
+    }
+
+    // Mirror the LAN address inside capabilities too: the heartbeat normalizer
+    // only keeps capabilities/status_snapshot, and the cloud fleet view needs
+    // the IP to match discovered printers against already-adopted ones.
+    if (printer.ip_hostname && !record.capabilities.ip_hostname) {
+        record.capabilities.ip_hostname = printer.ip_hostname;
     }
 
     // Cloud-routed prints run through the JobOrchestrator transform, which
@@ -126,10 +162,12 @@ export async function collectLocalPrinterRecords(options = {}) {
         ...options,
     };
 
-    const [{ PrinterModel }, { RuntimeSupervisor }, { AmsService }] = await Promise.all([
+    const [{ PrinterModel }, { RuntimeSupervisor }, { AmsService }, { JobModel }, jobPreview] = await Promise.all([
         import('../models/Printer.js'),
         import('../runtime/RuntimeSupervisor.js'),
         import('../services/AmsService.js'),
+        import('../models/Job.js'),
+        import('../services/JobPreview.js'),
     ]);
 
     const supervisor = RuntimeSupervisor.getInstance();
@@ -142,7 +180,19 @@ export async function collectLocalPrinterRecords(options = {}) {
                 amsStatus = AmsService.getFullStatus(printer.printer_id);
             } catch { /* AMS data is best-effort — a printer without AMS still syncs */ }
         }
-        return buildSyncedPrinterRecord(printer, supervisor?.getWorker?.(printer.printer_id), effective, amsStatus);
+        const worker = supervisor?.getWorker?.(printer.printer_id);
+        const record = buildSyncedPrinterRecord(printer, worker, effective, amsStatus);
+
+        // Attach the live job view (progress + remaining time + model preview).
+        try {
+            const activeJob = worker?.activeJobId
+                ? JobModel.findById(worker.activeJobId)
+                : (JobModel.findAll({ printer_id: printer.printer_id, status: 'printing', limit: 1 })[0] || null);
+            const currentJob = buildCurrentJobView(worker, activeJob, activeJob ? jobPreview.getJobPreview(activeJob) : null);
+            if (currentJob) record.current_job = currentJob;
+        } catch { /* current-job view is best-effort */ }
+
+        return record;
     });
 }
 

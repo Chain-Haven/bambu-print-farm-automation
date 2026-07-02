@@ -37,11 +37,13 @@ const PORTABLE_PUBLIC_EXCLUDES = new Set([
     'public/cloud.html',
     'public/css/cloud.css',
     'public/js/cloud-dashboard.js',
+    'public/js/fleet-view.js',
 ]);
 const EXCLUDED_PATHS = new Set([
     'public/cloud.html',
     'public/css/cloud.css',
     'public/js/cloud-dashboard.js',
+    'public/js/fleet-view.js',
     'src/cloud/adminHandlers.js',
     'src/cloud/nodePackage.js',
     'src/cloud/supabaseRest.js',

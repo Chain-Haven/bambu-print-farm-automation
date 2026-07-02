@@ -1,3 +1,5 @@
+import { createFleetView } from './fleet-view.js';
+
 const storageKeys = {
   token: 'pkxCloudAdminToken',
   orgId: 'pkxCloudOrgId',
@@ -1058,6 +1060,7 @@ function renderOverview() {
   renderMetrics();
   renderCommandNodeOptions(overview.nodes);
   renderAmsPanel();
+  fleetView.render();
 
   renderTable('#nodes-table', [
     { label: 'Node', value: (row) => row.name || '-' },
@@ -1774,8 +1777,21 @@ function restoreSettings() {
   elements.nodeOrgId.value = elements.orgId.value;
 }
 
+// Live printer fleet board (cards, AMS slots, previews, camera, adoption).
+const fleetView = createFleetView({
+  $,
+  getState: () => state,
+  apiRequest,
+  queueNodeCommand,
+  showToast,
+  showDetail,
+  refreshOverview,
+  getRowLimit,
+});
+
 function bindEvents() {
   bindFarmAutomationEditorGuards();
+  fleetView.bind();
 
   if (elements.amsPrinter) {
     elements.amsPrinter.addEventListener('change', () => renderAmsPanel());

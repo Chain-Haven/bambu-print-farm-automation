@@ -706,6 +706,10 @@ th {
 .topbar-actions { display: flex; align-items: center; gap: 12px; }
 .admin-email { font-size: 13px; color: var(--muted); font-weight: 600; }
 
+.login-view[hidden] {
+  display: none;
+}
+
 .login-view {
   margin: 48px auto;
   max-width: 460px;
@@ -789,4 +793,510 @@ th {
 .ams-slot-source {
   font-size: 11px;
   color: var(--muted);
+}
+
+/* ===================== Print Fleet board ===================== */
+
+.fleet-section {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 18px 20px 22px;
+  margin-bottom: 22px;
+}
+
+.fleet-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.fleet-heading h2 {
+  margin: 0 0 2px;
+}
+
+#fleet-subtitle {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.fleet-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fleet-live-toggle {
+  margin: 0;
+  white-space: nowrap;
+}
+
+/* -- discovered printers strip -- */
+
+.fleet-discovered {
+  border: 1px dashed var(--accent);
+  background: var(--panel-soft);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.fleet-discovered-heading {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+
+.fleet-discovered-heading span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.fleet-discovered-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.discovered-chip {
+  display: grid;
+  grid-template-columns: 12px auto;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
+  text-align: left;
+  min-height: 0;
+  padding: 8px 14px 8px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.discovered-chip:hover {
+  background: #eaf6f1;
+}
+
+.discovered-chip strong {
+  grid-column: 2;
+  font-size: 13px;
+}
+
+.discovered-chip span {
+  grid-column: 2;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.discovered-chip em {
+  grid-column: 2;
+  font-size: 10px;
+  font-style: normal;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.discovered-pulse {
+  grid-row: 1 / span 3;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: discovered-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes discovered-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(20, 108, 90, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(20, 108, 90, 0); }
+}
+
+/* -- printer cards -- */
+
+.fleet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 18px;
+}
+
+.printer-card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fbfcfb 0%, #f2f6f3 100%);
+  padding: 14px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.printer-card.is-printing {
+  border-color: var(--accent);
+  box-shadow: 0 6px 18px rgba(20, 108, 90, 0.14);
+}
+
+.printer-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.printer-card-head h3 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+.printer-model-chip {
+  display: inline-block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--accent-strong);
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+/* -- AMS rack (4 slots above the printer) -- */
+
+.ams-rack {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 8px 8px 6px;
+  background: #e8ecea;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.ams-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.ams-slot .spool {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid #b9c2bd;
+  background: #f4f6f5;
+  overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.ams-slot .spool-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  transition: height 0.4s ease;
+}
+
+.ams-slot .spool-hole {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #e8ecea;
+  border: 2px solid #98a29c;
+}
+
+.ams-slot.empty .spool {
+  border-style: dashed;
+  background: transparent;
+}
+
+.ams-material {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: var(--ink);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ams-remaining {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.ams-slot.empty .ams-material,
+.ams-slot.empty .ams-remaining {
+  color: #a7b0aa;
+}
+
+/* -- printer visual: chassis SVG over the live job preview -- */
+
+.printer-visual {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 200 / 190;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.printer-visual .chassis {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+}
+
+.printer-visual .status-led {
+  fill: var(--led, #9aa3a0);
+}
+
+.printer-visual .job-preview {
+  position: absolute;
+  z-index: 1;
+  object-fit: contain;
+  background: radial-gradient(circle at 50% 40%, #ffffff 0%, #dfe9e4 100%);
+  border-radius: 6px;
+}
+
+/* window placement per chassis family (percent of the 200x190 viewBox) */
+.printer-visual[data-family="p1"] .job-preview,
+.printer-visual[data-family="x1"] .job-preview,
+.printer-visual[data-family="p2"] .job-preview,
+.printer-visual[data-family="h2"] .job-preview,
+.printer-visual[data-family="generic"] .job-preview {
+  left: 16%;
+  top: 34%;
+  width: 68%;
+  height: 43%;
+}
+
+.printer-visual[data-family="a1"] .job-preview,
+.printer-visual[data-family="a1mini"] .job-preview {
+  left: 24%;
+  top: 33%;
+  width: 52%;
+  height: 40%;
+  background: transparent;
+}
+
+.printer-visual .job-preview.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34px;
+  color: var(--accent);
+  opacity: 0.5;
+}
+
+/* subtle nozzle sweep while printing */
+.printer-card.is-printing .nozzle-carriage {
+  animation: nozzle-sweep 4s ease-in-out infinite alternate;
+}
+
+@keyframes nozzle-sweep {
+  from { transform: translateX(-34px); }
+  to { transform: translateX(34px); }
+}
+
+.printer-card.is-printing .status-led {
+  animation: led-blink 1.6s ease-in-out infinite;
+}
+
+@keyframes led-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* -- progress + time remaining -- */
+
+.print-progress {
+  min-height: 52px;
+}
+
+.progress-track {
+  height: 7px;
+  border-radius: 999px;
+  background: #dfe5e2;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent) 0%, #35a184 100%);
+  transition: width 0.6s ease;
+}
+
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 5px;
+}
+
+.progress-meta span:first-child {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.time-remaining {
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+
+.idle-meta {
+  margin-top: 12px;
+}
+
+.job-name {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* -- card actions -- */
+
+.printer-actions {
+  display: flex;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.printer-actions button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 8px;
+  flex: 1;
+}
+
+.printer-actions button:hover {
+  border-color: var(--accent);
+  background: var(--panel-soft);
+}
+
+.printer-actions button.danger {
+  color: var(--danger);
+  border-color: #e5c4c1;
+}
+
+.printer-actions button.danger:hover {
+  background: #fbeeed;
+  border-color: var(--danger);
+}
+
+/* ===================== Modals (camera + adopt) ===================== */
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(15, 26, 22, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal {
+  width: min(560px, 100%);
+  background: var(--panel);
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  box-shadow: 0 24px 60px rgba(10, 20, 16, 0.3);
+  padding: 18px 20px 20px;
+}
+
+.camera-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 10px;
+  background: #0e1613;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.camera-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.camera-status {
+  position: absolute;
+  left: 12px;
+  bottom: 8px;
+  margin: 0;
+  color: #bfe9d8;
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.adopt-modal label {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.adopt-modal label span {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.adopt-modal input,
+.adopt-modal select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #fff;
+}
+
+.adopt-summary {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  background: var(--panel-soft);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .fleet-grid {
+    grid-template-columns: 1fr;
+  }
+  .fleet-heading {
+    flex-direction: column;
+  }
 }

@@ -47,6 +47,37 @@ export function normalizePrinterStatus(value) {
     return PRINTER_STATUS_MAP[raw] || 'unknown';
 }
 
+const MAX_PREVIEW_DATA_URI_CHARS = 600 * 1024;
+
+function boundedNumber(value, min, max) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.max(min, Math.min(parsed, max));
+}
+
+// Sanitized live-job view attached to a heartbeat printer (progress, remaining
+// time, and a data-URI preview of what is printing). Anything malformed is
+// dropped field-by-field so a bad payload can't break the mirror.
+export function normalizeCurrentJob(source) {
+    if (!isPlainObject(source)) return null;
+    const preview = typeof source.preview === 'string'
+        && source.preview.startsWith('data:image/')
+        && source.preview.length <= MAX_PREVIEW_DATA_URI_CHARS
+        ? source.preview
+        : null;
+
+    return {
+        job_id: typeof source.job_id === 'string' && source.job_id.trim() ? source.job_id.trim() : null,
+        name: typeof source.name === 'string' && source.name.trim() ? source.name.trim().slice(0, 200) : null,
+        state: typeof source.state === 'string' && source.state.trim() ? source.state.trim().toLowerCase().slice(0, 40) : null,
+        progress_percent: boundedNumber(source.progress_percent, 0, 100),
+        remaining_minutes: boundedNumber(source.remaining_minutes, 0, 60 * 24 * 30),
+        layer: boundedNumber(source.layer, 0, 1000000),
+        total_layers: boundedNumber(source.total_layers, 0, 1000000),
+        preview,
+    };
+}
+
 export function normalizeHeartbeatPrinters(source) {
     const rows = Array.isArray(source) ? source : [];
     return rows.slice(0, MAX_HEARTBEAT_PRINTERS).flatMap((row) => {
@@ -56,12 +87,18 @@ export function normalizeHeartbeatPrinters(source) {
             : null;
         if (!localPrinterId) return [];
 
+        const currentJob = normalizeCurrentJob(row.current_job);
         return [{
             local_printer_id: localPrinterId,
             name: typeof row.name === 'string' && row.name.trim() ? row.name.trim() : localPrinterId,
             model: typeof row.model === 'string' && row.model.trim() ? row.model.trim() : 'unknown',
             status: normalizePrinterStatus(row.status),
-            status_snapshot: isPlainObject(row.status_snapshot) ? row.status_snapshot : {},
+            // The live-job view rides inside status_snapshot so it needs no new
+            // cloud_printers column — the fleet UI reads status_snapshot.current_job.
+            status_snapshot: {
+                ...(isPlainObject(row.status_snapshot) ? row.status_snapshot : {}),
+                ...(currentJob ? { current_job: currentJob } : {}),
+            },
             capabilities: isPlainObject(row.capabilities) ? row.capabilities : {},
         }];
     });

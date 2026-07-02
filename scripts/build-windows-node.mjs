@@ -37,6 +37,7 @@ const PUBLIC_EXCLUDES = new Set([
     'cloud.html',
     'css/cloud.css',
     'js/cloud-dashboard.js',
+    'js/fleet-view.js',
 ]);
 
 function log(msg) {

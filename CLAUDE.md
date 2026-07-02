@@ -45,6 +45,62 @@ swapped since, re-run `proof_test.js` before concluding anything.
 
 Full write-up is in `DIAGNOSIS.md`.
 
+## Changes already made (July 2026 session — Print Fleet cloud UI)
+
+1. **Print Fleet board** on `/cloud` (`public/js/fleet-view.js` + fleet section in
+ `cloud.html`/`cloud.css`): one card per mirrored printer with model-accurate
+ chassis art (A1 / A1 Mini bedslinger; P1 / P2 / X1 / H2 CoreXY), four AMS spool
+ icons above each printer (color, material, % remaining from `ams_trays[].live_remaining`),
+ the in-progress model rendered inside the printer window, progress bar +
+ time remaining, and camera / pause / resume / stop buttons. Auto-refreshes
+ every 8s ("Live updates" toggle).
+2. **Live job telemetry in heartbeats** — `localPrinterSnapshot.buildCurrentJobView`
+ attaches `current_job` (name, progress %, remaining minutes, layers, preview)
+ per printer; `agentProtocol.normalizeCurrentJob` sanitizes it into
+ `status_snapshot.current_job` (no new DB column needed).
+3. **Model previews** — `src/services/JobPreview.js`: extracts the slicer's
+ plate render PNG from `.gcode.3mf`, else parses gcode extrusion moves into an
+ isometric SVG wireframe. Cached per job; capped at 350KB.
+4. **Remote camera over the command channel** — new `printer.camera.snapshot`
+ command: node grabs a JPEG via CameraProxy (P1 port 6000 / X1 RTSPS) and
+ returns it base64 in the command result; the console modal re-queues every
+ ~3.5s for a live-ish feed. MOCK_MODE returns a placeholder frame.
+5. **Printer adoption** — new `cloud.printers.adopt` command: the fleet board
+ shows LAN-discovered printers ("Found on the network"); clicking one opens a
+ modal (name + access code), the node registers it via PrinterRegistry (worker
+ spawns immediately), and it joins the fleet on the next heartbeat.
+6. **Self-hosted console** — `localCloudServer.js` now serves `public/` +
+ `/cloud`, `/api/cloud/setup`, and `/api/cloud/admin/me` (bootstrap token works
+ as the stored login). `scripts/fleet-demo.mjs` seeds a demo fleet for UI work.
+7. **CSS fixes** — `[hidden]` was being overridden by `display:grid/flex` on
+ `.login-view` and the new `.modal-backdrop` (login card stayed visible after
+ sign-in); both now have explicit `[hidden]{display:none}` rules.
+
+## Changes already made (July 2026 session — download funnel + readiness gates + offline e2e)
+
+1. **Vercel now ships the portable Windows bundle** — `vercel.json` was missing
+ `dist/windows-node/**` in the `node-package` function's `includeFiles`, so the
+ deployed "Download Windows App" silently fell back to the npm-install source ZIP.
+ Fixed + regression test. The portable bundle (`farm-node.cjs` + `Start Farm
+ Node.bat`, auto-downloads a portable Node runtime) needs no install. Rebuild with
+ `npm run build:node` (commit the two tracked artifacts); `--exe` builds a native
+ SEA executable when run on Windows.
+2. **Readiness gates fixed** (`src/cloud/platformStrategy.js`): a stale "online"
+ node (no heartbeat in 10 min) no longer counts; AMS filament synced from printer
+ heartbeats now satisfies "Spool and AMS inventory" (no manual spool entry
+ required); next-action texts point at the real flow. Roadmap phases unblock as
+ gates flip.
+3. **Local cloud control plane** — `src/cloud/memoryCloudStore.js` (in-memory
+ store contract) + `src/cloud/localCloudServer.js` (Express app wiring the REAL
+ Vercel handlers). Runs the whole cloud without Vercel/Supabase.
+4. **Offline end-to-end proof** — `tests/cloud/e2eFullLoop.test.js` (in
+ `npm test`) and `npm run e2e:local` (`scripts/local-e2e-test.mjs`), which
+ downloads the ZIP over HTTP, extracts it, **boots the actual shipped
+ `farm-node.cjs` in MOCK_MODE**, registers a printer, waits for the heartbeat
+ mirror, asserts every gate ready / no phase blocked, onboards a merchant, and
+ watches a print job route and start. Nodes/printers must live in the merchant's
+ org for routing (org-scoped overview).
+
 ## Changes already made (July 2026 session — farm loop audit)
 
 Full write-up: `docs/AUDIT-2026-07-farm-loop.md`. Headlines:

@@ -318,4 +318,95 @@ describe('local cloud command executor', () => {
 
         expect(result).toEqual(status);
     });
+
+    it('adopts a discovered LAN printer (register + immediate inventory sync)', async () => {
+        const adoptPrinter = vi.fn().mockResolvedValue({
+            already_added: false,
+            printer: { printer_id: 'new-printer-1', name: 'A1 Bay 3', model: 'A1' },
+        });
+        const syncPrinters = vi.fn().mockResolvedValue({ printers: [{ local_printer_id: 'new-printer-1' }] });
+
+        const result = await executeCloudCommand({
+            command_type: 'cloud.printers.adopt',
+            payload: {
+                name: 'A1 Bay 3',
+                model: 'a1',
+                ip_hostname: '192.168.1.77',
+                access_code: '12345678',
+                serial: '01P00A0000000001',
+            },
+        }, { adoptPrinter, syncPrinters });
+
+        expect(adoptPrinter).toHaveBeenCalledWith({
+            name: 'A1 Bay 3',
+            model: 'A1', // normalized to the registry's model label
+            ip_hostname: '192.168.1.77',
+            access_code: '12345678',
+            serial: '01P00A0000000001',
+        });
+        expect(result).toMatchObject({
+            ok: true,
+            already_added: false,
+            printer: { local_printer_id: 'new-printer-1', name: 'A1 Bay 3', ip_hostname: '192.168.1.77' },
+            synced_printer_count: 1,
+        });
+    });
+
+    it('reports already_added instead of duplicating an adopted printer', async () => {
+        const adoptPrinter = vi.fn().mockResolvedValue({
+            already_added: true,
+            printer: { printer_id: 'existing-1', name: 'Old Name', model: 'P1S' },
+        });
+
+        const result = await executeCloudCommand({
+            command_type: 'cloud.printers.adopt',
+            payload: { name: 'Dup', model: 'P1S', ip_hostname: '192.168.1.20' },
+        }, { adoptPrinter, syncPrinters: vi.fn().mockResolvedValue({ printers: [] }) });
+
+        expect(result.already_added).toBe(true);
+        expect(result.printer.local_printer_id).toBe('existing-1');
+    });
+
+    it('requires ip_hostname and name to adopt', async () => {
+        await expect(executeCloudCommand({
+            command_type: 'cloud.printers.adopt',
+            payload: { name: 'No IP' },
+        }, { adoptPrinter: vi.fn() })).rejects.toThrow('payload.ip_hostname is required');
+
+        await expect(executeCloudCommand({
+            command_type: 'cloud.printers.adopt',
+            payload: { ip_hostname: '10.0.0.9' },
+        }, { adoptPrinter: vi.fn() })).rejects.toThrow('payload.name is required');
+    });
+
+    it('captures a camera frame and returns it base64-encoded for the cloud console', async () => {
+        const captureCameraFrame = vi.fn().mockResolvedValue({
+            content_type: 'image/jpeg',
+            image_base64: Buffer.from('jpeg-bytes').toString('base64'),
+            mock: false,
+        });
+
+        const result = await executeCloudCommand({
+            command_type: 'printer.camera.snapshot',
+            payload: { local_printer_id: 'local-printer-1' },
+        }, { captureCameraFrame });
+
+        expect(captureCameraFrame).toHaveBeenCalledWith('local-printer-1');
+        expect(result).toMatchObject({
+            ok: true,
+            local_printer_id: 'local-printer-1',
+            content_type: 'image/jpeg',
+            image_base64: Buffer.from('jpeg-bytes').toString('base64'),
+        });
+        expect(typeof result.captured_at).toBe('string');
+    });
+
+    it('propagates camera failures so the console can show a clear error', async () => {
+        const captureCameraFrame = vi.fn().mockRejectedValue(new Error('Camera frame not yet available'));
+
+        await expect(executeCloudCommand({
+            command_type: 'printer.camera.snapshot',
+            payload: { local_printer_id: 'local-printer-1' },
+        }, { captureCameraFrame })).rejects.toThrow('Camera frame not yet available');
+    });
 });
