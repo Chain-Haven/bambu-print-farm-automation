@@ -205,6 +205,7 @@ describe('merchant account handler', () => {
         expect(res.statusCode).toBe(200);
         expect(res.body).toEqual({
             ok: true,
+            auth_type: 'api_key',
             merchant: {
                 merchant_id: 'merchant-1',
                 org_id: 'org-1',

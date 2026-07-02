@@ -10,7 +10,7 @@
     },
     "api/cloud/admin/migrations.js": {
       "maxDuration": 30,
-      "includeFiles": "{supabase/migrations/20260701050000_merchant_api_v2_adapter_backbone.sql,supabase/migrations/20260701153253_merchant_shipping_claims.sql}"
+      "includeFiles": "{supabase/migrations/20260701050000_merchant_api_v2_adapter_backbone.sql,supabase/migrations/20260701153253_merchant_shipping_claims.sql,supabase/migrations/20260702080000_merchant_user_auth.sql}"
     },
     "api/**/*.js": {
       "maxDuration": 30
@@ -28,6 +28,10 @@
     {
       "source": "/merchant-onboarding",
       "destination": "/merchant-onboarding.html"
+    },
+    {
+      "source": "/merchant",
+      "destination": "/merchant.html"
     },
     {
       "source": "/admin-reset",

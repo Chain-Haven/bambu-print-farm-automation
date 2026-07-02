@@ -33,6 +33,12 @@ const SETUP_CHECKS = [
     { name: 'merchants_table', path: '/rest/v1/merchants?select=merchant_id&limit=1' },
     { name: 'merchant_api_keys_table', path: '/rest/v1/merchant_api_keys?select=key_id&limit=1' },
     { name: 'merchant_setup_tokens_table', path: '/rest/v1/merchant_setup_tokens?select=setup_token_id&limit=1' },
+    { name: 'merchant_users_table', path: '/rest/v1/merchant_users?select=merchant_user_id&limit=1' },
+    { name: 'merchant_user_sessions_table', path: '/rest/v1/merchant_user_sessions?select=session_id&limit=1' },
+    {
+        name: 'merchant_user_password_resets_table',
+        path: '/rest/v1/merchant_user_password_resets?select=reset_token_id&limit=1',
+    },
     { name: 'farm_nodes_table', path: '/rest/v1/farm_nodes?select=node_id&limit=1' },
     { name: 'cloud_printers_table', path: '/rest/v1/cloud_printers?select=printer_id&limit=1' },
     { name: 'print_jobs_table', path: '/rest/v1/print_jobs?select=job_id&limit=1' },
@@ -128,6 +134,42 @@ const PLATFORM_ADMIN_SESSION_SELECT = [
 const PLATFORM_ADMIN_PASSWORD_RESET_SELECT = [
     'reset_token_id',
     'admin_user_id',
+    'token_prefix',
+    'token_hash',
+    'used_at',
+    'expires_at',
+    'created_at',
+].join(',');
+
+const MERCHANT_USER_SELECT = [
+    'merchant_user_id',
+    'merchant_id',
+    'org_id',
+    'email',
+    'display_name',
+    'role',
+    'status',
+    'password_hash',
+    'last_login_at',
+    'created_at',
+    'updated_at',
+].join(',');
+
+const MERCHANT_USER_SESSION_SELECT = [
+    'session_id',
+    'merchant_user_id',
+    'merchant_id',
+    'token_prefix',
+    'token_hash',
+    'last_used_at',
+    'revoked_at',
+    'expires_at',
+    'created_at',
+].join(',');
+
+const MERCHANT_USER_PASSWORD_RESET_SELECT = [
+    'reset_token_id',
+    'merchant_user_id',
     'token_prefix',
     'token_hash',
     'used_at',
@@ -441,6 +483,25 @@ export function createSupabaseRestClient({
             return firstRow(rows);
         },
 
+        async listPlatformAdminUsers() {
+            const rows = await request(
+                `/rest/v1/platform_admin_users?select=${PLATFORM_ADMIN_USER_SELECT}&order=created_at.asc&limit=100`,
+            );
+            return Array.isArray(rows) ? rows : [];
+        },
+
+        async updatePlatformAdminStatus(adminUserId, status) {
+            const rows = await request(
+                `/rest/v1/platform_admin_users?admin_user_id=eq.${encodeURIComponent(requireValue(adminUserId, 'admin_user_id'))}&select=${PLATFORM_ADMIN_USER_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: { status: requireValue(status, 'status') },
+                },
+            );
+            return firstRow(rows);
+        },
+
         async updatePlatformAdminPassword(adminUserId, passwordHash) {
             const rows = await request(
                 `/rest/v1/platform_admin_users?admin_user_id=eq.${encodeURIComponent(requireValue(adminUserId, 'admin_user_id'))}&select=${PLATFORM_ADMIN_USER_SELECT}`,
@@ -527,6 +588,18 @@ export function createSupabaseRestClient({
             return firstRow(rows);
         },
 
+        async revokeAdminSession(sessionId, revokedAt = new Date().toISOString()) {
+            const rows = await request(
+                `/rest/v1/platform_admin_sessions?session_id=eq.${encodeURIComponent(requireValue(sessionId, 'session_id'))}&select=${PLATFORM_ADMIN_SESSION_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: { revoked_at: revokedAt },
+                },
+            );
+            return firstRow(rows);
+        },
+
         async revokeAdminSessions(adminUserId, revokedAt = new Date().toISOString()) {
             await request(
                 `/rest/v1/platform_admin_sessions?admin_user_id=eq.${encodeURIComponent(requireValue(adminUserId, 'admin_user_id'))}&revoked_at=is.null`,
@@ -536,6 +609,148 @@ export function createSupabaseRestClient({
                     body: { revoked_at: revokedAt },
                 },
             );
+        },
+
+        async createMerchantUser(merchantUser) {
+            const rows = await request(
+                `/rest/v1/merchant_users?select=${MERCHANT_USER_SELECT}`,
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'return=representation' },
+                    body: merchantUser,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async findMerchantUserByEmail(email) {
+            const rows = await request(
+                `/rest/v1/merchant_users?email=eq.${encodeURIComponent(requireValue(email, 'merchant user email'))}&select=${MERCHANT_USER_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async findMerchantUserById(merchantUserId) {
+            const rows = await request(
+                `/rest/v1/merchant_users?merchant_user_id=eq.${encodeURIComponent(requireValue(merchantUserId, 'merchant_user_id'))}&select=${MERCHANT_USER_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async listMerchantUsers(merchantId) {
+            const rows = await request(
+                `/rest/v1/merchant_users?merchant_id=eq.${encodeURIComponent(requireValue(merchantId, 'merchant_id'))}&select=${MERCHANT_USER_SELECT}&order=created_at.asc&limit=100`,
+            );
+            return Array.isArray(rows) ? rows : [];
+        },
+
+        async updateMerchantUserPassword(merchantUserId, passwordHash) {
+            const rows = await request(
+                `/rest/v1/merchant_users?merchant_user_id=eq.${encodeURIComponent(requireValue(merchantUserId, 'merchant_user_id'))}&select=${MERCHANT_USER_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: { password_hash: requireValue(passwordHash, 'password_hash') },
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async updateMerchantUserLastLogin(merchantUserId, lastLoginAt = new Date().toISOString()) {
+            const rows = await request(
+                `/rest/v1/merchant_users?merchant_user_id=eq.${encodeURIComponent(requireValue(merchantUserId, 'merchant_user_id'))}&select=${MERCHANT_USER_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: { last_login_at: lastLoginAt },
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async createMerchantUserSession(session) {
+            const rows = await request(
+                `/rest/v1/merchant_user_sessions?select=${MERCHANT_USER_SESSION_SELECT}`,
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'return=representation' },
+                    body: session,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async findMerchantUserSessionByHash(tokenHash) {
+            const rows = await request(
+                `/rest/v1/merchant_user_sessions?token_hash=eq.${encodeURIComponent(requireValue(tokenHash, 'token_hash'))}&select=${MERCHANT_USER_SESSION_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async touchMerchantUserSession(sessionId, usedAt = new Date().toISOString()) {
+            const rows = await request(
+                `/rest/v1/merchant_user_sessions?session_id=eq.${encodeURIComponent(requireValue(sessionId, 'session_id'))}&select=${MERCHANT_USER_SESSION_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: { last_used_at: usedAt },
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async revokeMerchantUserSession(sessionId, revokedAt = new Date().toISOString()) {
+            const rows = await request(
+                `/rest/v1/merchant_user_sessions?session_id=eq.${encodeURIComponent(requireValue(sessionId, 'session_id'))}&select=${MERCHANT_USER_SESSION_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: { revoked_at: revokedAt },
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async revokeMerchantUserSessions(merchantUserId, revokedAt = new Date().toISOString()) {
+            await request(
+                `/rest/v1/merchant_user_sessions?merchant_user_id=eq.${encodeURIComponent(requireValue(merchantUserId, 'merchant_user_id'))}&revoked_at=is.null`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=minimal' },
+                    body: { revoked_at: revokedAt },
+                },
+            );
+        },
+
+        async createMerchantUserPasswordResetToken(resetToken) {
+            const rows = await request(
+                `/rest/v1/merchant_user_password_resets?select=${MERCHANT_USER_PASSWORD_RESET_SELECT}`,
+                {
+                    method: 'POST',
+                    headers: { Prefer: 'return=representation' },
+                    body: resetToken,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async findMerchantUserPasswordResetTokenByHash(tokenHash) {
+            const rows = await request(
+                `/rest/v1/merchant_user_password_resets?token_hash=eq.${encodeURIComponent(requireValue(tokenHash, 'token_hash'))}&select=${MERCHANT_USER_PASSWORD_RESET_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async markMerchantUserPasswordResetTokenUsed(resetTokenId, usedAt = new Date().toISOString()) {
+            const rows = await request(
+                `/rest/v1/merchant_user_password_resets?reset_token_id=eq.${encodeURIComponent(requireValue(resetTokenId, 'reset_token_id'))}&select=${MERCHANT_USER_PASSWORD_RESET_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: { used_at: usedAt },
+                },
+            );
+            return firstRow(rows);
         },
 
         async getCloudSetupStatus() {

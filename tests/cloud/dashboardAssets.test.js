@@ -174,12 +174,55 @@ describe('cloud dashboard assets', () => {
             execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' });
         }
         // ES modules (they use import syntax): syntax-check via stdin in module mode.
-        for (const file of ['public/js/cloud-dashboard.js', 'public/js/fleet-view.js']) {
+        for (const file of ['public/js/cloud-dashboard.js', 'public/js/fleet-view.js', 'public/js/merchant-portal.js']) {
             execFileSync(process.execPath, ['--check', '--input-type=module'], {
                 stdio: 'pipe',
                 input: fs.readFileSync(file),
             });
         }
+    });
+
+    it('ships the sign-in overhaul: admin account management and the merchant portal', () => {
+        const cloudHtml = fs.readFileSync('public/cloud.html', 'utf8');
+        const cloudJs = fs.readFileSync('public/js/cloud-dashboard.js', 'utf8');
+
+        // Admin console: self-service reset + super-admin account management.
+        for (const id of ['admin-users-section', 'admin-users-table', 'admin-user-create-form', 'admin-user-email', 'admin-user-role']) {
+            expect(cloudHtml).toContain(`id="${id}"`);
+        }
+        for (const marker of [
+            '/api/cloud/admin/users',
+            '/api/cloud/admin/logout',
+            '/api/cloud/admin/bootstrap',
+            'refreshAdminUsers',
+            'handleAdminUserCreate',
+            'handleAdminUserAction',
+        ]) {
+            expect(cloudJs).toContain(marker);
+        }
+
+        // Merchant portal page + controller.
+        const portalHtml = fs.readFileSync('public/merchant.html', 'utf8');
+        const portalJs = fs.readFileSync('public/js/merchant-portal.js', 'utf8');
+        for (const id of ['login-form', 'forgot-form', 'reset-form', 'portal-view', 'api-keys-table', 'create-key-form']) {
+            expect(portalHtml).toContain(`id="${id}"`);
+        }
+        for (const endpoint of [
+            '/api/public/merchant/login',
+            '/api/public/merchant/logout',
+            '/api/public/merchant/session',
+            '/api/public/merchant/password',
+            '/api/public/merchant/password-reset',
+            '/api/public/api-keys',
+            '/api/public/api-keys/revoke',
+        ]) {
+            expect(portalJs).toContain(endpoint);
+        }
+
+        // Onboarding collects a password so merchants can sign in at /merchant.
+        const onboarding = fs.readFileSync('public/merchant-onboarding.html', 'utf8');
+        expect(onboarding).toContain('name="password"');
+        expect(onboarding).toContain('href="/merchant"');
     });
 
     it('ships the live Print Fleet board (cards, AMS slots, previews, camera, adoption)', () => {

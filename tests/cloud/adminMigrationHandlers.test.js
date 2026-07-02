@@ -223,6 +223,7 @@ describe('cloud admin migration database execution', () => {
 
         expect(querySql(client)).not.toContain('create table public.merchant_files');
         expect(querySql(client)).toContain('alter table public.merchant_shipments');
+        expect(querySql(client)).toContain('create table public.merchant_users');
         expect(res.statusCode).toBe(200);
         expect(res.body.migrations).toEqual([
             {
@@ -235,6 +236,12 @@ describe('cloud admin migration database execution', () => {
                 filename: '20260701153253_merchant_shipping_claims.sql',
                 version: '20260701153253',
                 name: 'merchant_shipping_claims',
+                status: 'applied',
+            },
+            {
+                filename: '20260702080000_merchant_user_auth.sql',
+                version: '20260702080000',
+                name: 'merchant_user_auth',
                 status: 'applied',
             },
         ]);

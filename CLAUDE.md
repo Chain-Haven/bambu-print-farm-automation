@@ -45,6 +45,42 @@ swapped since, re-run `proof_test.js` before concluding anything.
 
 Full write-up is in `DIAGNOSIS.md`.
 
+## Changes already made (July 2026 session — admin + merchant sign-in overhaul)
+
+1. **Admin sign-in is a normal email/password flow** (`src/cloud/adminAuthHandlers.js`):
+   one-shot first-time setup (`POST /api/cloud/admin/bootstrap` with the
+   `CLOUD_ADMIN_TOKEN` + `{email, password}` sets the password AND returns a live
+   session), login with per-email rate limiting, server-side logout
+   (`/api/cloud/admin/logout`), and **public self-service forgot-password**
+   (`POST /api/cloud/admin/password-reset` — generic response, link delivered by
+   email; authenticated super admins get the link back as a support tool).
+   Super admins: `info@chainhaven.co` + `ianmebert@gmail.com` (seeded in the
+   `platform_admin_auth` migration, hardcoded in `DEFAULT_SUPER_ADMIN_EMAILS`,
+   protected from disable).
+2. **Admin account management** — `GET/POST /api/cloud/admin/users`
+   (super_admin only): list, create-with-invite-link, disable/enable, issue
+   reset links. Surfaced as the "Admin Accounts" panel on `/cloud`.
+3. **Merchants got real sign-in** — new `merchant_users` /
+   `merchant_user_sessions` / `merchant_user_password_resets` tables
+   (`supabase/migrations/20260702080000_merchant_user_auth.sql`, allowlisted in
+   the admin migration runner). Signup (`/api/public/merchants/signup`) accepts
+   a `password` and creates the portal owner. Endpoints:
+   `/api/public/merchant/login|logout|session|password|password-reset`.
+   Portal sessions (`pkx_muser_session_*`) can also manage API keys on
+   `/api/public/api-keys(+/revoke)` and hit `/api/public/merchant/me`.
+4. **Merchant portal UI** — `public/merchant.html` + `public/js/merchant-portal.js`
+   at `/merchant`: sign in, forgot/reset password (`/merchant?reset_token=…`),
+   account status (incl. pending-approval notice), API key create/revoke.
+   Onboarding page now collects a password and links to the portal.
+5. **Email** — `src/cloud/mailer.js`: Resend HTTP API when `RESEND_API_KEY` +
+   `EMAIL_FROM` are set; otherwise disabled and reset links go to the server log.
+   Auth responses never reveal whether an email was sent (no account enumeration).
+6. **Local/self-hosted parity** — `memoryCloudStore` implements all admin +
+   merchant-user methods; `localCloudServer` wires every auth route, serves
+   `/merchant`, and takes an injectable `mailer`. The whole sign-in story runs
+   offline; `tests/cloud/e2eFullLoop.test.js` proves both loops over real HTTP
+   (setup → login → reset-by-email → logout).
+
 ## Changes already made (July 2026 session — Print Fleet cloud UI)
 
 1. **Print Fleet board** on `/cloud` (`public/js/fleet-view.js` + fleet section in

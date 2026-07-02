@@ -37,6 +37,7 @@ const PRINTER_HEARTBEAT = {
 
 let cloud;
 let store;
+const sentEmails = [];
 
 async function adminFetch(path, { method = 'GET', body = null } = {}) {
     return fetch(`${cloud.baseUrl}${path}`, {
@@ -64,6 +65,14 @@ beforeAll(async () => {
         store,
         adminToken: ADMIN_TOKEN,
         pepper: PEPPER,
+        // Capture auth emails (password reset links) instead of sending them.
+        mailer: {
+            enabled: true,
+            async send(message) {
+                sentEmails.push(message);
+                return { sent: true };
+            },
+        },
     });
 });
 
@@ -454,5 +463,193 @@ describe('full farm loop end to end (local cloud, real handlers over HTTP)', () 
         const adoptedCommand = overview.commands.find((row) => row.command_id === command.command_id);
         expect(adoptedCommand.status).toBe('succeeded');
         expect(adoptedCommand.result.printer.name).toBe('P1S Bay 2');
+    });
+});
+
+describe('admin sign-in end to end (first-time setup -> login -> reset -> logout)', () => {
+    let adminSessionToken;
+
+    async function json(path, { method = 'POST', body = null, token = null } = {}) {
+        const response = await fetch(`${cloud.baseUrl}${path}`, {
+            method,
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            ...(body !== null ? { body: JSON.stringify(body) } : {}),
+        });
+        return { status: response.status, payload: await response.json() };
+    }
+
+    it('one-shot first-time setup with the bootstrap token signs the super admin straight in', async () => {
+        const { status, payload } = await json('/api/cloud/admin/bootstrap', {
+            body: { email: 'info@chainhaven.co', password: 'operator-password-1' },
+            token: ADMIN_TOKEN,
+        });
+
+        expect(status).toBe(200);
+        expect(payload.admin.email).toBe('info@chainhaven.co');
+        expect(payload.admin.role).toBe('super_admin');
+        expect(payload.admin_session_token).toMatch(/^pkx_admin_session_/);
+        adminSessionToken = payload.admin_session_token;
+
+        const me = await json('/api/cloud/admin/me', { method: 'GET', token: adminSessionToken });
+        expect(me.status).toBe(200);
+        expect(me.payload.auth_type).toBe('session');
+        expect(me.payload.admin.email).toBe('info@chainhaven.co');
+    });
+
+    it('email/password login works and the session drives admin endpoints', async () => {
+        const login = await json('/api/cloud/admin/login', {
+            body: { email: 'info@chainhaven.co', password: 'operator-password-1' },
+        });
+        expect(login.status).toBe(200);
+        expect(login.payload.admin_session_token).toMatch(/^pkx_admin_session_/);
+
+        const users = await json('/api/cloud/admin/users', {
+            method: 'GET',
+            token: login.payload.admin_session_token,
+        });
+        expect(users.status).toBe(200);
+        const emails = users.payload.admins.map((admin) => admin.email).sort();
+        expect(emails).toEqual(['ianmebert@gmail.com', 'info@chainhaven.co']);
+        expect(users.payload.admins.every((admin) => admin.role === 'super_admin')).toBe(true);
+    });
+
+    it('self-service forgot-password emails a working reset link for the other super admin', async () => {
+        const before = sentEmails.length;
+        const request = await json('/api/cloud/admin/password-reset', {
+            body: { email: 'ianmebert@gmail.com' },
+        });
+        expect(request.status).toBe(200);
+        expect(JSON.stringify(request.payload)).not.toContain('pkx_admin_reset_');
+
+        const email = sentEmails.slice(before).find((message) => message.to === 'ianmebert@gmail.com');
+        expect(email).toBeTruthy();
+        const token = email.text.match(/token=(pkx_admin_reset_[A-Za-z0-9_-]+)/)[1];
+
+        const set = await json('/api/cloud/admin/password', {
+            body: { reset_token: token, password: 'operator-password-2' },
+        });
+        expect(set.status).toBe(200);
+
+        const login = await json('/api/cloud/admin/login', {
+            body: { email: 'ianmebert@gmail.com', password: 'operator-password-2' },
+        });
+        expect(login.status).toBe(200);
+        expect(login.payload.admin.email).toBe('ianmebert@gmail.com');
+    });
+
+    it('logout revokes the session server-side', async () => {
+        const logout = await json('/api/cloud/admin/logout', { token: adminSessionToken });
+        expect(logout.status).toBe(200);
+
+        const me = await json('/api/cloud/admin/me', { method: 'GET', token: adminSessionToken });
+        expect(me.status).toBe(401);
+        expect(me.payload.error).toBe('admin_session_revoked');
+    });
+});
+
+describe('merchant sign-in end to end (signup -> portal -> keys -> reset)', () => {
+    let merchantSessionToken;
+    let portalKeyId;
+
+    async function json(path, { method = 'POST', body = null, token = null } = {}) {
+        const response = await fetch(`${cloud.baseUrl}${path}`, {
+            method,
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            ...(body !== null ? { body: JSON.stringify(body) } : {}),
+        });
+        return { status: response.status, payload: await response.json() };
+    }
+
+    it('signup with a password creates the portal owner and login returns a session', async () => {
+        const signup = await json('/api/public/merchants/signup', {
+            body: {
+                company_name: 'Portal Prints Co',
+                contact_email: 'owner@portal-prints.example',
+                contact_name: 'Pat Portal',
+                password: 'merchant-portal-pass',
+            },
+        });
+        expect(signup.status).toBe(201);
+        expect(signup.payload.merchant_user).toMatchObject({
+            email: 'owner@portal-prints.example',
+            role: 'owner',
+        });
+
+        const login = await json('/api/public/merchant/login', {
+            body: { email: 'owner@portal-prints.example', password: 'merchant-portal-pass' },
+        });
+        expect(login.status).toBe(200);
+        expect(login.payload.merchant_session_token).toMatch(/^pkx_muser_session_/);
+        expect(login.payload.merchant.company_name).toBe('Portal Prints Co');
+        merchantSessionToken = login.payload.merchant_session_token;
+
+        const session = await json('/api/public/merchant/session', {
+            method: 'GET',
+            token: merchantSessionToken,
+        });
+        expect(session.status).toBe(200);
+        expect(session.payload.merchant_user.email).toBe('owner@portal-prints.example');
+    });
+
+    it('a signed-in merchant manages API keys without a setup token', async () => {
+        const created = await json('/api/public/api-keys', {
+            body: { name: 'Portal Key' },
+            token: merchantSessionToken,
+        });
+        expect(created.status).toBe(201);
+        expect(created.payload.api_key_secret).toMatch(/^pkx_live_/);
+        portalKeyId = created.payload.api_key.key_id;
+
+        const list = await json('/api/public/api-keys', { method: 'GET', token: merchantSessionToken });
+        expect(list.status).toBe(200);
+        expect(list.payload.api_keys.some((key) => key.key_id === portalKeyId)).toBe(true);
+
+        const revoked = await json('/api/public/api-keys/revoke', {
+            body: { key_id: portalKeyId },
+            token: merchantSessionToken,
+        });
+        expect(revoked.status).toBe(200);
+        expect(revoked.payload.api_key.revoked_at).toBeTruthy();
+    });
+
+    it('forgot-password emails a link, the reset revokes sessions, and the new password works', async () => {
+        const before = sentEmails.length;
+        const request = await json('/api/public/merchant/password-reset', {
+            body: { email: 'owner@portal-prints.example' },
+        });
+        expect(request.status).toBe(200);
+        expect(JSON.stringify(request.payload)).not.toContain('pkx_muser_reset_');
+
+        const email = sentEmails.slice(before).find((message) => message.to === 'owner@portal-prints.example');
+        expect(email).toBeTruthy();
+        const token = email.text.match(/reset_token=(pkx_muser_reset_[A-Za-z0-9_-]+)/)[1];
+
+        const set = await json('/api/public/merchant/password', {
+            body: { reset_token: token, password: 'merchant-portal-pass-2' },
+        });
+        expect(set.status).toBe(200);
+
+        // The reset revoked the old session.
+        const stale = await json('/api/public/merchant/session', {
+            method: 'GET',
+            token: merchantSessionToken,
+        });
+        expect(stale.status).toBe(401);
+
+        const login = await json('/api/public/merchant/login', {
+            body: { email: 'owner@portal-prints.example', password: 'merchant-portal-pass-2' },
+        });
+        expect(login.status).toBe(200);
+
+        const logout = await json('/api/public/merchant/logout', {
+            token: login.payload.merchant_session_token,
+        });
+        expect(logout.status).toBe(200);
     });
 });

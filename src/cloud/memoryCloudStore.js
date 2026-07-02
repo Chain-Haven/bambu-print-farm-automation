@@ -7,8 +7,10 @@ import { randomUUID } from 'node:crypto';
 //     scripts/local-e2e-test.mjs)
 // Only the surface the farm loop needs is implemented: organizations, nodes,
 // heartbeats + printer mirroring, command intents, merchants + API keys +
-// setup tokens, print jobs + files + routing decisions, platform settings,
-// and print artifacts (stored in memory, served via signed-style URLs).
+// setup tokens, platform admin users + sessions + password resets, merchant
+// users (portal sign-in) + sessions + password resets, print jobs + files +
+// routing decisions, platform settings, and print artifacts (stored in
+// memory, served via signed-style URLs).
 
 function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -26,9 +28,15 @@ export function createMemoryCloudStore({ now = () => new Date() } = {}) {
         printers: [],
         commands: [],
         events: [],
+        platformAdminUsers: [],
+        adminSessions: [],
+        adminPasswordResets: [],
         merchants: [],
         merchantApiKeys: [],
         merchantSetupTokens: [],
+        merchantUsers: [],
+        merchantUserSessions: [],
+        merchantUserPasswordResets: [],
         jobFiles: [],
         printJobs: [],
         routingDecisions: [],
@@ -63,6 +71,110 @@ export function createMemoryCloudStore({ now = () => new Date() } = {}) {
         // -- setup status ------------------------------------------------------
         async getCloudSetupStatus() {
             return { checked: true, ready: true, checks: [{ name: 'memory_store', ok: true }] };
+        },
+
+        // -- platform admin users / sessions / password resets ------------------
+        async upsertPlatformAdminUser(adminUser) {
+            const email = String(adminUser.email || '').toLowerCase();
+            let row = db.platformAdminUsers.find((admin) => admin.email === email);
+            if (row) {
+                Object.assign(row, clone({ ...adminUser, email }), { updated_at: ts() });
+            } else {
+                row = {
+                    admin_user_id: randomUUID(),
+                    role: 'admin',
+                    status: 'active',
+                    password_hash: null,
+                    last_login_at: null,
+                    created_at: ts(),
+                    updated_at: ts(),
+                    ...clone(adminUser),
+                    email,
+                };
+                db.platformAdminUsers.push(row);
+            }
+            return clone(row);
+        },
+        async findPlatformAdminByEmail(email) {
+            const normalized = String(email || '').toLowerCase();
+            return clone(db.platformAdminUsers.find((admin) => admin.email === normalized) || null);
+        },
+        async findPlatformAdminById(adminUserId) {
+            return clone(db.platformAdminUsers.find((admin) => admin.admin_user_id === adminUserId) || null);
+        },
+        async listPlatformAdminUsers() {
+            return clone(db.platformAdminUsers);
+        },
+        async updatePlatformAdminPassword(adminUserId, passwordHash) {
+            const row = db.platformAdminUsers.find((admin) => admin.admin_user_id === adminUserId);
+            if (!row) return null;
+            row.password_hash = passwordHash;
+            row.updated_at = ts();
+            return clone(row);
+        },
+        async updatePlatformAdminStatus(adminUserId, status) {
+            const row = db.platformAdminUsers.find((admin) => admin.admin_user_id === adminUserId);
+            if (!row) return null;
+            row.status = status;
+            row.updated_at = ts();
+            return clone(row);
+        },
+        async updatePlatformAdminLastLogin(adminUserId, lastLoginAt = ts()) {
+            const row = db.platformAdminUsers.find((admin) => admin.admin_user_id === adminUserId);
+            if (!row) return null;
+            row.last_login_at = lastLoginAt;
+            row.updated_at = ts();
+            return clone(row);
+        },
+        async createAdminSession(session) {
+            const row = {
+                session_id: randomUUID(),
+                last_used_at: null,
+                revoked_at: null,
+                created_at: ts(),
+                ...clone(session),
+            };
+            db.adminSessions.push(row);
+            return clone(row);
+        },
+        async findAdminSessionByHash(tokenHash) {
+            return clone(db.adminSessions.find((session) => session.token_hash === tokenHash) || null);
+        },
+        async touchAdminSession(sessionId, usedAt = ts()) {
+            const row = db.adminSessions.find((session) => session.session_id === sessionId);
+            if (row) row.last_used_at = usedAt;
+        },
+        async revokeAdminSession(sessionId, revokedAt = ts()) {
+            const row = db.adminSessions.find((session) => session.session_id === sessionId);
+            if (!row) return null;
+            row.revoked_at = revokedAt;
+            return clone(row);
+        },
+        async revokeAdminSessions(adminUserId, revokedAt = ts()) {
+            for (const session of db.adminSessions) {
+                if (session.admin_user_id === adminUserId && !session.revoked_at) {
+                    session.revoked_at = revokedAt;
+                }
+            }
+        },
+        async createAdminPasswordResetToken(resetToken) {
+            const row = {
+                reset_token_id: randomUUID(),
+                used_at: null,
+                created_at: ts(),
+                ...clone(resetToken),
+            };
+            db.adminPasswordResets.push(row);
+            return clone(row);
+        },
+        async findAdminPasswordResetTokenByHash(tokenHash) {
+            return clone(db.adminPasswordResets.find((reset) => reset.token_hash === tokenHash) || null);
+        },
+        async markAdminPasswordResetTokenUsed(resetTokenId, usedAt = ts()) {
+            const row = db.adminPasswordResets.find((reset) => reset.reset_token_id === resetTokenId);
+            if (!row) return null;
+            row.used_at = usedAt;
+            return clone(row);
         },
 
         // -- organizations / nodes ---------------------------------------------
@@ -300,6 +412,98 @@ export function createMemoryCloudStore({ now = () => new Date() } = {}) {
             const row = db.merchantSetupTokens.find((token) => (
                 token.setup_token_id === setupTokenId && !token.used_at
             ));
+            if (!row) return null;
+            row.used_at = usedAt;
+            return clone(row);
+        },
+
+        // -- merchant users (portal sign-in) -----------------------------------------
+        async createMerchantUser(merchantUser) {
+            const row = {
+                merchant_user_id: randomUUID(),
+                display_name: null,
+                role: 'owner',
+                status: 'active',
+                password_hash: null,
+                last_login_at: null,
+                created_at: ts(),
+                updated_at: ts(),
+                ...clone(merchantUser),
+                email: String(merchantUser.email || '').toLowerCase(),
+            };
+            db.merchantUsers.push(row);
+            return clone(row);
+        },
+        async findMerchantUserByEmail(email) {
+            const normalized = String(email || '').toLowerCase();
+            return clone(db.merchantUsers.find((user) => user.email === normalized) || null);
+        },
+        async findMerchantUserById(merchantUserId) {
+            return clone(db.merchantUsers.find((user) => user.merchant_user_id === merchantUserId) || null);
+        },
+        async listMerchantUsers(merchantId) {
+            return clone(db.merchantUsers.filter((user) => user.merchant_id === merchantId));
+        },
+        async updateMerchantUserPassword(merchantUserId, passwordHash) {
+            const row = db.merchantUsers.find((user) => user.merchant_user_id === merchantUserId);
+            if (!row) return null;
+            row.password_hash = passwordHash;
+            row.updated_at = ts();
+            return clone(row);
+        },
+        async updateMerchantUserLastLogin(merchantUserId, lastLoginAt = ts()) {
+            const row = db.merchantUsers.find((user) => user.merchant_user_id === merchantUserId);
+            if (!row) return null;
+            row.last_login_at = lastLoginAt;
+            row.updated_at = ts();
+            return clone(row);
+        },
+        async createMerchantUserSession(session) {
+            const row = {
+                session_id: randomUUID(),
+                last_used_at: null,
+                revoked_at: null,
+                created_at: ts(),
+                ...clone(session),
+            };
+            db.merchantUserSessions.push(row);
+            return clone(row);
+        },
+        async findMerchantUserSessionByHash(tokenHash) {
+            return clone(db.merchantUserSessions.find((session) => session.token_hash === tokenHash) || null);
+        },
+        async touchMerchantUserSession(sessionId, usedAt = ts()) {
+            const row = db.merchantUserSessions.find((session) => session.session_id === sessionId);
+            if (row) row.last_used_at = usedAt;
+        },
+        async revokeMerchantUserSession(sessionId, revokedAt = ts()) {
+            const row = db.merchantUserSessions.find((session) => session.session_id === sessionId);
+            if (!row) return null;
+            row.revoked_at = revokedAt;
+            return clone(row);
+        },
+        async revokeMerchantUserSessions(merchantUserId, revokedAt = ts()) {
+            for (const session of db.merchantUserSessions) {
+                if (session.merchant_user_id === merchantUserId && !session.revoked_at) {
+                    session.revoked_at = revokedAt;
+                }
+            }
+        },
+        async createMerchantUserPasswordResetToken(resetToken) {
+            const row = {
+                reset_token_id: randomUUID(),
+                used_at: null,
+                created_at: ts(),
+                ...clone(resetToken),
+            };
+            db.merchantUserPasswordResets.push(row);
+            return clone(row);
+        },
+        async findMerchantUserPasswordResetTokenByHash(tokenHash) {
+            return clone(db.merchantUserPasswordResets.find((reset) => reset.token_hash === tokenHash) || null);
+        },
+        async markMerchantUserPasswordResetTokenUsed(resetTokenId, usedAt = ts()) {
+            const row = db.merchantUserPasswordResets.find((reset) => reset.reset_token_id === resetTokenId);
             if (!row) return null;
             row.used_at = usedAt;
             return clone(row);

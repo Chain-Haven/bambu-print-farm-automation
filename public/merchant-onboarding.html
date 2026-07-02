@@ -268,7 +268,8 @@
         <p>Merchants can request access, receive approval, exchange a setup token, and submit live print jobs with <code>pkx_live_</code> credentials.</p>
       </div>
       <nav class="links" aria-label="Merchant resources">
-        <a href="/merchant-api.html">API Docs</a>
+        <a href="/merchant">Merchant Sign In</a>
+        <a class="secondary" href="/merchant-api.html">API Docs</a>
         <a class="secondary" href="/openapi/merchant-api-v1.json">OpenAPI</a>
         <a class="secondary" href="/windows-node-guide.html">Windows Node</a>
       </nav>
@@ -296,7 +297,12 @@
             <span>Website</span>
             <input name="website" type="url" autocomplete="url" placeholder="https://example.com">
           </label>
+          <label>
+            <span>Password (min 12 chars — sign in at /merchant)</span>
+            <input name="password" type="password" autocomplete="new-password" minlength="12" required>
+          </label>
           <button type="submit">Request Access</button>
+          <p>Already have an account? <a href="/merchant">Sign in to the merchant portal</a>.</p>
         </form>
       </div>
 
@@ -411,10 +417,10 @@
 
         if (payload.merchant_setup_token) {
           setupTokenInput.value = payload.merchant_setup_token;
-          setStatus('ready', 'Approved', 'Full-auto merchant mode returned a one-time setup token. Exchange it for a live key.');
+          setStatus('ready', 'Approved', 'Full-auto merchant mode returned a one-time setup token. Exchange it for a live key, or <a href="/merchant">sign in to the merchant portal</a> to manage keys.');
         } else {
           const merchantId = payload.merchant?.merchant_id || 'pending';
-          setStatus('', 'Pending approval', `Signup accepted as ${merchantId}. An operator must approve it before a pkx_live_ key can be created.`);
+          setStatus('', 'Pending approval', `Signup accepted as ${merchantId}. An operator must approve it before a pkx_live_ key can be created. You can <a href="/merchant">sign in to the merchant portal</a> with your email and password to check status.`);
         }
       } catch (error) {
         setStatus('error', 'Signup failed', error.message);
