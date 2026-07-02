@@ -171,7 +171,11 @@ export function createMemoryCloudStore({ now = () => new Date() } = {}) {
             return clone(db.adminPasswordResets.find((reset) => reset.token_hash === tokenHash) || null);
         },
         async markAdminPasswordResetTokenUsed(resetTokenId, usedAt = ts()) {
-            const row = db.adminPasswordResets.find((reset) => reset.reset_token_id === resetTokenId);
+            // Conditional consume: null when already used, so concurrent
+            // redemptions cannot both succeed.
+            const row = db.adminPasswordResets.find((reset) => (
+                reset.reset_token_id === resetTokenId && !reset.used_at
+            ));
             if (!row) return null;
             row.used_at = usedAt;
             return clone(row);
@@ -216,6 +220,23 @@ export function createMemoryCloudStore({ now = () => new Date() } = {}) {
                 name: row.name,
                 status: row.status,
             };
+        },
+        async findFarmNodeById(nodeId) {
+            const row = db.nodes.find((node) => node.node_id === nodeId);
+            if (!row) return null;
+            const { token_hash, ...visible } = row;
+            return clone(visible);
+        },
+        async updateFarmNode(nodeId, fields) {
+            const row = db.nodes.find((node) => node.node_id === nodeId);
+            if (!row) return null;
+            if (fields.name !== undefined) row.name = fields.name;
+            if (fields.status !== undefined) row.status = fields.status;
+            if (fields.token_hash !== undefined) row.token_hash = fields.token_hash;
+            if (fields.capabilities !== undefined) row.capabilities = clone(fields.capabilities);
+            row.updated_at = ts();
+            const { token_hash, ...visible } = row;
+            return clone(visible);
         },
         async recordNodeHeartbeat(nodeId, heartbeat) {
             const row = db.nodes.find((node) => node.node_id === nodeId);
@@ -503,7 +524,10 @@ export function createMemoryCloudStore({ now = () => new Date() } = {}) {
             return clone(db.merchantUserPasswordResets.find((reset) => reset.token_hash === tokenHash) || null);
         },
         async markMerchantUserPasswordResetTokenUsed(resetTokenId, usedAt = ts()) {
-            const row = db.merchantUserPasswordResets.find((reset) => reset.reset_token_id === resetTokenId);
+            // Conditional consume: null when already used (see admin variant).
+            const row = db.merchantUserPasswordResets.find((reset) => (
+                reset.reset_token_id === resetTokenId && !reset.used_at
+            ));
             if (!row) return null;
             row.used_at = usedAt;
             return clone(row);

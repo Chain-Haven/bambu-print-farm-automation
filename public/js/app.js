@@ -89,6 +89,9 @@ function renderHeader() {
       <a href="#/timeline" data-route="/timeline">Timeline</a>
     </nav>
     <div class="header-actions">
+      <button class="btn btn-sm btn-outline" onclick="showCloudLinkModal()" title="Cloud Link">
+        <span>☁️</span> <span class="desktop-only">Cloud Link</span>
+      </button>
       <button class="btn btn-sm btn-outline" onclick="showTunnelModal()" title="Remote Access">
         <span>🌐</span> <span class="desktop-only">Remote Access</span>
       </button>
@@ -1764,6 +1767,118 @@ window.showTunnelModal = async function () {
   // Or just re-render. It's fine for now, or we can use a global 'modal.closed' event if we added one.
   // Actually, let's just re-fetch status in the modal periodically or trust WS.
   // Helper to force cleanup if we specifically close it from THIS modal's close button?
+};
+
+// ===== Cloud Link modal: connect this print server to the PrintKinetix cloud =====
+window.showCloudLinkModal = async function () {
+  let status;
+  try {
+    status = await api.getCloudLink();
+  } catch (e) {
+    toast(e.message, 'error');
+    return;
+  }
+  renderCloudLinkModal(status);
+};
+
+function renderCloudLinkModal(status) {
+  const agent = status.agent || { running: false };
+  const connected = agent.running && agent.last_heartbeat_ok !== false;
+  const stateLabel = agent.running
+    ? (agent.last_heartbeat_ok === false ? 'RETRYING' : 'CONNECTED')
+    : (status.configured ? (status.enabled ? 'STARTING' : 'DISABLED') : 'NOT LINKED');
+  const dotClass = connected ? 'online' : (agent.running ? 'warning' : 'offline');
+
+  showModal(html`
+    <div class="modal-header">
+      <h2>Cloud Link</h2>
+      <button class="btn btn-icon btn-sm" onclick="hideModal()">✕</button>
+    </div>
+    <div style="padding:0.5rem 1rem 1rem;">
+      <div style="text-align:center;margin-bottom:1rem;">
+        <div class="status-dot ${dotClass}" style="width:12px;height:12px;display:inline-block;margin-right:0.5rem;"></div>
+        <span style="font-weight:600;font-size:1.1rem;color:var(--text-primary);vertical-align:middle;">${stateLabel}</span>
+        ${status.mock_mode ? html`<div style="margin-top:0.4rem;font-size:0.8rem;color:var(--warning,#eab308);">MOCK_MODE is on — cloud jobs run against simulators, not real printers.</div>` : ''}
+      </div>
+
+      ${agent.running ? html`
+        <div style="background:var(--bg-secondary);padding:0.75rem 1rem;border-radius:var(--radius-md);margin-bottom:1rem;font-size:0.85rem;">
+          <div><strong>Cloud:</strong> ${agent.cloud_api_url}</div>
+          <div><strong>Token:</strong> ${agent.token_hint || status.token_hint || '—'}</div>
+          <div><strong>Printers mirrored:</strong> ${agent.printer_count ?? 0}</div>
+          <div><strong>Last heartbeat:</strong> ${agent.last_heartbeat_at ? new Date(agent.last_heartbeat_at).toLocaleTimeString() : '—'}
+            ${agent.last_heartbeat_error ? html` <span style="color:var(--danger,#ef4444);">(${agent.last_heartbeat_error})</span>` : ''}</div>
+          <div><strong>Queued results:</strong> ${agent.pending_result_count ?? 0}</div>
+        </div>
+      ` : html`
+        <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem;">
+          Link this print server to your PrintKinetix cloud console: printers appear on the
+          cloud fleet board, merchant jobs route here automatically, and you can control
+          everything remotely. Provision a node in the cloud console (Download Farm Node)
+          to get a <code>pkx_node_…</code> token.
+        </p>
+      `}
+
+      <div style="display:grid;gap:0.6rem;margin-bottom:1rem;">
+        <label style="display:grid;gap:0.25rem;font-size:0.8rem;color:var(--text-muted);">
+          Cloud URL
+          <input id="cloud-link-url" class="input" type="url" placeholder="https://your-deployment.vercel.app"
+            value="${status.cloud_api_url || ''}">
+        </label>
+        <label style="display:grid;gap:0.25rem;font-size:0.8rem;color:var(--text-muted);">
+          Node token ${status.token_hint ? html`<small>(stored: ${status.token_hint} — leave blank to keep)</small>` : ''}
+          <input id="cloud-link-token" class="input" type="password" autocomplete="off" placeholder="pkx_node_...">
+        </label>
+      </div>
+
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;justify-content:center;">
+        <button class="btn btn-primary" onclick="saveCloudLinkFromModal()">${agent.running ? 'Save & Reconnect' : 'Save & Connect'}</button>
+        <button class="btn btn-outline" onclick="testCloudLinkFromModal()">Test Connection</button>
+        ${status.configured ? html`<button class="btn btn-danger" onclick="disconnectCloudLinkFromModal()">Disconnect</button>` : ''}
+      </div>
+      <div id="cloud-link-result" style="margin-top:0.75rem;text-align:center;font-size:0.85rem;color:var(--text-secondary);"></div>
+    </div>
+  `);
+}
+
+function readCloudLinkForm() {
+  const url = document.querySelector('#cloud-link-url')?.value?.trim() || '';
+  const token = document.querySelector('#cloud-link-token')?.value?.trim() || '';
+  const payload = {};
+  if (url) payload.cloud_api_url = url;
+  if (token) payload.local_node_token = token;
+  return payload;
+}
+
+window.saveCloudLinkFromModal = async function () {
+  try {
+    const status = await api.saveCloudLink({ ...readCloudLinkForm(), enabled: true });
+    toast('Cloud link saved', 'success');
+    renderCloudLinkModal(status);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+};
+
+window.testCloudLinkFromModal = async function () {
+  const resultEl = document.querySelector('#cloud-link-result');
+  if (resultEl) resultEl.textContent = 'Testing…';
+  try {
+    const result = await api.testCloudLink(readCloudLinkForm());
+    if (resultEl) resultEl.textContent = `✓ Cloud reachable${result?.node?.name ? ` — registered as "${result.node.name}"` : ''}`;
+  } catch (e) {
+    if (resultEl) resultEl.textContent = `✗ ${e.message}`;
+  }
+};
+
+window.disconnectCloudLinkFromModal = async function () {
+  try {
+    const status = await api.removeCloudLink();
+    toast('Cloud link removed', 'success');
+    renderCloudLinkModal(status);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
 };
 
 function renderTunnelModalContent(state) {

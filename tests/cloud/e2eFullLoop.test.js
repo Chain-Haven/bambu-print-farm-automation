@@ -466,6 +466,77 @@ describe('full farm loop end to end (local cloud, real handlers over HTTP)', () 
     });
 });
 
+describe('node lifecycle management (rename -> rotate token -> decommission)', () => {
+    let orgId;
+    let nodeId;
+    let originalToken;
+
+    it('provisions a node to manage', async () => {
+        const org = await adminJson('/api/cloud/organizations', {
+            method: 'POST',
+            body: { name: 'Lifecycle Farm' },
+        });
+        orgId = org.organization.org_id;
+        const node = await adminJson('/api/cloud/nodes', {
+            method: 'POST',
+            body: { org_id: orgId, name: 'Lifecycle Node' },
+        });
+        nodeId = node.node.node_id;
+        originalToken = node.local_node_token;
+        expect(originalToken).toMatch(/^pkx_node_/);
+    });
+
+    it('renames the node', async () => {
+        const renamed = await adminJson('/api/cloud/nodes', {
+            method: 'POST',
+            body: { action: 'rename', node_id: nodeId, name: 'Lifecycle Node MK2' },
+        });
+        expect(renamed.node.name).toBe('Lifecycle Node MK2');
+        expect(renamed.node.token_hash).toBeUndefined();
+    });
+
+    it('rotates the token: old one stops heartbeating, new one works', async () => {
+        const rotated = await adminJson('/api/cloud/nodes', {
+            method: 'POST',
+            body: { action: 'rotate_token', node_id: nodeId },
+        });
+        expect(rotated.local_node_token).toMatch(/^pkx_node_/);
+        expect(rotated.local_node_token).not.toBe(originalToken);
+
+        const oldClient = createLocalNodeClient({
+            cloudApiUrl: cloud.baseUrl,
+            token: originalToken,
+            retry: { maxAttempts: 1 },
+        });
+        await expect(oldClient.sendHeartbeat({ status: 'online', printers: [] })).rejects.toThrow(/401|invalid|unknown_agent_token/i);
+
+        const newClient = createLocalNodeClient({
+            cloudApiUrl: cloud.baseUrl,
+            token: rotated.local_node_token,
+            retry: { maxAttempts: 1 },
+        });
+        const heartbeat = await newClient.sendHeartbeat({ status: 'online', printers: [] });
+        expect(heartbeat.ok).toBe(true);
+        originalToken = rotated.local_node_token;
+    });
+
+    it('decommissions the node: token is dead and the node is marked', async () => {
+        const decommissioned = await adminJson('/api/cloud/nodes', {
+            method: 'POST',
+            body: { action: 'decommission', node_id: nodeId },
+        });
+        expect(decommissioned.node.status).toBe('offline');
+        expect(decommissioned.node.capabilities.decommissioned).toBe(true);
+
+        const deadClient = createLocalNodeClient({
+            cloudApiUrl: cloud.baseUrl,
+            token: originalToken,
+            retry: { maxAttempts: 1 },
+        });
+        await expect(deadClient.sendHeartbeat({ status: 'online', printers: [] })).rejects.toThrow(/401|invalid|unknown_agent_token/i);
+    });
+});
+
 describe('admin sign-in end to end (first-time setup -> login -> reset -> logout)', () => {
     let adminSessionToken;
 

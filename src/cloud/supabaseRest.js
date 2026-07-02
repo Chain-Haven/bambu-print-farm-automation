@@ -546,8 +546,11 @@ export function createSupabaseRestClient({
         },
 
         async markAdminPasswordResetTokenUsed(resetTokenId, usedAt = new Date().toISOString()) {
+            // used_at=is.null makes the consume conditional: an already-used
+            // token matches no rows and returns null, so concurrent
+            // redemptions cannot both succeed.
             const rows = await request(
-                `/rest/v1/platform_admin_password_resets?reset_token_id=eq.${encodeURIComponent(requireValue(resetTokenId, 'reset_token_id'))}&select=${PLATFORM_ADMIN_PASSWORD_RESET_SELECT}`,
+                `/rest/v1/platform_admin_password_resets?reset_token_id=eq.${encodeURIComponent(requireValue(resetTokenId, 'reset_token_id'))}&used_at=is.null&select=${PLATFORM_ADMIN_PASSWORD_RESET_SELECT}`,
                 {
                     method: 'PATCH',
                     headers: { Prefer: 'return=representation' },
@@ -742,8 +745,9 @@ export function createSupabaseRestClient({
         },
 
         async markMerchantUserPasswordResetTokenUsed(resetTokenId, usedAt = new Date().toISOString()) {
+            // Conditional consume (used_at=is.null) — see the admin variant.
             const rows = await request(
-                `/rest/v1/merchant_user_password_resets?reset_token_id=eq.${encodeURIComponent(requireValue(resetTokenId, 'reset_token_id'))}&select=${MERCHANT_USER_PASSWORD_RESET_SELECT}`,
+                `/rest/v1/merchant_user_password_resets?reset_token_id=eq.${encodeURIComponent(requireValue(resetTokenId, 'reset_token_id'))}&used_at=is.null&select=${MERCHANT_USER_PASSWORD_RESET_SELECT}`,
                 {
                     method: 'PATCH',
                     headers: { Prefer: 'return=representation' },
@@ -1841,6 +1845,31 @@ export function createSupabaseRestClient({
                     method: 'POST',
                     headers: { Prefer: 'return=representation' },
                     body: node,
+                },
+            );
+            return firstRow(rows);
+        },
+
+        async findFarmNodeById(nodeId) {
+            const rows = await request(
+                `/rest/v1/farm_nodes?node_id=eq.${encodeURIComponent(requireValue(nodeId, 'node_id'))}&select=node_id,org_id,name,status,agent_version,host_info,capabilities,last_seen_at,created_at,updated_at&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async updateFarmNode(nodeId, fields) {
+            const body = {};
+            if (fields.name !== undefined) body.name = fields.name;
+            if (fields.status !== undefined) body.status = fields.status;
+            if (fields.token_hash !== undefined) body.token_hash = fields.token_hash;
+            if (fields.capabilities !== undefined) body.capabilities = fields.capabilities;
+            body.updated_at = new Date().toISOString();
+            const rows = await request(
+                `/rest/v1/farm_nodes?node_id=eq.${encodeURIComponent(requireValue(nodeId, 'node_id'))}&select=node_id,org_id,name,status,agent_version,host_info,capabilities,last_seen_at,created_at,updated_at`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body,
                 },
             );
             return firstRow(rows);

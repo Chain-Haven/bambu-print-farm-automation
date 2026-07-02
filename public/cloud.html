@@ -96,239 +96,331 @@
     <!-- ================= CONSOLE VIEW (after login) ================= -->
     <div id="console-view" hidden>
       <div class="console-toolbar">
+        <nav id="console-tabs" class="console-tabs" aria-label="Console sections">
+          <button type="button" class="tab-btn active" data-tab="fleet">Fleet</button>
+          <button type="button" class="tab-btn" data-tab="merchants">Merchants</button>
+          <button type="button" class="tab-btn" data-tab="automation">Automation</button>
+          <button type="button" class="tab-btn" data-tab="admin">Setup &amp; Admin</button>
+        </nav>
         <button id="refresh" type="button" class="ghost-button">↻ Refresh</button>
       </div>
 
+      <!-- Backend setup lives OUTSIDE the tabs: when the schema is behind, this is
+           the first (and only actionable) thing an operator should see. -->
       <section id="setup-status" class="setup-status" aria-label="Backend Setup" hidden>
         <div class="panel-heading">
           <h2>Backend Setup</h2>
           <span>Not checked</span>
         </div>
         <div id="setup-status-body"></div>
+        <div class="button-row">
+          <button id="run-migrations-btn" type="button">Apply pending migrations</button>
+        </div>
+        <pre id="migrations-output" class="secret-output" hidden></pre>
       </section>
 
-      <section id="metrics" class="metrics" aria-label="Cloud metrics"></section>
+      <!-- ================= TAB: FLEET ================= -->
+      <div class="tab-panel" data-tab-panel="fleet">
+        <section id="metrics" class="metrics" aria-label="Cloud metrics"></section>
 
-      <!-- ================= PRINT FLEET (live printer cards) ================= -->
-      <section id="fleet-section" class="fleet-section" aria-label="Print fleet">
-        <div class="panel-heading fleet-heading">
-          <div>
-            <h2>Print Fleet</h2>
-            <span id="fleet-subtitle">Live view of every connected Bambu printer</span>
-          </div>
-          <div class="fleet-actions">
-            <label class="switch-row compact-switch fleet-live-toggle">
-              <input id="fleet-live" type="checkbox" checked>
-              <span>Live updates</span>
-            </label>
-            <button id="fleet-scan" type="button" class="ghost-button">⌖ Scan network</button>
-          </div>
-        </div>
-        <div id="fleet-discovered" class="fleet-discovered" hidden>
-          <div class="fleet-discovered-heading">
-            <strong>Found on the network</strong>
-            <span>Click a printer to adopt it into the farm</span>
-          </div>
-          <div id="fleet-discovered-list" class="fleet-discovered-list"></div>
-        </div>
-        <div id="fleet-grid" class="fleet-grid">
-          <p class="empty">No printers yet — bring a farm node online and its printers appear here automatically.</p>
-        </div>
-      </section>
-
-    <section class="admin-layout" aria-label="Admin workflows">
-      <div class="control-stack">
-        <form id="merchant-settings-form" class="panel">
-          <div class="panel-heading">
-            <h2>Merchant Mode</h2>
-            <span id="merchant-mode-state">Approval default</span>
-          </div>
-          <label class="switch-row">
-            <input id="full-auto-mode" type="checkbox">
-            <span>Full auto merchant approval</span>
-          </label>
-          <div class="button-row">
-            <button type="submit">Save Mode</button>
-            <button id="refresh-merchant-settings" type="button">Reload</button>
-          </div>
-        </form>
-
-        <section id="admin-users-section" class="panel" aria-label="Admin accounts" hidden>
-          <div class="panel-heading">
-            <h2>Admin Accounts</h2>
-            <span>Super admin only</span>
-          </div>
-          <div id="admin-users-table"></div>
-          <form id="admin-user-create-form">
-            <div class="split">
-              <label>
-                <span>Invite email</span>
-                <input id="admin-user-email" type="email" placeholder="teammate@company.com" required>
-              </label>
-              <label>
-                <span>Role</span>
-                <select id="admin-user-role">
-                  <option value="admin" selected>admin</option>
-                  <option value="super_admin">super_admin</option>
-                </select>
-              </label>
+        <!-- PRINT FLEET (live printer cards) -->
+        <section id="fleet-section" class="fleet-section" aria-label="Print fleet">
+          <div class="panel-heading fleet-heading">
+            <div>
+              <h2>Print Fleet</h2>
+              <span id="fleet-subtitle">Live view of every connected Bambu printer</span>
             </div>
-            <button type="submit">Create account + reset link</button>
-          </form>
-          <pre id="admin-users-output" class="secret-output" hidden></pre>
+            <div class="fleet-actions">
+              <label class="switch-row compact-switch fleet-live-toggle">
+                <input id="fleet-live" type="checkbox" checked>
+                <span>Live updates</span>
+              </label>
+              <button id="fleet-scan" type="button" class="ghost-button">⌖ Scan network</button>
+            </div>
+          </div>
+          <div id="fleet-discovered" class="fleet-discovered" hidden>
+            <div class="fleet-discovered-heading">
+              <strong>Found on the network</strong>
+              <span>Click a printer to adopt it into the farm</span>
+            </div>
+            <div id="fleet-discovered-list" class="fleet-discovered-list"></div>
+          </div>
+          <div id="fleet-grid" class="fleet-grid">
+            <p class="empty">No printers yet — bring a farm node online and its printers appear here automatically.</p>
+          </div>
         </section>
 
-        <form id="node-quickstart-form" class="panel">
-          <div class="panel-heading">
-            <h2>Download Farm Node</h2>
-            <span>Windows · Pi 5 · Linux — no install</span>
+        <section class="table-stack" aria-label="Farm data">
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Nodes</h2>
+              <span id="node-count">0</span>
+            </div>
+            <div id="nodes-table"></div>
           </div>
-          <label>
-            <span>Farm name</span>
-            <input id="quickstart-org-name" type="text" value="Bambu Farm">
-          </label>
-          <label>
-            <span>Windows node name</span>
-            <input id="quickstart-node-name" type="text" value="Windows Farm Manager 01">
-          </label>
-          <div class="split">
-            <label>
-              <span>Max jobs</span>
-              <input id="quickstart-max-jobs" type="number" min="1" max="50" value="4">
-            </label>
-            <label class="switch-row compact-switch">
-              <input id="quickstart-auto-download" type="checkbox" checked>
-              <span>Download app</span>
-            </label>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Printers</h2>
+              <span id="printer-count">0</span>
+            </div>
+            <div id="printers-table"></div>
           </div>
-          <label>
-            <span>Printer networks</span>
-            <textarea id="quickstart-scan-cidrs" rows="3" placeholder="192.168.1.0/24&#10;10.0.10.0/24"></textarea>
-          </label>
-          <button type="submit">Provision + Download</button>
-          <pre id="quickstart-output" class="secret-output" hidden></pre>
-        </form>
-
-        <form id="organization-form" class="panel">
-          <div class="panel-heading">
-            <h2>Organization</h2>
-            <span>Bootstrap</span>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Jobs</h2>
+              <span id="job-count">0</span>
+            </div>
+            <div id="jobs-table"></div>
           </div>
-          <label>
-            <span>Name</span>
-            <input id="organization-name" type="text" required placeholder="Bambu Farm">
-          </label>
-          <button type="submit">Create Org</button>
-          <pre id="organization-output" class="secret-output" hidden></pre>
-        </form>
-
-        <form id="node-form" class="panel">
-          <div class="panel-heading">
-            <h2>Provision Node</h2>
-            <span>Windows manager</span>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Commands</h2>
+              <span id="command-count">0</span>
+            </div>
+            <div id="commands-table"></div>
           </div>
-          <label>
-            <span>Org ID</span>
-            <input id="node-org-id" type="text" required>
-          </label>
-          <label>
-            <span>Node name</span>
-            <input id="node-name" type="text" required placeholder="Print NUC 01">
-          </label>
-          <label>
-            <span>Capabilities JSON</span>
-            <textarea id="node-capabilities" rows="4">{ "max_concurrent_jobs": 4 }</textarea>
-          </label>
-          <button type="submit">Provision</button>
-          <button id="download-node-package" type="button" hidden>Download Windows App</button>
-          <pre id="node-token-output" class="secret-output" hidden></pre>
-        </form>
-
-        <form id="printer-sync-form" class="panel">
-          <div class="panel-heading">
-            <h2>Local Printer Sync</h2>
-            <span>Windows node</span>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Events</h2>
+              <span id="event-count">0</span>
+            </div>
+            <div id="events-table"></div>
           </div>
-          <label>
-            <span>Node</span>
-            <select id="sync-node" required></select>
-          </label>
-          <label>
-            <span>Scan networks</span>
-            <textarea id="sync-scan-cidrs" rows="3" placeholder="192.168.1.0/24&#10;10.0.10.0/24"></textarea>
-          </label>
-          <label class="switch-row">
-            <input id="sync-include-saved" type="checkbox" checked>
-            <span>Saved local printers</span>
-          </label>
-          <label class="switch-row">
-            <input id="sync-ams" type="checkbox" checked>
-            <span>AMS trays</span>
-          </label>
-          <label class="switch-row">
-            <input id="sync-filament" type="checkbox" checked>
-            <span>Filament colors</span>
-          </label>
-          <div class="button-row">
-            <button type="submit" name="sync-action" value="cloud.printers.discover">Discover LAN Printers</button>
-            <button type="submit" name="sync-action" value="cloud.printers.sync">Sync Printer Inventory</button>
-          </div>
-          <pre id="sync-output" class="secret-output" hidden></pre>
-        </form>
-
-        <form id="command-form" class="panel">
-          <div class="panel-heading">
-            <h2>Queue Command</h2>
-            <span>Local agent</span>
-          </div>
-          <div class="toolbar" aria-label="Command templates">
-            <button type="button" data-command-template="status">Status</button>
-            <button type="button" data-command-template="pause">Pause</button>
-            <button type="button" data-command-template="resume">Resume</button>
-            <button type="button" data-command-template="stop">Stop</button>
-            <button type="button" data-command-template="printReady">Print Ready</button>
-            <button type="button" data-command-template="discoverPrinters">Discover</button>
-            <button type="button" data-command-template="syncPrinters">Sync</button>
-          </div>
-          <label>
-            <span>Node</span>
-            <select id="command-node" required></select>
-          </label>
-          <label>
-            <span>Command type</span>
-            <select id="command-type">
-              <option value="printer.status">printer.status</option>
-              <option value="printer.pause">printer.pause</option>
-              <option value="printer.resume">printer.resume</option>
-              <option value="printer.stop">printer.stop</option>
-              <option value="printer.gcode">printer.gcode</option>
-              <option value="job.start">job.start</option>
-              <option value="cloud.print.ready">cloud.print.ready</option>
-              <option value="cloud.printers.discover">cloud.printers.discover</option>
-              <option value="cloud.printers.sync">cloud.printers.sync</option>
-              <option value="cloud.printers.adopt">cloud.printers.adopt</option>
-              <option value="printer.camera.snapshot">printer.camera.snapshot</option>
-            </select>
-          </label>
-          <div class="split">
-            <label>
-              <span>Printer ID</span>
-              <input id="command-printer" type="text">
-            </label>
-            <label>
-              <span>Job ID</span>
-              <input id="command-job" type="text">
-            </label>
-          </div>
-          <label>
-            <span>Payload JSON</span>
-            <textarea id="command-payload" rows="7">{ "local_printer_id": "printer-1" }</textarea>
-          </label>
-          <button type="submit">Queue</button>
-        </form>
+        </section>
       </div>
 
-      <div class="operations-stack">
+      <!-- ================= TAB: MERCHANTS ================= -->
+      <div class="tab-panel" data-tab-panel="merchants" hidden>
+        <div class="tab-grid">
+          <form id="merchant-settings-form" class="panel">
+            <div class="panel-heading">
+              <h2>Merchant Mode</h2>
+              <span id="merchant-mode-state">Approval default</span>
+            </div>
+            <label class="switch-row">
+              <input id="full-auto-mode" type="checkbox">
+              <span>Full auto merchant approval</span>
+            </label>
+            <div class="button-row">
+              <button type="submit">Save Mode</button>
+              <button id="refresh-merchant-settings" type="button">Reload</button>
+            </div>
+          </form>
+
+          <form id="merchant-list-form" class="panel">
+            <div class="panel-heading">
+              <h2>Find Merchants</h2>
+              <span>Queue</span>
+            </div>
+            <div class="split">
+              <label>
+                <span>Status</span>
+                <select id="merchant-status-filter">
+                  <option value="">All</option>
+                  <option value="pending">Pending</option>
+                  <option value="active">Active</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="suspended">Suspended</option>
+                </select>
+              </label>
+              <label>
+                <span>Merchant ID</span>
+                <input id="merchant-id" type="text" autocomplete="off">
+              </label>
+            </div>
+            <button type="submit">Load Merchants</button>
+          </form>
+
+          <form id="merchant-action-form" class="panel">
+            <div class="panel-heading">
+              <h2>Approval Action</h2>
+              <span>Default approve-only</span>
+            </div>
+            <label>
+              <span>Merchant ID</span>
+              <input id="merchant-action-id" type="text" required>
+            </label>
+            <div class="split">
+              <label>
+                <span>Action</span>
+                <select id="merchant-action">
+                  <option value="approve">Approve</option>
+                  <option value="activate">Activate</option>
+                  <option value="reject">Reject</option>
+                  <option value="suspend">Suspend</option>
+                </select>
+              </label>
+              <label class="switch-row compact-switch">
+                <input id="merchant-issue-setup-token" type="checkbox">
+                <span>Issue setup token</span>
+              </label>
+            </div>
+            <label>
+              <span>Metadata JSON</span>
+              <textarea id="merchant-action-metadata" rows="3">{}</textarea>
+            </label>
+            <button type="submit">Apply Action</button>
+            <button id="issue-setup-token" type="button" class="ghost-button">Issue Setup Token</button>
+            <pre id="merchant-action-output" class="secret-output" hidden></pre>
+          </form>
+
+          <form id="merchant-key-form" class="panel">
+            <div class="panel-heading">
+              <h2>Merchant API Keys</h2>
+              <span>Live mode</span>
+            </div>
+            <label>
+              <span>Merchant ID</span>
+              <input id="merchant-key-merchant-id" type="text" required>
+            </label>
+            <div class="split">
+              <label>
+                <span>Key name</span>
+                <input id="merchant-key-name" type="text" value="Production">
+              </label>
+              <label>
+                <span>Key ID to revoke</span>
+                <input id="merchant-key-id" type="text">
+              </label>
+            </div>
+            <div class="button-row three">
+              <button type="submit">Issue Live Key</button>
+              <button id="list-merchant-keys" type="button">List Keys</button>
+              <button id="revoke-merchant-key" type="button" class="danger-button">Revoke</button>
+            </div>
+            <pre id="merchant-key-output" class="secret-output" hidden></pre>
+          </form>
+
+          <form id="merchant-portal-form" class="panel">
+            <div class="panel-heading">
+              <h2>Portal Accounts</h2>
+              <span>Sign-in support</span>
+            </div>
+            <label>
+              <span>Merchant ID</span>
+              <input id="merchant-portal-merchant-id" type="text" required>
+            </label>
+            <div class="button-row">
+              <button type="submit">List Portal Users</button>
+              <button id="merchant-portal-reset" type="button" class="ghost-button">Issue Password Reset</button>
+            </div>
+            <div id="merchant-portal-users-table"></div>
+            <pre id="merchant-portal-output" class="secret-output" hidden></pre>
+          </form>
+
+          <form id="merchant-lookup-form" class="panel">
+            <div class="panel-heading">
+              <h2>Jobs &amp; Usage</h2>
+              <span>Usage tracking</span>
+            </div>
+            <label>
+              <span>Merchant ID</span>
+              <input id="merchant-lookup-id" type="text" required>
+            </label>
+            <button type="submit">Load Merchant Data</button>
+          </form>
+        </div>
+
+        <section class="table-grid" aria-label="Merchant data">
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Merchants</h2>
+              <span id="merchant-count">0</span>
+            </div>
+            <div id="merchants-table"></div>
+          </div>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>API Keys</h2>
+              <span id="merchant-key-count">0</span>
+            </div>
+            <div id="merchant-api-keys-table"></div>
+          </div>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Merchant Jobs</h2>
+              <span id="merchant-job-count">0</span>
+            </div>
+            <div id="merchant-jobs-table"></div>
+          </div>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Usage Events</h2>
+              <span id="merchant-usage-count">0</span>
+            </div>
+            <div id="merchant-usage-table"></div>
+          </div>
+        </section>
+
+        <section class="table-grid merchant-v2-grid" aria-label="Merchant API v2 data">
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>V2 Orders</h2>
+              <span id="merchant-v2-order-count">0</span>
+            </div>
+            <div id="merchant-v2-orders-table"></div>
+          </div>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>V2 Files</h2>
+              <span id="merchant-v2-file-count">0</span>
+            </div>
+            <div id="merchant-v2-files-table"></div>
+          </div>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>V2 Slices</h2>
+              <span id="merchant-v2-slice-count">0</span>
+            </div>
+            <div id="merchant-v2-slices-table"></div>
+          </div>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>V2 Batches</h2>
+              <span id="merchant-v2-batch-count">0</span>
+            </div>
+            <div id="merchant-v2-batches-table"></div>
+          </div>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Reservations</h2>
+              <span id="merchant-v2-reservation-count">0</span>
+            </div>
+            <div id="merchant-v2-reservations-table"></div>
+          </div>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Shipments</h2>
+              <span id="merchant-v2-shipment-count">0</span>
+            </div>
+            <div id="merchant-v2-shipments-table"></div>
+          </div>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Invoices</h2>
+              <span id="merchant-v2-invoice-count">0</span>
+            </div>
+            <div id="merchant-v2-invoices-table"></div>
+          </div>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Webhooks</h2>
+              <span id="merchant-v2-webhook-count">0</span>
+            </div>
+            <div id="merchant-v2-webhooks-table"></div>
+          </div>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Adapter Events</h2>
+              <span id="merchant-v2-adapter-count">0</span>
+            </div>
+            <div id="merchant-v2-adapters-table"></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ================= TAB: AUTOMATION ================= -->
+      <div class="tab-panel" data-tab-panel="automation" hidden>
         <section class="panel">
           <div class="panel-heading">
             <h2>Farm Autopilot</h2>
@@ -461,247 +553,196 @@
             <div id="roadmap-phases-table"></div>
           </div>
         </section>
+      </div>
 
-        <section class="panel">
-          <div class="panel-heading">
-            <h2>Merchant Operations</h2>
-            <span>Approvals, keys, usage</span>
-          </div>
-          <div class="merchant-grid">
-            <form id="merchant-list-form" class="subpanel">
-              <div class="panel-heading">
-                <h2>Find Merchants</h2>
-                <span>Queue</span>
-              </div>
+      <!-- ================= TAB: SETUP & ADMIN ================= -->
+      <div class="tab-panel" data-tab-panel="admin" hidden>
+        <div class="tab-grid">
+          <form id="node-quickstart-form" class="panel">
+            <div class="panel-heading">
+              <h2>Download Farm Node</h2>
+              <span>Windows · Pi 5 · Linux — no install</span>
+            </div>
+            <label>
+              <span>Farm name</span>
+              <input id="quickstart-org-name" type="text" value="Bambu Farm">
+            </label>
+            <label>
+              <span>Windows node name</span>
+              <input id="quickstart-node-name" type="text" value="Windows Farm Manager 01">
+            </label>
+            <div class="split">
+              <label>
+                <span>Max jobs</span>
+                <input id="quickstart-max-jobs" type="number" min="1" max="50" value="4">
+              </label>
+              <label class="switch-row compact-switch">
+                <input id="quickstart-auto-download" type="checkbox" checked>
+                <span>Download app</span>
+              </label>
+            </div>
+            <label>
+              <span>Printer networks</span>
+              <textarea id="quickstart-scan-cidrs" rows="3" placeholder="192.168.1.0/24&#10;10.0.10.0/24"></textarea>
+            </label>
+            <button type="submit">Provision + Download</button>
+            <pre id="quickstart-output" class="secret-output" hidden></pre>
+          </form>
+
+          <section id="admin-users-section" class="panel" aria-label="Admin accounts" hidden>
+            <div class="panel-heading">
+              <h2>Admin Accounts</h2>
+              <span>Super admin only</span>
+            </div>
+            <div id="admin-users-table"></div>
+            <form id="admin-user-create-form">
               <div class="split">
                 <label>
-                  <span>Status</span>
-                  <select id="merchant-status-filter">
-                    <option value="">All</option>
-                    <option value="pending">Pending</option>
-                    <option value="active">Active</option>
-                    <option value="rejected">Rejected</option>
-                    <option value="suspended">Suspended</option>
+                  <span>Invite email</span>
+                  <input id="admin-user-email" type="email" placeholder="teammate@company.com" required>
+                </label>
+                <label>
+                  <span>Role</span>
+                  <select id="admin-user-role">
+                    <option value="admin" selected>admin</option>
+                    <option value="super_admin">super_admin</option>
                   </select>
                 </label>
-                <label>
-                  <span>Merchant ID</span>
-                  <input id="merchant-id" type="text" autocomplete="off">
-                </label>
               </div>
-              <button type="submit">Load Merchants</button>
+              <button type="submit">Create account + reset link</button>
             </form>
+            <pre id="admin-users-output" class="secret-output" hidden></pre>
+          </section>
 
-            <form id="merchant-action-form" class="subpanel">
-              <div class="panel-heading">
-                <h2>Approval Action</h2>
-                <span>Default approve-only</span>
-              </div>
+          <section class="panel" aria-label="Session security">
+            <div class="panel-heading">
+              <h2>Security</h2>
+              <span>Sessions</span>
+            </div>
+            <p class="field-hint">Signed in on a shared or lost device? Revoke every active
+              session for your account — including this one — and sign in again.</p>
+            <button id="logout-all-btn" type="button" class="danger-button">Sign out everywhere</button>
+          </section>
+
+          <form id="printer-sync-form" class="panel">
+            <div class="panel-heading">
+              <h2>Local Printer Sync</h2>
+              <span>Windows node</span>
+            </div>
+            <label>
+              <span>Node</span>
+              <select id="sync-node" required></select>
+            </label>
+            <label>
+              <span>Scan networks</span>
+              <textarea id="sync-scan-cidrs" rows="3" placeholder="192.168.1.0/24&#10;10.0.10.0/24"></textarea>
+            </label>
+            <label class="switch-row">
+              <input id="sync-include-saved" type="checkbox" checked>
+              <span>Saved local printers</span>
+            </label>
+            <label class="switch-row">
+              <input id="sync-ams" type="checkbox" checked>
+              <span>AMS trays</span>
+            </label>
+            <label class="switch-row">
+              <input id="sync-filament" type="checkbox" checked>
+              <span>Filament colors</span>
+            </label>
+            <div class="button-row">
+              <button type="submit" name="sync-action" value="cloud.printers.discover">Discover LAN Printers</button>
+              <button type="submit" name="sync-action" value="cloud.printers.sync">Sync Printer Inventory</button>
+            </div>
+            <pre id="sync-output" class="secret-output" hidden></pre>
+          </form>
+
+          <form id="command-form" class="panel">
+            <div class="panel-heading">
+              <h2>Queue Command</h2>
+              <span>Local agent</span>
+            </div>
+            <div class="toolbar" aria-label="Command templates">
+              <button type="button" data-command-template="status">Status</button>
+              <button type="button" data-command-template="pause">Pause</button>
+              <button type="button" data-command-template="resume">Resume</button>
+              <button type="button" data-command-template="stop">Stop</button>
+              <button type="button" data-command-template="printReady">Print Ready</button>
+              <button type="button" data-command-template="discoverPrinters">Discover</button>
+              <button type="button" data-command-template="syncPrinters">Sync</button>
+            </div>
+            <label>
+              <span>Node</span>
+              <select id="command-node" required></select>
+            </label>
+            <label>
+              <span>Command type</span>
+              <select id="command-type">
+                <option value="printer.status">printer.status</option>
+                <option value="printer.pause">printer.pause</option>
+                <option value="printer.resume">printer.resume</option>
+                <option value="printer.stop">printer.stop</option>
+                <option value="printer.gcode">printer.gcode</option>
+                <option value="job.start">job.start</option>
+                <option value="cloud.print.ready">cloud.print.ready</option>
+                <option value="cloud.printers.discover">cloud.printers.discover</option>
+                <option value="cloud.printers.sync">cloud.printers.sync</option>
+                <option value="cloud.printers.adopt">cloud.printers.adopt</option>
+                <option value="printer.camera.snapshot">printer.camera.snapshot</option>
+              </select>
+            </label>
+            <div class="split">
               <label>
-                <span>Merchant ID</span>
-                <input id="merchant-action-id" type="text" required>
+                <span>Printer ID</span>
+                <input id="command-printer" type="text">
               </label>
-              <div class="split">
-                <label>
-                  <span>Action</span>
-                  <select id="merchant-action">
-                    <option value="approve">Approve</option>
-                    <option value="activate">Activate</option>
-                    <option value="reject">Reject</option>
-                    <option value="suspend">Suspend</option>
-                  </select>
-                </label>
-                <label class="switch-row compact-switch">
-                  <input id="merchant-issue-setup-token" type="checkbox">
-                  <span>Issue setup token</span>
-                </label>
-              </div>
               <label>
-                <span>Metadata JSON</span>
-                <textarea id="merchant-action-metadata" rows="3">{}</textarea>
+                <span>Job ID</span>
+                <input id="command-job" type="text">
               </label>
-              <button type="submit">Apply Action</button>
-              <button id="issue-setup-token" type="button" class="ghost-button">Issue Setup Token</button>
-              <pre id="merchant-action-output" class="secret-output" hidden></pre>
-            </form>
+            </div>
+            <label>
+              <span>Payload JSON</span>
+              <textarea id="command-payload" rows="7">{ "local_printer_id": "printer-1" }</textarea>
+            </label>
+            <button type="submit">Queue</button>
+          </form>
 
-            <form id="merchant-key-form" class="subpanel">
-              <div class="panel-heading">
-                <h2>Merchant API Keys</h2>
-                <span>Live mode</span>
-              </div>
-              <label>
-                <span>Merchant ID</span>
-                <input id="merchant-key-merchant-id" type="text" required>
-              </label>
-              <div class="split">
-                <label>
-                  <span>Key name</span>
-                  <input id="merchant-key-name" type="text" value="Production">
-                </label>
-                <label>
-                  <span>Key ID to revoke</span>
-                  <input id="merchant-key-id" type="text">
-                </label>
-              </div>
-              <div class="button-row three">
-                <button type="submit">Issue Live Key</button>
-                <button id="list-merchant-keys" type="button">List Keys</button>
-                <button id="revoke-merchant-key" type="button" class="danger-button">Revoke</button>
-              </div>
-              <pre id="merchant-key-output" class="secret-output" hidden></pre>
-            </form>
+          <form id="organization-form" class="panel">
+            <div class="panel-heading">
+              <h2>Organization</h2>
+              <span>Advanced · manual bootstrap</span>
+            </div>
+            <label>
+              <span>Name</span>
+              <input id="organization-name" type="text" required placeholder="Bambu Farm">
+            </label>
+            <button type="submit">Create Org</button>
+            <pre id="organization-output" class="secret-output" hidden></pre>
+          </form>
 
-            <form id="merchant-lookup-form" class="subpanel">
-              <div class="panel-heading">
-                <h2>Jobs & Usage</h2>
-                <span>Usage tracking</span>
-              </div>
-              <label>
-                <span>Merchant ID</span>
-                <input id="merchant-lookup-id" type="text" required>
-              </label>
-              <button type="submit">Load Merchant Data</button>
-            </form>
-          </div>
-        </section>
-
-        <section class="table-grid" aria-label="Merchant data">
-          <div class="table-panel">
+          <form id="node-form" class="panel">
             <div class="panel-heading">
-              <h2>Merchants</h2>
-              <span id="merchant-count">0</span>
+              <h2>Provision Node</h2>
+              <span>Advanced · manual token</span>
             </div>
-            <div id="merchants-table"></div>
-          </div>
-          <div class="table-panel">
-            <div class="panel-heading">
-              <h2>API Keys</h2>
-              <span id="merchant-key-count">0</span>
-            </div>
-            <div id="merchant-api-keys-table"></div>
-          </div>
-          <div class="table-panel">
-            <div class="panel-heading">
-              <h2>Merchant Jobs</h2>
-              <span id="merchant-job-count">0</span>
-            </div>
-            <div id="merchant-jobs-table"></div>
-          </div>
-          <div class="table-panel">
-            <div class="panel-heading">
-              <h2>Usage Events</h2>
-              <span id="merchant-usage-count">0</span>
-            </div>
-            <div id="merchant-usage-table"></div>
-          </div>
-        </section>
-
-        <section class="table-grid merchant-v2-grid" aria-label="Merchant API v2 data">
-          <div class="table-panel">
-            <div class="panel-heading">
-              <h2>V2 Orders</h2>
-              <span id="merchant-v2-order-count">0</span>
-            </div>
-            <div id="merchant-v2-orders-table"></div>
-          </div>
-          <div class="table-panel">
-            <div class="panel-heading">
-              <h2>V2 Files</h2>
-              <span id="merchant-v2-file-count">0</span>
-            </div>
-            <div id="merchant-v2-files-table"></div>
-          </div>
-          <div class="table-panel">
-            <div class="panel-heading">
-              <h2>V2 Slices</h2>
-              <span id="merchant-v2-slice-count">0</span>
-            </div>
-            <div id="merchant-v2-slices-table"></div>
-          </div>
-          <div class="table-panel">
-            <div class="panel-heading">
-              <h2>V2 Batches</h2>
-              <span id="merchant-v2-batch-count">0</span>
-            </div>
-            <div id="merchant-v2-batches-table"></div>
-          </div>
-          <div class="table-panel">
-            <div class="panel-heading">
-              <h2>Reservations</h2>
-              <span id="merchant-v2-reservation-count">0</span>
-            </div>
-            <div id="merchant-v2-reservations-table"></div>
-          </div>
-          <div class="table-panel">
-            <div class="panel-heading">
-              <h2>Shipments</h2>
-              <span id="merchant-v2-shipment-count">0</span>
-            </div>
-            <div id="merchant-v2-shipments-table"></div>
-          </div>
-          <div class="table-panel">
-            <div class="panel-heading">
-              <h2>Invoices</h2>
-              <span id="merchant-v2-invoice-count">0</span>
-            </div>
-            <div id="merchant-v2-invoices-table"></div>
-          </div>
-          <div class="table-panel">
-            <div class="panel-heading">
-              <h2>Webhooks</h2>
-              <span id="merchant-v2-webhook-count">0</span>
-            </div>
-            <div id="merchant-v2-webhooks-table"></div>
-          </div>
-          <div class="table-panel">
-            <div class="panel-heading">
-              <h2>Adapter Events</h2>
-              <span id="merchant-v2-adapter-count">0</span>
-            </div>
-            <div id="merchant-v2-adapters-table"></div>
-          </div>
-        </section>
-      </div>
-    </section>
-
-    <section class="table-stack" aria-label="Farm data">
-      <div class="table-panel">
-        <div class="panel-heading">
-          <h2>Nodes</h2>
-          <span id="node-count">0</span>
+            <label>
+              <span>Org ID</span>
+              <input id="node-org-id" type="text" required>
+            </label>
+            <label>
+              <span>Node name</span>
+              <input id="node-name" type="text" required placeholder="Print NUC 01">
+            </label>
+            <label>
+              <span>Capabilities JSON</span>
+              <textarea id="node-capabilities" rows="4">{ "max_concurrent_jobs": 4 }</textarea>
+            </label>
+            <button type="submit">Provision</button>
+            <button id="download-node-package" type="button" hidden>Download Windows App</button>
+            <pre id="node-token-output" class="secret-output" hidden></pre>
+          </form>
         </div>
-        <div id="nodes-table"></div>
       </div>
-      <div class="table-panel">
-        <div class="panel-heading">
-          <h2>Printers</h2>
-          <span id="printer-count">0</span>
-        </div>
-        <div id="printers-table"></div>
-      </div>
-      <div class="table-panel">
-        <div class="panel-heading">
-          <h2>Jobs</h2>
-          <span id="job-count">0</span>
-        </div>
-        <div id="jobs-table"></div>
-      </div>
-      <div class="table-panel">
-        <div class="panel-heading">
-          <h2>Commands</h2>
-          <span id="command-count">0</span>
-        </div>
-        <div id="commands-table"></div>
-      </div>
-      <div class="table-panel">
-        <div class="panel-heading">
-          <h2>Events</h2>
-          <span id="event-count">0</span>
-        </div>
-        <div id="events-table"></div>
-      </div>
-    </section>
     </div><!-- /#console-view -->
   </main>
 

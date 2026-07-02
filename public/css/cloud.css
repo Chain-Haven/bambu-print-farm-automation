@@ -745,7 +745,70 @@ th {
   color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: underline;
 }
 .linklike:hover, .linklike:focus { background: none; color: var(--accent-strong); }
-.console-toolbar { display: flex; justify-content: flex-end; margin: 12px 0 4px; }
+.console-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0 4px;
+}
+
+/* Tabbed console navigation: one section on screen at a time instead of a
+   single giant scroll. */
+.console-tabs {
+  display: flex;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 4px;
+}
+
+.tab-btn {
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tab-btn:hover { color: var(--ink); background: #eef2ef; }
+
+.tab-btn.active {
+  background: var(--accent);
+  border-color: var(--accent-strong);
+  color: #fff;
+}
+
+.tab-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.tab-panel[hidden] { display: none; }
+
+.tab-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.tab-grid,
+.tab-grid > *,
+.tab-panel,
+.tab-panel > * {
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .console-tabs { width: 100%; overflow-x: auto; }
+}
 
 /* AMS Filament Mapping panel */
 .field-hint {

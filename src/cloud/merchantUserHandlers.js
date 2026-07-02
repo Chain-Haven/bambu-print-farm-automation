@@ -241,10 +241,14 @@ export function createMerchantLogoutHandler({
 
         try {
             const context = await authenticateMerchantUser(req, { store, pepper, now });
-            if (typeof store.revokeMerchantUserSession === 'function') {
+            const body = parseJsonBody(req.body);
+            const everywhere = body && typeof body === 'object' && body.all === true;
+            if (everywhere && typeof store.revokeMerchantUserSessions === 'function') {
+                await store.revokeMerchantUserSessions(context.merchantUser.merchant_user_id, now().toISOString());
+            } else if (typeof store.revokeMerchantUserSession === 'function') {
                 await store.revokeMerchantUserSession(context.session.session_id, now().toISOString());
             }
-            return sendJson(res, 200, { ok: true });
+            return sendJson(res, 200, { ok: true, revoked_all: Boolean(everywhere) });
         } catch (error) {
             const handled = handleMerchantUserAuthError(res, error);
             if (handled) return handled;
@@ -285,6 +289,62 @@ export function createMerchantPortalMeHandler({
                 message: error.message,
             });
         }
+    };
+}
+
+// Issues a password reset for a merchant user: stores the hashed token,
+// builds the portal link, and best-effort emails it. Shared by the public
+// forgot-password endpoint and the admin support tool.
+export async function issueMerchantUserPasswordReset({
+    store,
+    merchantUser,
+    pepper,
+    now = () => new Date(),
+    resetTokenFactory = generateMerchantUserPasswordResetToken,
+    appBaseUrl = null,
+    req = null,
+    mailer = createMailer(),
+}) {
+    if (!pepper) throw new Error('merchant user secret pepper is required');
+    if (!merchantUser?.merchant_user_id) throw new Error('merchant user is required');
+
+    const issuedAt = now();
+    const expiresAt = new Date(issuedAt.getTime() + RESET_TOKEN_TTL_MS).toISOString();
+    const rawToken = resetTokenFactory();
+    const reset = buildMerchantUserPasswordResetRecord({
+        merchantUser,
+        rawToken,
+        pepper,
+        expiresAt,
+    });
+    await store.createMerchantUserPasswordResetToken(reset.record);
+
+    const baseUrl = normalizeAppBaseUrl(appBaseUrl, req);
+    const resetUrl = buildPortalResetLink(baseUrl, rawToken);
+
+    let emailSent = false;
+    try {
+        const outcome = await mailer.send({
+            to: merchantUser.email,
+            subject: 'Reset your PrintKinetix merchant password',
+            text: [
+                'A password reset was requested for your PrintKinetix merchant account.',
+                '',
+                `Reset your password: ${resetUrl}`,
+                '',
+                'This link expires in 1 hour. If you did not request this, you can ignore this email.',
+            ].join('\n'),
+        });
+        emailSent = outcome?.sent === true;
+    } catch {
+        /* best-effort delivery */
+    }
+
+    return {
+        reset_token: rawToken,
+        reset_url: resetUrl,
+        expires_at: expiresAt,
+        email_sent: emailSent,
     };
 }
 
@@ -330,34 +390,16 @@ export function createMerchantPasswordResetRequestHandler({
                 return sendJson(res, 200, generic);
             }
 
-            const issuedAt = now();
-            const expiresAt = new Date(issuedAt.getTime() + RESET_TOKEN_TTL_MS).toISOString();
-            const rawToken = resetTokenFactory();
-            const reset = buildMerchantUserPasswordResetRecord({
+            await issueMerchantUserPasswordReset({
+                store,
                 merchantUser,
-                rawToken,
                 pepper,
-                expiresAt,
+                now,
+                resetTokenFactory,
+                appBaseUrl,
+                req,
+                mailer,
             });
-            await store.createMerchantUserPasswordResetToken(reset.record);
-
-            const baseUrl = normalizeAppBaseUrl(appBaseUrl, req);
-            const resetUrl = buildPortalResetLink(baseUrl, rawToken);
-            try {
-                await mailer.send({
-                    to: merchantUser.email,
-                    subject: 'Reset your PrintKinetix merchant password',
-                    text: [
-                        'A password reset was requested for your PrintKinetix merchant account.',
-                        '',
-                        `Reset your password: ${resetUrl}`,
-                        '',
-                        'This link expires in 1 hour. If you did not request this, you can ignore this email.',
-                    ].join('\n'),
-                });
-            } catch {
-                /* best-effort delivery — the response never reveals the outcome */
-            }
 
             return sendJson(res, 200, generic);
         } catch (error) {
@@ -406,10 +448,16 @@ export function createMerchantSetPasswordHandler({
                 return sendJson(res, 403, { ok: false, error: 'merchant_user_not_active' });
             }
 
+            // Consume the one-time token BEFORE writing the password (the
+            // store consume is conditional — see the admin handler).
+            const usedAt = now().toISOString();
+            const consumed = await store.markMerchantUserPasswordResetTokenUsed(reset.reset_token_id, usedAt);
+            if (!consumed) {
+                return sendJson(res, 401, { ok: false, error: 'reset_token_used' });
+            }
+
             const passwordHash = await bcrypt.hash(password, bcryptCost);
             const updated = await store.updateMerchantUserPassword(merchantUser.merchant_user_id, passwordHash);
-            const usedAt = now().toISOString();
-            await store.markMerchantUserPasswordResetTokenUsed(reset.reset_token_id, usedAt);
             if (typeof store.revokeMerchantUserSessions === 'function') {
                 await store.revokeMerchantUserSessions(merchantUser.merchant_user_id, usedAt);
             }

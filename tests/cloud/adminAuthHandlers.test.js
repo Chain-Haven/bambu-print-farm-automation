@@ -314,7 +314,7 @@ describe('cloud admin password reset handlers', () => {
                 role: 'super_admin',
                 status: 'active',
             }),
-            markAdminPasswordResetTokenUsed: vi.fn(),
+            markAdminPasswordResetTokenUsed: vi.fn().mockResolvedValue({ reset_token_id: 'reset-1' }),
             revokeAdminSessions: vi.fn(),
         };
         const handler = createCloudAdminSetPasswordHandler({
@@ -480,8 +480,47 @@ describe('cloud admin login and me handlers', () => {
         }, res);
 
         expect(res.statusCode).toBe(200);
-        expect(res.body).toEqual({ ok: true });
+        expect(res.body).toEqual({ ok: true, revoked_all: false });
         expect(store.revokeAdminSession).toHaveBeenCalledWith('session-1', '2026-07-01T12:00:00.000Z');
+    });
+
+    it('logout with all:true revokes every session for the admin', async () => {
+        const store = {
+            findAdminSessionByHash: vi.fn().mockResolvedValue({
+                session_id: 'session-1',
+                admin_user_id: 'admin-1',
+                token_hash: hashAdminSecret('pkx_admin_session_secret', 'pepper'),
+                expires_at: '2026-07-08T12:00:00.000Z',
+                revoked_at: null,
+            }),
+            findPlatformAdminById: vi.fn().mockResolvedValue({
+                admin_user_id: 'admin-1',
+                email: 'info@chainhaven.co',
+                role: 'super_admin',
+                status: 'active',
+            }),
+            touchAdminSession: vi.fn(),
+            revokeAdminSession: vi.fn(),
+            revokeAdminSessions: vi.fn(),
+        };
+        const handler = createCloudAdminLogoutHandler({
+            store,
+            bootstrapToken: 'bootstrap-secret',
+            pepper: 'pepper',
+            now,
+        });
+        const res = createMockResponse();
+
+        await handler({
+            method: 'POST',
+            headers: { authorization: 'Bearer pkx_admin_session_secret' },
+            body: { all: true },
+        }, res);
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body).toEqual({ ok: true, revoked_all: true });
+        expect(store.revokeAdminSessions).toHaveBeenCalledWith('admin-1', '2026-07-01T12:00:00.000Z');
+        expect(store.revokeAdminSession).not.toHaveBeenCalled();
     });
 });
 

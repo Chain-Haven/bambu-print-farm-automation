@@ -45,6 +45,40 @@ swapped since, re-run `proof_test.js` before concluding anything.
 
 Full write-up is in `DIAGNOSIS.md`.
 
+## Changes already made (July 2026 session — console audit, tabbed UX, cloud-link)
+
+1. **Cloud console is tabbed** (`cloud.html` + `.console-tabs` CSS + `bindTabs`):
+   Fleet / Merchants / Automation / Setup & Admin — same panels and element IDs,
+   one section on screen at a time (last tab persists in `pkxCloudTab`).
+2. **One-click migration runner**: the Backend Setup panel has "Apply pending
+   migrations" (POST `/api/cloud/admin/migrations`) — previously an operator on
+   an out-of-date schema was stuck behind the setup gate with no UI path.
+3. **Audit fixes** (see PR for the full list): admin session pepper is now
+   threaded through every data handler (`adminPepper` option — self-hosted
+   session logins used to 403 on `/overview` etc. when env peppers diverged);
+   `localCloudServer` gained the 4 missing admin routes (merchant-api-keys/
+   jobs/usage/v2); password-reset tokens are consumed atomically BEFORE the
+   password write (double-submit safe) on both stores; the public merchant
+   projection now redacts `metadata.webhook.secret`; migration error redaction
+   covers `pkx_muser_*`.
+4. **Node lifecycle management**: `/api/cloud/nodes` accepts
+   `{action: rename|rotate_token|decommission, node_id}` (decommission
+   scrambles `token_hash` so the old token can never authenticate; nodes table
+   has Rename / Rotate token / Decommission row actions). New store methods
+   `findFarmNodeById`/`updateFarmNode`.
+5. **More admin tools**: "Portal Accounts" panel (list a merchant's portal
+   users + issue password reset via `/api/cloud/merchant-users`), "Sign out
+   everywhere" (admin logout `{all:true}`; merchant portal has the same).
+6. **Cloud Link — print server ⇄ cloud integration**: the agent loop moved to
+   `src/cloud/cloudAgentRuntime.js` (restartable, single-instance);
+   `server.js` auto-starts it when configured via the new `app_settings` table
+   (migration 017 + `SettingsModel`) or `CLOUD_API_URL`/`LOCAL_NODE_TOKEN` env;
+   `runLocalNode.js` is now a thin wrapper (bundle entry unchanged). New
+   `/api/cloud-link` REST (GET status / PUT save+connect / DELETE / POST test)
+   and a "Cloud Link" modal in the local dashboard header — an operator can now
+   join the cloud by pasting a URL + token into the UI, no `.env` editing.
+   Rebuilt `dist/windows-node/farm-node.cjs`.
+
 ## Changes already made (July 2026 session — admin + merchant sign-in overhaul)
 
 1. **Admin sign-in is a normal email/password flow** (`src/cloud/adminAuthHandlers.js`):

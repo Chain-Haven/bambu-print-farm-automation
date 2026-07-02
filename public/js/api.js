@@ -136,6 +136,12 @@ class ApiClient {
     getTunnelStatus() { return this.request('GET', '/system/tunnel/status'); }
     startTunnel() { return this.request('POST', '/system/tunnel/start'); }
     stopTunnel() { return this.request('POST', '/system/tunnel/stop'); }
+
+    // Cloud link (PrintKinetix control plane)
+    getCloudLink() { return this.request('GET', '/cloud-link'); }
+    saveCloudLink(payload) { return this.request('PUT', '/cloud-link', payload); }
+    removeCloudLink() { return this.request('DELETE', '/cloud-link'); }
+    testCloudLink(payload = {}) { return this.request('POST', '/cloud-link/test', payload); }
 }
 
 window.ApiClient = ApiClient;

@@ -53,7 +53,7 @@ function sanitizeOperationalError(error) {
         .replace(/postgres(?:ql)?:\/\/[^\s'"<>]+/gi, 'postgres://[redacted]')
         .replace(/\b(password|pass|pwd)=([^&\s]+)/gi, '$1=[redacted]')
         .replace(/\b(apikey|authorization|bearer)\s*[:=]\s*[^\s,'"<>]+/gi, '$1=[redacted]')
-        .replace(/pkx_(?:live|setup|node|admin_reset|admin_session)_[A-Za-z0-9_-]+/g, 'pkx_[redacted]')
+        .replace(/pkx_(?:live|setup|node|admin_reset|admin_session|muser_reset|muser_session)_[A-Za-z0-9_-]+/g, 'pkx_[redacted]')
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, SAFE_ERROR_DETAIL_MAX_LENGTH);
