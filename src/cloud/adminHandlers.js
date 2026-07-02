@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { AdminAuthError, authenticateCloudAdmin } from './adminAuth.js';
 import { hashNodeToken, parseJsonBody } from './agentProtocol.js';
+import { createRequestId, getRequestId } from './httpServerUtils.js';
 import {
     buildMerchantApiKeyRecord,
     buildMerchantSetupTokenRecord,
@@ -49,11 +50,28 @@ function sendJson(res, statusCode, payload) {
     return res.end(JSON.stringify(payload));
 }
 
-function methodNotAllowed(res, methods) {
+function methodNotAllowed(res, methods, requestId = createRequestId()) {
     if (typeof res.setHeader === 'function') {
         res.setHeader('Allow', methods);
     }
-    return sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
+    return sendJson(res, 405, {
+        ok: false,
+        error: 'method_not_allowed',
+        message: 'Method not allowed',
+        request_id: requestId,
+    });
+}
+
+// Sanitized 500: never echo error.message back to the client. The fallbackCode
+// identifies the failing operation; the request_id lets the operator correlate
+// the client report to server logs.
+function sendInternalError(res, req, fallbackCode) {
+    return sendJson(res, 500, {
+        ok: false,
+        error: fallbackCode,
+        message: 'Unexpected server error',
+        request_id: getRequestId(req),
+    });
 }
 
 function normalizeRequiredString(value, name) {
@@ -515,11 +533,7 @@ export function createCloudSetupStatusHandler({
                 },
             });
         } catch (error) {
-            return sendJson(res, 500, {
-                ok: false,
-                error: 'setup_status_failed',
-                message: error.message,
-            });
+            return sendInternalError(res, req, 'setup_status_failed');
         }
     };
 }
@@ -542,11 +556,7 @@ export function createCloudOverviewHandler({ store, adminToken = process.env.CLO
 
             return sendJson(res, 200, { ok: true, overview });
         } catch (error) {
-            return sendJson(res, 500, {
-                ok: false,
-                error: 'overview_failed',
-                message: error.message,
-            });
+            return sendInternalError(res, req, 'overview_failed');
         }
     };
 }
@@ -708,11 +718,7 @@ export function createCloudFarmAutomationHandler({
                 });
                 return sendJson(res, 200, { ok: true, automation });
             } catch (error) {
-                return sendJson(res, 500, {
-                    ok: false,
-                    error: 'farm_automation_failed',
-                    message: error.message,
-                });
+                return sendInternalError(res, req, 'farm_automation_failed');
             }
         }
 
@@ -777,11 +783,7 @@ export function createCloudMerchantsHandler({
                 });
                 return sendJson(res, 200, { ok: true, merchants: merchants.map(redactMerchant) });
             } catch (error) {
-                return sendJson(res, 500, {
-                    ok: false,
-                    error: 'list_merchants_failed',
-                    message: error.message,
-                });
+                return sendInternalError(res, req, 'list_merchants_failed');
             }
         }
 
@@ -988,11 +990,7 @@ export function createCloudMerchantSettingsHandler({
                     settings: { full_auto_merchant_mode: fullAuto },
                 });
             } catch (error) {
-                return sendJson(res, 500, {
-                    ok: false,
-                    error: 'merchant_settings_failed',
-                    message: error.message,
-                });
+                return sendInternalError(res, req, 'merchant_settings_failed');
             }
         }
 

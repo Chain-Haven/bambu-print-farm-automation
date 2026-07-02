@@ -1,3 +1,4 @@
+import { withCors } from '../../src/cloud/httpServerUtils.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,7 +17,7 @@ function sendJson(res, statusCode, payload) {
     return res.json(payload);
 }
 
-export default function handler(req, res) {
+export default withCors(function handler(req, res) {
     if (req.method && req.method !== 'GET') {
         if (typeof res.setHeader === 'function') res.setHeader('Allow', 'GET');
         return sendJson(res, 405, {
@@ -27,4 +28,4 @@ export default function handler(req, res) {
     }
     const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
     return sendJson(res, 200, spec);
-}
+});

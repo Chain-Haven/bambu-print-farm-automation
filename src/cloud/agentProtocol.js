@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { InvalidJsonError } from './httpServerUtils.js';
+
+export { InvalidJsonError };
 
 const VALID_NODE_STATUSES = new Set(['online', 'degraded', 'offline']);
 const VALID_COMMAND_RESULT_STATUSES = new Set(['running', 'succeeded', 'failed']);
@@ -165,6 +168,9 @@ export function parseJsonBody(body) {
         const parsed = JSON.parse(body);
         return isPlainObject(parsed) ? parsed : {};
     } catch {
-        return {};
+        // Malformed JSON is a client error, not a silent empty body — throw so
+        // handler catch blocks can return a clean 400 invalid_json instead of
+        // processing an empty object and 500ing downstream.
+        throw new InvalidJsonError();
     }
 }

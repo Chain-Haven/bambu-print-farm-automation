@@ -230,7 +230,28 @@ describe('heartbeat handler', () => {
         await handler({ method: 'POST', headers: {}, body: {} }, res);
 
         expect(res.statusCode).toBe(401);
-        expect(res.body).toEqual({ ok: false, error: 'missing_agent_token' });
+        expect(res.body).toMatchObject({ ok: false, error: 'missing_agent_token' });
+    });
+
+    it('returns 400 invalid_json for a malformed JSON body (not a 500)', async () => {
+        const handler = createHeartbeatHandler({
+            pepper: 'pepper',
+            store: {
+                findNodeByTokenHash: vi.fn().mockResolvedValue({ node_id: 'node-1', organization_id: 'org-1' }),
+                recordNodeHeartbeat: vi.fn(),
+            },
+        });
+        const res = createMockResponse();
+
+        await handler(
+            { method: 'POST', headers: { authorization: 'Bearer pkx_node_secret' }, body: '{ not valid json' },
+            res,
+        );
+
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toMatchObject({ ok: false, error: 'invalid_json' });
+        expect(res.body.request_id).toMatch(/^req_/);
+        expect(JSON.stringify(res.body)).not.toContain('not valid json');
     });
 
     it('records a heartbeat for a registered local node', async () => {
@@ -273,7 +294,7 @@ describe('heartbeat handler', () => {
             last_seen_at: '2026-06-30T22:05:00.000Z',
         });
         expect(res.statusCode).toBe(200);
-        expect(res.body).toEqual({
+        expect(res.body).toMatchObject({
             ok: true,
             node_id: 'node-1',
             organization_id: 'org-1',
@@ -332,7 +353,7 @@ describe('heartbeat handler', () => {
             ],
             '2026-06-30T22:05:00.000Z',
         );
-        expect(res.body).toEqual({
+        expect(res.body).toMatchObject({
             ok: true,
             node_id: 'node-1',
             organization_id: 'org-1',
@@ -374,7 +395,7 @@ describe('command claim handler', () => {
         expect(store.findNodeByTokenHash).toHaveBeenCalledWith(hashNodeToken('pkx_node_secret', 'pepper'));
         expect(store.claimNodeCommands).toHaveBeenCalledWith('node-1', 2);
         expect(res.statusCode).toBe(200);
-        expect(res.body).toEqual({
+        expect(res.body).toMatchObject({
             ok: true,
             node_id: 'node-1',
             commands,
@@ -402,7 +423,7 @@ describe('command claim handler', () => {
         );
 
         expect(store.claimNodeCommands).toHaveBeenCalledWith('node-1', 50);
-        expect(res.body).toEqual({ ok: true, node_id: 'node-1', commands: [] });
+        expect(res.body).toMatchObject({ ok: true, node_id: 'node-1', commands: [] });
     });
 });
 
@@ -444,7 +465,7 @@ describe('command result handler', () => {
             finished_at: '2026-06-30T22:25:00.000Z',
         });
         expect(res.statusCode).toBe(200);
-        expect(res.body).toEqual({ ok: true, command_id: 'command-1', status: 'failed' });
+        expect(res.body).toMatchObject({ ok: true, command_id: 'command-1', status: 'failed' });
     });
 });
 
@@ -498,7 +519,7 @@ describe('events handler', () => {
             ],
         );
         expect(res.statusCode).toBe(200);
-        expect(res.body).toEqual({ ok: true, accepted: 1, job_updates: 0 });
+        expect(res.body).toMatchObject({ ok: true, accepted: 1, job_updates: 0 });
     });
 
     it('applies node-reported merchant job lifecycle: status, reservation release, webhook', async () => {
@@ -557,7 +578,7 @@ describe('events handler', () => {
             res,
         );
 
-        expect(res.body).toEqual({ ok: true, accepted: 1, job_updates: 1 });
+        expect(res.body).toMatchObject({ ok: true, accepted: 1, job_updates: 1 });
         expect(store.updatePrintJob).toHaveBeenCalledWith('job-9', expect.objectContaining({
             status: 'completed',
         }));
@@ -602,7 +623,7 @@ describe('events handler', () => {
         );
 
         expect(store.updatePrintJob).not.toHaveBeenCalled();
-        expect(res.body).toEqual({ ok: true, accepted: 1, job_updates: 0 });
+        expect(res.body).toMatchObject({ ok: true, accepted: 1, job_updates: 0 });
     });
 });
 

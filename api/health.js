@@ -2,6 +2,8 @@
 // Used by the landing page status badge and external monitors. Intentionally
 // lightweight: no Supabase probes (those can time out and cascade), just a
 // deterministic "the API is up and answering" signal.
+import { withCors } from '../src/cloud/httpServerUtils.js';
+
 function sendJson(res, statusCode, payload) {
     if (typeof res.setHeader === 'function') {
         res.setHeader('Content-Type', 'application/json');
@@ -14,7 +16,7 @@ function sendJson(res, statusCode, payload) {
     return res.end(JSON.stringify(payload));
 }
 
-export default function handler(req, res) {
+function healthHandler(req, res) {
     if (req.method && req.method !== 'GET' && req.method !== 'HEAD') {
         if (typeof res.setHeader === 'function') res.setHeader('Allow', 'GET, HEAD');
         return sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
@@ -30,3 +32,5 @@ export default function handler(req, res) {
         commit: process.env.VERCEL_GIT_COMMIT_SHA ? process.env.VERCEL_GIT_COMMIT_SHA.slice(0, 10) : null,
     });
 }
+
+export default withCors(healthHandler);

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { AdminAuthError, authenticateCloudAdmin } from './adminAuth.js';
+import { createRequestId } from './httpServerUtils.js';
 
 export const ALLOWED_SUPABASE_MIGRATION_FILES = Object.freeze([
     '20260701050000_merchant_api_v2_adapter_backbone.sql',
@@ -33,11 +34,16 @@ function sendJson(res, statusCode, payload) {
     return res.end(JSON.stringify(payload));
 }
 
-function methodNotAllowed(res, methods) {
+function methodNotAllowed(res, methods, requestId = createRequestId()) {
     if (typeof res.setHeader === 'function') {
         res.setHeader('Allow', methods);
     }
-    return sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
+    return sendJson(res, 405, {
+        ok: false,
+        error: 'method_not_allowed',
+        message: 'Method not allowed',
+        request_id: requestId,
+    });
 }
 
 function isPlainObject(value) {

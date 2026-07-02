@@ -1,3 +1,4 @@
+import { withCors } from '../../src/cloud/httpServerUtils.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,10 +32,13 @@ function summarize(spec) {
 // Public OpenAPI index: points clients at the v1 and v2 specs (static JSON)
 // and the live v2 route, so the "Live OpenAPI index" link on the landing page
 // resolves instead of 404ing.
-export default function handler(req, res) {
+export default withCors(function handler(req, res) {
     if (req.method && req.method !== 'GET') {
         if (typeof res.setHeader === 'function') res.setHeader('Allow', 'GET');
-        return sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
+        return sendJson(res, 405, {
+            ok: false,
+            error: 'method_not_allowed',
+        });
     }
 
     const base = `https://${req.headers?.host || 'bambu-print-farm-automation.vercel.app'}`;
@@ -52,4 +56,4 @@ export default function handler(req, res) {
         },
         docs_url: `${base}/merchant-api.html`,
     });
-}
+});

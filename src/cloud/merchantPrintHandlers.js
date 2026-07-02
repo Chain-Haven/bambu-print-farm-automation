@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { parseJsonBody } from './agentProtocol.js';
+import { createRequestId } from './httpServerUtils.js';
 import {
     MerchantAuthError,
     authenticateMerchantRequest,
@@ -33,11 +34,16 @@ function sendJson(res, statusCode, payload) {
     return res.end(JSON.stringify(payload));
 }
 
-function methodNotAllowed(res, methods) {
+function methodNotAllowed(res, methods, requestId = createRequestId()) {
     if (typeof res.setHeader === 'function') {
         res.setHeader('Allow', methods);
     }
-    return sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
+    return sendJson(res, 405, {
+        ok: false,
+        error: 'method_not_allowed',
+        message: 'Method not allowed',
+        request_id: requestId,
+    });
 }
 
 function requiredString(value, name) {
@@ -57,9 +63,14 @@ function parseLimit(query = {}) {
     return Math.max(1, Math.min(raw, 100));
 }
 
-function handleMerchantAuthError(res, error) {
+function handleMerchantAuthError(res, error, requestId = createRequestId()) {
     if (error instanceof MerchantAuthError) {
-        return sendJson(res, error.statusCode, { ok: false, error: error.code });
+        return sendJson(res, error.statusCode, {
+            ok: false,
+            error: error.code,
+            message: 'Authentication failed',
+            request_id: requestId,
+        });
     }
     return null;
 }

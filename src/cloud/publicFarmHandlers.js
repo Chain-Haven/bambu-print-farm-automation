@@ -1,5 +1,6 @@
 import { buildPublicFarmCapabilities } from './farmCapabilities.js';
 import { buildPublicFilamentAvailability } from './filamentAvailability.js';
+import { createRequestId } from './httpServerUtils.js';
 
 const FARM_AUTOMATION_POLICY_KEY = 'farm_automation_policy';
 const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
@@ -17,11 +18,16 @@ function sendJson(res, statusCode, payload) {
     return res.end(JSON.stringify(payload));
 }
 
-function methodNotAllowed(res, methods) {
+function methodNotAllowed(res, methods, requestId = createRequestId()) {
     if (typeof res.setHeader === 'function') {
         res.setHeader('Allow', methods);
     }
-    return sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
+    return sendJson(res, 405, {
+        ok: false,
+        error: 'method_not_allowed',
+        message: 'Method not allowed',
+        request_id: requestId,
+    });
 }
 
 export function createPublicFarmFilamentsHandler({ store }) {

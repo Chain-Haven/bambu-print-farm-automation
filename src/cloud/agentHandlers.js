@@ -6,6 +6,13 @@ import {
     normalizeHeartbeat,
     parseJsonBody,
 } from './agentProtocol.js';
+import {
+    getRequestId,
+    methodNotAllowed as sharedMethodNotAllowed,
+    sendHandlerError,
+    sendJson,
+    sendClientError,
+} from './httpServerUtils.js';
 import { releaseFilamentReservation } from './filamentReservations.js';
 import { deliverMerchantWebhook } from './webhooks.js';
 
@@ -92,40 +99,21 @@ async function processJobLifecycleEvents({ store, node, events, now, fetchImpl }
     return { processed };
 }
 
-function sendJson(res, statusCode, payload) {
-    if (typeof res.status === 'function' && typeof res.json === 'function') {
-        return res.status(statusCode).json(payload);
-    }
-
-    res.statusCode = statusCode;
-    if (typeof res.setHeader === 'function') {
-        res.setHeader('Content-Type', 'application/json');
-    }
-    return res.end(JSON.stringify(payload));
-}
-
-function methodNotAllowed(res, methods = 'POST') {
-    if (typeof res.setHeader === 'function') {
-        res.setHeader('Allow', methods);
-    }
-    return sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
-}
-
-async function authenticateNode(req, res, { store, pepper }) {
+async function authenticateNode(req, res, { store, pepper, requestId }) {
     const token = getBearerToken(req.headers || {});
     if (!token) {
-        sendJson(res, 401, { ok: false, error: 'missing_agent_token' });
+        sendClientError(res, 401, 'missing_agent_token', 'Agent bearer token is required', requestId);
         return null;
     }
     if (!pepper) {
-        sendJson(res, 500, { ok: false, error: 'cloud_not_configured' });
+        sendClientError(res, 503, 'cloud_not_configured', 'Cloud is not configured', requestId);
         return null;
     }
 
     const tokenHash = hashNodeToken(token, pepper);
     const node = await store.findNodeByTokenHash(tokenHash);
     if (!node) {
-        sendJson(res, 403, { ok: false, error: 'unknown_agent_token' });
+        sendClientError(res, 403, 'unknown_agent_token', 'Unknown agent token', requestId);
         return null;
     }
 
@@ -142,12 +130,13 @@ export function createHeartbeatHandler({ store, pepper, now = () => new Date() }
     if (!store) throw new Error('store is required');
 
     return async function heartbeatHandler(req, res) {
+        const requestId = getRequestId(req);
         if (req.method && req.method !== 'POST') {
-            return methodNotAllowed(res, 'POST');
+            return sharedMethodNotAllowed(res, 'POST', requestId);
         }
 
         try {
-            const node = await authenticateNode(req, res, { store, pepper });
+            const node = await authenticateNode(req, res, { store, pepper, requestId });
             if (!node) return null;
 
             const heartbeat = normalizeHeartbeat(parseJsonBody(req.body), now);
@@ -164,17 +153,14 @@ export function createHeartbeatHandler({ store, pepper, now = () => new Date() }
 
             return sendJson(res, 200, {
                 ok: true,
+                request_id: requestId,
                 node_id: node.node_id,
                 organization_id: node.organization_id || node.org_id,
                 status: heartbeat.status,
                 printers_synced: printersSynced,
             });
         } catch (error) {
-            return sendJson(res, 500, {
-                ok: false,
-                error: 'heartbeat_failed',
-                message: error.message,
-            });
+            return sendHandlerError(res, error, requestId, { fallbackCode: 'heartbeat_failed' });
         }
     };
 }
@@ -183,12 +169,13 @@ export function createClaimCommandsHandler({ store, pepper }) {
     if (!store) throw new Error('store is required');
 
     return async function claimCommandsHandler(req, res) {
+        const requestId = getRequestId(req);
         if (req.method && req.method !== 'GET') {
-            return methodNotAllowed(res, 'GET');
+            return sharedMethodNotAllowed(res, 'GET', requestId);
         }
 
         try {
-            const node = await authenticateNode(req, res, { store, pepper });
+            const node = await authenticateNode(req, res, { store, pepper, requestId });
             if (!node) return null;
 
             const limit = parseCommandLimit(req.query || {});
@@ -196,15 +183,12 @@ export function createClaimCommandsHandler({ store, pepper }) {
 
             return sendJson(res, 200, {
                 ok: true,
+                request_id: requestId,
                 node_id: node.node_id,
                 commands,
             });
         } catch (error) {
-            return sendJson(res, 500, {
-                ok: false,
-                error: 'claim_commands_failed',
-                message: error.message,
-            });
+            return sendHandlerError(res, error, requestId, { fallbackCode: 'claim_commands_failed' });
         }
     };
 }
@@ -213,17 +197,18 @@ export function createEventsHandler({ store, pepper, now = () => new Date(), fet
     if (!store) throw new Error('store is required');
 
     return async function eventsHandler(req, res) {
+        const requestId = getRequestId(req);
         if (req.method && req.method !== 'POST') {
-            return methodNotAllowed(res, 'POST');
+            return sharedMethodNotAllowed(res, 'POST', requestId);
         }
 
         try {
-            const node = await authenticateNode(req, res, { store, pepper });
+            const node = await authenticateNode(req, res, { store, pepper, requestId });
             if (!node) return null;
 
             const events = normalizeAgentEvents(parseJsonBody(req.body), now);
             if (events.length === 0) {
-                return sendJson(res, 400, { ok: false, error: 'no_valid_events' });
+                return sendClientError(res, 400, 'no_valid_events', 'No valid events in request', requestId);
             }
 
             await store.recordNodeEvents(node, events);
@@ -234,15 +219,12 @@ export function createEventsHandler({ store, pepper, now = () => new Date(), fet
 
             return sendJson(res, 200, {
                 ok: true,
+                request_id: requestId,
                 accepted: events.length,
                 job_updates: lifecycle.processed,
             });
         } catch (error) {
-            return sendJson(res, 500, {
-                ok: false,
-                error: 'record_events_failed',
-                message: error.message,
-            });
+            return sendHandlerError(res, error, requestId, { fallbackCode: 'record_events_failed' });
         }
     };
 }
@@ -251,12 +233,13 @@ export function createCommandResultHandler({ store, pepper, now = () => new Date
     if (!store) throw new Error('store is required');
 
     return async function commandResultHandler(req, res) {
+        const requestId = getRequestId(req);
         if (req.method && req.method !== 'POST') {
-            return methodNotAllowed(res, 'POST');
+            return sharedMethodNotAllowed(res, 'POST', requestId);
         }
 
         try {
-            const node = await authenticateNode(req, res, { store, pepper });
+            const node = await authenticateNode(req, res, { store, pepper, requestId });
             if (!node) return null;
 
             const result = normalizeCommandResult(parseJsonBody(req.body), now);
@@ -264,15 +247,12 @@ export function createCommandResultHandler({ store, pepper, now = () => new Date
 
             return sendJson(res, 200, {
                 ok: true,
+                request_id: requestId,
                 command_id: result.command_id,
                 status: result.status,
             });
         } catch (error) {
-            return sendJson(res, 400, {
-                ok: false,
-                error: 'record_command_result_failed',
-                message: error.message,
-            });
+            return sendHandlerError(res, error, requestId, { fallbackCode: 'record_command_result_failed' });
         }
     };
 }

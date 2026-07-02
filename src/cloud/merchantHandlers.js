@@ -1,4 +1,5 @@
 import { parseJsonBody } from './agentProtocol.js';
+import { createRequestId } from './httpServerUtils.js';
 import {
     MerchantAuthError,
     authenticateMerchantRequest,
@@ -40,11 +41,16 @@ function sendJson(res, statusCode, payload) {
     return res.end(JSON.stringify(payload));
 }
 
-function methodNotAllowed(res, methods) {
+function methodNotAllowed(res, methods, requestId = createRequestId()) {
     if (typeof res.setHeader === 'function') {
         res.setHeader('Allow', methods);
     }
-    return sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
+    return sendJson(res, 405, {
+        ok: false,
+        error: 'method_not_allowed',
+        message: 'Method not allowed',
+        request_id: requestId,
+    });
 }
 
 function requiredString(value, name) {
@@ -155,9 +161,14 @@ function redactApiKey(apiKey) {
     }).filter(([, value]) => value !== undefined));
 }
 
-function handleMerchantAuthError(res, error) {
+function handleMerchantAuthError(res, error, requestId = createRequestId()) {
     if (error instanceof MerchantAuthError || error instanceof MerchantUserAuthError) {
-        return sendJson(res, error.statusCode, { ok: false, error: error.code });
+        return sendJson(res, error.statusCode, {
+            ok: false,
+            error: error.code,
+            message: 'Authentication failed',
+            request_id: requestId,
+        });
     }
     return null;
 }

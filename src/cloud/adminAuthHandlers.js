@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { parseJsonBody } from './agentProtocol.js';
+import { createRequestId } from './httpServerUtils.js';
 import { createRpmLimiter } from '../utils/rateLimiter.js';
 import { createMailer } from './mailer.js';
 import {
@@ -38,11 +39,16 @@ function sendJson(res, statusCode, payload) {
     return res.end(JSON.stringify(payload));
 }
 
-function methodNotAllowed(res, methods) {
+function methodNotAllowed(res, methods, requestId = createRequestId()) {
     if (typeof res.setHeader === 'function') {
         res.setHeader('Allow', methods);
     }
-    return sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
+    return sendJson(res, 405, {
+        ok: false,
+        error: 'method_not_allowed',
+        message: 'Method not allowed',
+        request_id: requestId,
+    });
 }
 
 function isPlainObject(value) {

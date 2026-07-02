@@ -306,7 +306,7 @@ describe('cloud merchant API v2 admin handler', () => {
 
         expect(postRes.statusCode).toBe(405);
         expect(postRes.headers.Allow).toBe('GET');
-        expect(postRes.body).toEqual({ ok: false, error: 'method_not_allowed' });
+        expect(postRes.body).toMatchObject({ ok: false, error: 'method_not_allowed' });
         expect(missingMerchantRes.statusCode).toBe(400);
         expect(missingMerchantRes.body).toMatchObject({
             ok: false,
