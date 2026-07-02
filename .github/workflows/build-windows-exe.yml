@@ -1,0 +1,48 @@
+name: Build Windows .exe
+
+# Builds a single, self-contained farm-node.exe for Windows using Node's
+# Single Executable Application support. SEA injection requires the Windows
+# node.exe, so this runs on windows-latest (you cannot cross-build a Windows
+# SEA exe from macOS/Linux).
+#
+# Run it manually (Actions tab → "Build Windows .exe" → Run workflow). The .exe
+# is uploaded as a workflow artifact you can download, attach to a GitHub
+# Release, and serve behind FARM_NODE_EXE_URL so the admin console's
+# "Download Windows .exe" button downloads it.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-exe:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build portable bundle + Windows SEA exe
+        run: npm run build:node:exe
+
+      - name: Verify exe exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/windows-node/farm-node.exe")) {
+            Write-Error "farm-node.exe was not produced"
+            exit 1
+          }
+          Get-Item dist/windows-node/farm-node.exe | Select-Object Name,Length
+
+      - name: Upload farm-node.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: farm-node-exe
+          path: dist/windows-node/farm-node.exe
+          if-no-files-found: error

@@ -417,4 +417,59 @@ describe('cloud node package handler', () => {
         });
         expect(packageBuilder).not.toHaveBeenCalled();
     });
+
+    it('format=exe returns a redirect URL when FARM_NODE_EXE_URL is configured', async () => {
+        const packageBuilder = vi.fn();
+        const handler = createCloudNodePackageHandler({
+            adminToken: 'admin-secret',
+            rootDir: '/repo',
+            packageBuilder,
+            exeUrl: 'https://example.com/releases/farm-node.exe',
+        });
+        const res = createMockDownloadResponse();
+
+        await handler(
+            {
+                method: 'POST',
+                headers: { authorization: 'Bearer admin-secret', host: 'farm.example.com' },
+                body: { format: 'exe', cloud_api_url: 'https://farm.example.com' },
+            },
+            res,
+        );
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body).toMatchObject({
+            ok: true,
+            format: 'exe',
+            download_url: 'https://example.com/releases/farm-node.exe',
+        });
+        expect(packageBuilder).not.toHaveBeenCalled();
+    });
+
+    it('format=exe without a hosted URL or local exe returns 409 exe_not_built', async () => {
+        const packageBuilder = vi.fn();
+        const fsImpl = { existsSync: vi.fn().mockReturnValue(false) };
+        const handler = createCloudNodePackageHandler({
+            adminToken: 'admin-secret',
+            rootDir: '/repo',
+            packageBuilder,
+            exeUrl: null,
+            fsImpl,
+        });
+        const res = createMockDownloadResponse();
+
+        await handler(
+            {
+                method: 'POST',
+                headers: { authorization: 'Bearer admin-secret', host: 'farm.example.com' },
+                body: { format: 'exe', cloud_api_url: 'https://farm.example.com' },
+            },
+            res,
+        );
+
+        expect(res.statusCode).toBe(409);
+        expect(res.body).toMatchObject({ ok: false, error: 'exe_not_built', portable_available: true });
+        expect(res.body.build_command).toBe('npm run build:node:exe');
+        expect(packageBuilder).not.toHaveBeenCalled();
+    });
 });

@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { AdminAuthError, authenticateCloudAdmin } from './adminAuth.js';
 import { hashNodeToken, parseJsonBody } from './agentProtocol.js';
 import { createRequestId, getRequestId } from './httpServerUtils.js';
@@ -10,7 +12,7 @@ import {
 } from './merchantAuth.js';
 import { redactPublicValue } from './merchantPublicProjections.js';
 import { redactWebhookConfig } from './webhooks.js';
-import { buildWindowsNodePackage, getNodePackageFileName } from './nodePackage.js';
+import { buildWindowsNodePackage, getNodePackageFileName, PORTABLE_BUNDLE_SUBDIR } from './nodePackage.js';
 import { buildFarmAutomationPlan, normalizeFarmAutomationSettings } from './farmAutomation.js';
 
 const MERCHANT_SETUP_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -134,11 +136,18 @@ function normalizeNodePackageRequest(body, req) {
     const source = isPlainObject(body) ? body : {};
     const host = typeof (req.headers || {}).host === 'string' ? req.headers.host.trim() : '';
     const inferredCloudApiUrl = host ? `https://${host}` : '';
+    const format = String(source.format || 'portable').trim().toLowerCase();
+    const localNodeToken = source.local_node_token;
+    // The .exe is a generic prebuilt binary hosted externally; it does not carry
+    // a per-node token, so a token is only required for the portable/source zip
+    // (which bakes .env into the package).
+    const tokenRequired = format !== 'exe';
 
     return {
         cloudApiUrl: normalizeRequiredString(source.cloud_api_url || inferredCloudApiUrl, 'cloud_api_url'),
-        localNodeToken: normalizeRequiredString(source.local_node_token, 'local_node_token'),
+        localNodeToken: tokenRequired ? normalizeRequiredString(localNodeToken, 'local_node_token') : (typeof localNodeToken === 'string' ? localNodeToken.trim() : ''),
         nodeName: typeof source.node_name === 'string' && source.node_name.trim() ? source.node_name.trim() : 'Windows NUC',
+        format: format === 'exe' ? 'exe' : 'portable',
     };
 }
 
@@ -657,6 +666,8 @@ export function createCloudNodePackageHandler({
     adminToken = process.env.CLOUD_ADMIN_TOKEN,
     rootDir = process.cwd(),
     packageBuilder = buildWindowsNodePackage,
+    exeUrl = process.env.FARM_NODE_EXE_URL,
+    fsImpl = fs,
 } = {}) {
     return async function cloudNodePackageHandler(req, res) {
         if (req.method && req.method !== 'POST') {
@@ -667,6 +678,42 @@ export function createCloudNodePackageHandler({
             if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
 
             const request = normalizeNodePackageRequest(parseJsonBody(req.body), req);
+
+            // Windows .exe: a Node SEA binary is too large for a Vercel serverless
+            // bundle and must be built on Windows, so it is hosted externally (a
+            // GitHub Release asset, Vercel Blob, etc.) and configured via
+            // FARM_NODE_EXE_URL. With no URL, a self-hosted server can still serve a
+            // locally-built dist/windows-node/farm-node.exe; otherwise we return a
+            // clear "not built yet" with build instructions.
+            if (request.format === 'exe') {
+                if (exeUrl) {
+                    return sendJson(res, 200, {
+                        ok: true,
+                        format: 'exe',
+                        download_url: exeUrl,
+                        message: 'Opening the hosted Windows .exe download.',
+                    });
+                }
+                const localExe = path.join(rootDir, PORTABLE_BUNDLE_SUBDIR, 'farm-node.exe');
+                if (fsImpl.existsSync(localExe)) {
+                    const buf = fsImpl.readFileSync(localExe);
+                    res.statusCode = 200;
+                    if (typeof res.setHeader === 'function') {
+                        res.setHeader('Content-Type', 'application/octet-stream');
+                        res.setHeader('Content-Disposition', 'attachment; filename="farm-node.exe"');
+                        res.setHeader('Cache-Control', 'no-store');
+                    }
+                    return res.end(buf);
+                }
+                return sendJson(res, 409, {
+                    ok: false,
+                    error: 'exe_not_built',
+                    message: 'The Windows .exe has not been built yet. Build it on Windows with `npm run build:node:exe` (or via the build-windows-exe GitHub Action), host the resulting farm-node.exe (GitHub Release / Vercel Blob), and set FARM_NODE_EXE_URL to its URL. The Portable .zip works now with no install.',
+                    build_command: 'npm run build:node:exe',
+                    portable_available: true,
+                });
+            }
+
             const zipBuffer = packageBuilder({
                 rootDir,
                 cloudApiUrl: request.cloudApiUrl,

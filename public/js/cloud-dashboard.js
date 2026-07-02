@@ -205,7 +205,9 @@ const elements = {
   nodeName: $('#node-name'),
   nodeCapabilities: $('#node-capabilities'),
   nodeTokenOutput: $('#node-token-output'),
-  downloadNodePackage: $('#download-node-package'),
+  downloadButtons: $('#download-buttons'),
+  downloadNodePortable: $('#download-node-portable'),
+  downloadNodeExe: $('#download-node-exe'),
   printerSyncForm: $('#printer-sync-form'),
   syncNode: $('#sync-node'),
   syncScanCidrs: $('#sync-scan-cidrs'),
@@ -401,6 +403,10 @@ async function apiDownload(path, { body, fileName }) {
   }
 
   const blob = await response.blob();
+  triggerBlobDownload(blob, fileName);
+}
+
+function triggerBlobDownload(blob, fileName) {
   const href = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = href;
@@ -1623,12 +1629,12 @@ async function handleProvisionNode(event) {
     token: result.token,
     capabilities,
   });
-  elements.downloadNodePackage.hidden = false;
+  elements.downloadButtons.hidden = false;
   showToast('Node provisioned');
   await refreshOverview();
 }
 
-async function handleDownloadNodePackage() {
+async function handleDownloadPortable() {
   if (!state.provisionedNode) {
     throw new Error('Provision a node first');
   }
@@ -1639,14 +1645,78 @@ async function handleDownloadNodePackage() {
     .replace(/^-+|-+$/g, '') || 'printkinetix-node';
 
   await apiDownload('/api/cloud/node-package', {
-    fileName: `${fileBase}-cloud-node.zip`,
+    fileName: `${fileBase}-portable.zip`,
     body: {
+      format: 'portable',
       cloud_api_url: state.provisionedNode.cloudApiUrl,
       local_node_token: state.provisionedNode.token,
       node_name: state.provisionedNode.name,
     },
   });
-  showToast('Farm node downloaded — Windows: run Start Farm Node.bat · Pi/Linux: bash start-farm-node.sh (no install, no keys)');
+  showToast('Portable app downloaded — extract and double-click "Start Farm Node.bat" (no install, auto-fetches Node)');
+}
+
+// The Windows .exe is a single prebuilt binary hosted externally (too large for
+// the serverless bundle). The handler returns either a redirect URL (open it) or
+// a clear "not built yet" message with build instructions.
+async function handleDownloadExe() {
+  if (!state.provisionedNode) {
+    throw new Error('Provision a node first');
+  }
+
+  const token = getAdminToken();
+  if (!token) throw new Error('Admin token is required');
+
+  const response = await fetch('/api/cloud/node-package', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      format: 'exe',
+      cloud_api_url: state.provisionedNode.cloudApiUrl,
+      local_node_token: state.provisionedNode.token,
+      node_name: state.provisionedNode.name,
+    }),
+  });
+
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    const payload = await response.json().catch(() => ({}));
+    if (payload.download_url) {
+      window.open(payload.download_url, '_blank');
+      showToast('Opening the Windows .exe download…');
+      return;
+    }
+    if (payload.error === 'exe_not_built') {
+      showToast('Windows .exe not built yet — see the message below.');
+      if (elements.quickstartOutput) {
+        elements.quickstartOutput.hidden = false;
+        elements.quickstartOutput.textContent = [
+          'Windows .exe not built yet.',
+          '',
+          payload.message || 'Build it on Windows and host it, then set FARM_NODE_EXE_URL.',
+          '',
+          'Build command:  ' + (payload.build_command || 'npm run build:node:exe'),
+          'Or run the "Build Windows .exe" GitHub Action (workflow_dispatch) and attach the artifact to a Release.',
+          '',
+          'The Portable .zip works now — no install required.',
+        ].join('\n');
+      }
+      return;
+    }
+    throw new Error(payload.message || payload.error || `Download failed with ${response.status}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Download failed with ${response.status}`);
+  }
+
+  // Self-hosted case: the server streamed a locally-built farm-node.exe.
+  const blob = await response.blob();
+  triggerBlobDownload(blob, 'farm-node.exe');
+  showToast('Windows .exe downloaded');
 }
 
 async function handleNodeQuickstart(event) {
@@ -1670,7 +1740,7 @@ async function handleNodeQuickstart(event) {
   elements.nodeOrgId.value = organization.org_id;
   elements.nodeName.value = result.node.name;
   elements.nodeCapabilities.value = JSON.stringify(capabilities, null, 2);
-  elements.downloadNodePackage.hidden = false;
+  elements.downloadButtons.hidden = false;
   renderProvisionedNodeOutput(elements.quickstartOutput, {
     organization,
     node: result.node,
@@ -1685,7 +1755,7 @@ async function handleNodeQuickstart(event) {
   });
 
   if (elements.quickstartAutoDownload.checked) {
-    await handleDownloadNodePackage();
+    await handleDownloadPortable();
   }
 
   showToast('Windows manager ready');
@@ -2047,8 +2117,14 @@ function bindEvents() {
       showToast(error.message);
     });
   });
-  elements.downloadNodePackage.addEventListener('click', () => {
-    handleDownloadNodePackage().catch((error) => {
+  elements.downloadNodePortable.addEventListener('click', () => {
+    handleDownloadPortable().catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.downloadNodeExe.addEventListener('click', () => {
+    handleDownloadExe().catch((error) => {
       setApiState('Error', 'error');
       showToast(error.message);
     });

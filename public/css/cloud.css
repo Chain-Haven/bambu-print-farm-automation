@@ -456,6 +456,15 @@ h2 {
   line-height: 1.5;
 }
 
+.download-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.download-buttons button {
+  flex: 1 1 200px;
+}
+
 .table-stack {
   display: grid;
   gap: 16px;

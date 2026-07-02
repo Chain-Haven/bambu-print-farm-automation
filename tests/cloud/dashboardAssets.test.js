@@ -167,6 +167,14 @@ describe('cloud dashboard assets', () => {
         expect(js).toContain('/api/cloud/nodes');
         expect(js).toContain('/api/cloud/node-package');
         expect(js).toContain('/api/cloud/commands');
+
+        // Two Windows download buttons: a no-install portable .zip (works today)
+        // and a single .exe (hosted via FARM_NODE_EXE_URL / built on Windows).
+        expect(html).toContain('id="download-node-portable"');
+        expect(html).toContain('id="download-node-exe"');
+        expect(js).toContain("format: 'portable'");
+        expect(js).toContain("format: 'exe'");
+        expect(js).toContain('handleDownloadExe');
     });
 
     it('keeps browser controller scripts parseable', () => {
