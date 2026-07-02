@@ -4,36 +4,888 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="3DFLOW — Multi-Printer Orchestrator for Bambu 3D Print Farm">
-  <title>3DFLOW — Print Farm Orchestrator</title>
-  <link rel="stylesheet" href="/css/index.css">
-  <link rel="icon"
-    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌌</text></svg>">
+  <meta name="description"
+    content="PrintKinetix — cloud control plane for Bambu Lab print farms. Route storefront orders, manage merchants, and monitor your fleet without exposing printers to the internet.">
+  <meta name="theme-color" content="#146c5a">
+  <link rel="canonical" href="https://bambu-print-farm-automation.vercel.app/">
+
+  <!-- Social / Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="PrintKinetix">
+  <meta property="og:title" content="PrintKinetix — Print Farm Cloud for Bambu Lab">
+  <meta property="og:description" content="Cloud control plane for Bambu Lab print farms. Route storefront orders, manage merchants, and monitor your fleet.">
+  <meta property="og:url" content="https://bambu-print-farm-automation.vercel.app/">
+  <meta property="og:image" content="https://bambu-print-farm-automation.vercel.app/favicon.svg">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="PrintKinetix — Print Farm Cloud for Bambu Lab">
+  <meta name="twitter:description" content="Cloud control plane for Bambu Lab print farms. Route storefront orders and monitor your fleet.">
+
+  <!-- Favicon set -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/favicon.png">
+
+  <title>PrintKinetix — Print Farm Cloud for Bambu Lab</title>
+
+  <!-- Structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "PrintKinetix",
+    "applicationCategory": "IndustrialApplication",
+    "operatingSystem": "Cloud, Windows",
+    "description": "Cloud control plane for Bambu Lab print farms. Route storefront orders, manage merchants, and monitor your fleet.",
+    "url": "https://bambu-print-farm-automation.vercel.app/",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
+
+  <style>
+    :root {
+      color-scheme: light dark;
+      --accent: #146c5a;
+      --accent-strong: #0d4f43;
+      --accent-soft: #e9f1ee;
+      --accent-glow: rgba(20, 108, 90, 0.18);
+      --ink: #17201b;
+      --muted: #5f6d66;
+      --line: #d9ded8;
+      --panel: #ffffff;
+      --panel-elevated: #ffffff;
+      --bg: #f6f7f4;
+      --hero-bg: radial-gradient(1200px 640px at 50% -20%, #dceee8 0%, var(--bg) 58%);
+      --code-bg: rgba(20, 108, 90, 0.1);
+      --code-panel: #0f1a16;
+      --shadow: 0 18px 50px rgba(20, 35, 28, 0.08);
+      --ok: #15803d;
+      --ok-soft: #dcfce7;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --accent: #2dd4bf;
+        --accent-strong: #14b8a6;
+        --accent-soft: rgba(45, 212, 191, 0.12);
+        --accent-glow: rgba(45, 212, 191, 0.14);
+        --ink: #eef4ef;
+        --muted: #9fb0a8;
+        --line: #2a3530;
+        --panel: #151c18;
+        --panel-elevated: #1a221e;
+        --bg: #0d1210;
+        --hero-bg: radial-gradient(1100px 620px at 50% -25%, rgba(45, 212, 191, 0.12) 0%, var(--bg) 60%);
+        --code-bg: rgba(45, 212, 191, 0.14);
+        --code-panel: #07100d;
+        --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+        --ok: #4ade80;
+        --ok-soft: rgba(74, 222, 128, 0.16);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--hero-bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      line-height: 1.55;
+    }
+
+    a { color: var(--accent-strong); }
+    a:hover { color: var(--accent); }
+
+    code {
+      background: var(--code-bg);
+      border-radius: 4px;
+      padding: 0.12rem 0.35rem;
+      font-size: 0.92em;
+    }
+
+    a.skip-link {
+      position: absolute;
+      left: -999px;
+      top: 0;
+      z-index: 100;
+      background: var(--accent);
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 0 0 8px 0;
+      text-decoration: none;
+      font-weight: 700;
+    }
+    a.skip-link:focus { left: 0; }
+
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(12px);
+      background: color-mix(in srgb, var(--bg) 82%, transparent);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .site-header-inner,
+    .page-wrap {
+      width: min(1120px, 100%);
+      margin: 0 auto;
+      padding-left: 24px;
+      padding-right: 24px;
+    }
+
+    .site-header-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 64px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .brand .logo {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: linear-gradient(145deg, var(--accent), var(--accent-strong));
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-weight: 800;
+      font-size: 18px;
+      box-shadow: 0 8px 20px var(--accent-glow);
+    }
+
+    .brand span { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+
+    .nav-toggle {
+      display: none;
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      cursor: pointer;
+      color: var(--ink);
+    }
+
+    .nav-links {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .nav-links a {
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 8px 12px;
+      border-radius: 8px;
+      color: var(--muted);
+    }
+
+    .nav-links a:hover { color: var(--ink); background: var(--accent-soft); }
+    .nav-links a.cta { background: var(--accent); color: #fff; }
+    .nav-links a.cta:hover { background: var(--accent-strong); color: #fff; }
+
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 6px 11px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--muted);
+    }
+    .status-chip .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+      box-shadow: 0 0 0 0 var(--ok);
+    }
+    .status-chip.ok { color: var(--ok); border-color: var(--ok-soft); background: var(--ok-soft); }
+    .status-chip.ok .dot { background: var(--ok); animation: pulse 2.4s infinite; }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 var(--ok); }
+      70% { box-shadow: 0 0 0 8px transparent; }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+
+    .page-wrap { padding-top: 48px; padding-bottom: 72px; }
+
+    .hero {
+      display: grid;
+      gap: 28px;
+      grid-template-columns: 1.15fr 0.85fr;
+      align-items: center;
+      margin-bottom: 40px;
+    }
+
+    @media (max-width: 880px) {
+      .hero { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 720px) {
+      .nav-toggle { display: inline-flex; }
+      .nav-links {
+        display: none;
+        flex-direction: column;
+        align-items: stretch;
+        position: absolute;
+        top: 64px; right: 16px;
+        width: min(240px, calc(100% - 32px));
+        padding: 10px;
+        background: var(--panel-elevated);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: var(--shadow);
+      }
+      .nav-links.open { display: flex; }
+      .nav-links a { padding: 12px; }
+    }
+
+    .hero-copy h1 {
+      margin: 0 0 16px;
+      font-size: clamp(2.2rem, 5.5vw, 3.6rem);
+      line-height: 1.04;
+      letter-spacing: -0.03em;
+    }
+
+    .hero-copy p {
+      margin: 0 0 22px;
+      font-size: 1.12rem;
+      color: var(--muted);
+      max-width: 38rem;
+    }
+
+    .hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 18px;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 10px 24px var(--accent-glow); }
+    .btn-primary:hover { background: var(--accent-strong); color: #fff; }
+    .btn-secondary { background: var(--panel); border-color: var(--line); color: var(--ink); }
+    .btn-secondary:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+
+    .hero-panel {
+      background: var(--panel-elevated);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    /* Stylized fleet screenshot mockup (no external image dependency) */
+    .fleet-mock {
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: var(--bg);
+    }
+    .fleet-mock .bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      font-size: 12px; color: var(--muted); font-weight: 700;
+    }
+    .fleet-mock .bar .led { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); }
+    .fleet-mock .grid {
+      display: grid; gap: 10px; padding: 12px;
+      grid-template-columns: 1fr 1fr;
+    }
+    .fleet-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+    }
+    .fleet-card .chassis {
+      height: 42px; border-radius: 6px;
+      background: linear-gradient(180deg, var(--accent-soft), transparent);
+      border: 1px solid var(--line);
+      margin-bottom: 8px;
+      position: relative;
+    }
+    .fleet-card .chassis::after {
+      content: ""; position: absolute; left: 30%; right: 30%; bottom: 6px; height: 8px;
+      background: var(--accent); border-radius: 2px; opacity: 0.6;
+    }
+    .fleet-card .ams {
+      display: flex; gap: 4px; margin-bottom: 8px;
+    }
+    .fleet-card .ams i {
+      width: 10px; height: 10px; border-radius: 2px; background: var(--line);
+    }
+    .fleet-card .ams i:nth-child(1) { background: #d97706; }
+    .fleet-card .ams i:nth-child(2) { background: #2563eb; }
+    .fleet-card .ams i:nth-child(3) { background: #dc2626; }
+    .fleet-card .ams i:nth-child(4) { background: #6b7280; }
+    .fleet-card .name { font-size: 12px; font-weight: 700; }
+    .fleet-card .prog {
+      height: 5px; border-radius: 999px; background: var(--line); margin-top: 6px; overflow: hidden;
+    }
+    .fleet-card .prog::after { content: ""; display: block; height: 100%; width: 64%; background: var(--accent); }
+    .fleet-card .row {
+      display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 5px;
+    }
+
+    .section-title { margin: 0 0 8px; font-size: 1.5rem; letter-spacing: -0.02em; }
+    .section-lead { margin: 0 0 22px; color: var(--muted); max-width: 42rem; }
+
+    .printers-strip {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      margin: 26px 0 0;
+    }
+    .printers-strip .chip {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 7px 12px; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--panel);
+      font-size: 13px; font-weight: 600; color: var(--ink);
+    }
+    .printers-strip .chip svg { width: 14px; height: 14px; color: var(--accent-strong); }
+
+    .audience-grid, .feature-grid, .entry-grid, .diff-grid {
+      display: grid; gap: 16px;
+    }
+    .audience-grid { grid-template-columns: repeat(3, 1fr); margin-bottom: 48px; }
+    .feature-grid { grid-template-columns: repeat(3, 1fr); margin-bottom: 48px; }
+    .entry-grid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-bottom: 48px; }
+    .diff-grid { grid-template-columns: repeat(3, 1fr); margin-bottom: 48px; }
+
+    @media (max-width: 900px) {
+      .audience-grid, .feature-grid, .diff-grid { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 22px;
+    }
+    .panel h3 { margin: 0 0 8px; font-size: 1.05rem; }
+    .panel p, .panel li { margin: 0; color: var(--muted); font-size: 14px; }
+    .panel ul { margin: 10px 0 0; padding-left: 1.1rem; }
+    .panel ul li + li { margin-top: 6px; }
+
+    .panel .icon-head {
+      width: 34px; height: 34px; border-radius: 9px;
+      background: var(--accent-soft); color: var(--accent-strong);
+      display: grid; place-items: center; margin-bottom: 10px;
+    }
+    .panel .icon-head svg { width: 18px; height: 18px; }
+
+    a.card {
+      display: flex; flex-direction: column; min-height: 100%;
+      text-decoration: none; color: inherit;
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 16px; padding: 22px;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+    }
+    a.card:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--accent); }
+    a.card.primary {
+      background: linear-gradient(160deg, var(--accent), var(--accent-strong));
+      border-color: transparent; color: #fff;
+    }
+    a.card.primary p, a.card.primary .eyebrow { color: rgba(255, 255, 255, 0.88); }
+    a.card .eyebrow {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--accent-strong); font-weight: 800; margin-bottom: 8px;
+    }
+    a.card h3 { margin: 0 0 8px; font-size: 1.15rem; }
+    a.card p { flex: 1; margin: 0; font-size: 14px; color: var(--muted); }
+    a.card .go { margin-top: 16px; font-weight: 700; font-size: 14px; color: var(--accent-strong); }
+    a.card.primary .go { color: #fff; }
+
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .pill-row a {
+      display: inline-block; padding: 8px 12px; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--bg);
+      text-decoration: none; font-size: 13px; font-weight: 600; color: var(--accent-strong);
+    }
+    .pill-row a:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+    /* Code / try-it block */
+    .code-block {
+      background: var(--code-panel);
+      color: #d7f5ec;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .code-block .code-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.08);
+      font-size: 12px; color: #8fb3a9; font-weight: 700;
+    }
+    .code-block pre {
+      margin: 0; padding: 16px; overflow-x: auto; font-size: 13px; line-height: 1.6;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .code-block .copy-btn {
+      background: rgba(255,255,255,0.08); color: #d7f5ec; border: none;
+      border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-weight: 700;
+    }
+    .code-block .copy-btn:hover { background: rgba(255,255,255,0.16); }
+
+    .try-it {
+      margin-top: 14px;
+      display: grid; gap: 12px;
+    }
+    .try-it .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .try-it input {
+      flex: 1; min-width: 200px; min-height: 42px;
+      padding: 8px 12px; border-radius: 8px;
+      border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+      font: inherit;
+    }
+    .try-it .out {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12.5px; white-space: pre-wrap; word-break: break-all;
+      padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line);
+      background: var(--bg); color: var(--muted); min-height: 44px;
+    }
+
+    .pricing-row {
+      display: grid; gap: 16px; grid-template-columns: repeat(3, 1fr); margin-top: 16px;
+    }
+    @media (max-width: 800px) { .pricing-row { grid-template-columns: 1fr; } }
+    .price-card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+    .price-card .tier { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent-strong); }
+    .price-card .price { font-size: 1.6rem; font-weight: 800; margin: 8px 0 2px; }
+    .price-card .price small { font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+    .price-card p { margin: 6px 0 10px; color: var(--muted); font-size: 14px; }
+    .price-card ul { margin: 0; padding-left: 1.1rem; color: var(--muted); font-size: 13px; }
+    .price-card ul li + li { margin-top: 4px; }
+    .price-card.featured { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+    .note {
+      margin-top: 8px; padding: 16px 18px; border-radius: 14px;
+      border: 1px solid var(--line); border-left: 4px solid var(--accent);
+      background: var(--panel); color: var(--muted); font-size: 14px;
+    }
+
+    .site-footer {
+      margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--line);
+      display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: space-between;
+      color: var(--muted); font-size: 13px;
+    }
+    .site-footer nav { display: flex; flex-wrap: wrap; gap: 14px; }
+    .site-footer nav a { text-decoration: none; font-weight: 600; }
+  </style>
 </head>
 
 <body>
-  <div id="app">
-    <!-- Header injected by JS -->
-    <!-- Main content injected by JS router -->
-  </div>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="/" aria-label="PrintKinetix home">
+        <div class="logo" aria-hidden="true">P</div>
+        <span>PrintKinetix</span>
+      </a>
+      <button class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Toggle navigation" id="nav-toggle">Menu</button>
+      <nav class="nav-links" id="primary-nav" aria-label="Primary">
+        <span class="status-chip" id="status-chip" title="API health">
+          <span class="dot"></span><span id="status-text">Checking…</span>
+        </span>
+        <a href="#for-operators">Operators</a>
+        <a href="#for-merchants">Merchants</a>
+        <a href="#developers">Developers</a>
+        <a href="/merchant-api.html">API Docs</a>
+        <a class="cta" href="/cloud">Operator Console</a>
+      </nav>
+    </div>
+  </header>
 
-  <!-- Toast container -->
-  <div id="toast-container" class="toast-container"></div>
+  <main class="page-wrap" id="main">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <h1 id="hero-title">Run a Bambu print farm from the cloud</h1>
+        <p>PrintKinetix is the control plane for multi-printer Bambu Lab farms. Connect a Windows node on
+          your LAN, onboard merchants, route storefront orders to the right printer, and monitor the fleet —
+          without exposing printers to the public internet.</p>
+        <div class="hero-meta">
+          <span class="status-chip ok" title="Cloud API status">
+            <span class="dot"></span> Cloud API operational
+          </span>
+          <span class="status-chip" title="Self-hostable">Self-hostable · MIT licensed</span>
+        </div>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="/cloud">Open Operator Console</a>
+          <a class="btn btn-secondary" href="/merchant-onboarding">Merchant sign up</a>
+          <a class="btn btn-secondary" href="/merchant-api.html">Read API docs</a>
+        </div>
+        <div class="printers-strip" aria-label="Supported Bambu Lab printers">
+          <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16v10H4z"/><path d="M8 17v3h8v-3"/></svg> A1</span>
+          <span class="chip">A1 Mini</span>
+          <span class="chip">P1P</span>
+          <span class="chip">P1S</span>
+          <span class="chip">P2S</span>
+          <span class="chip">X1</span>
+          <span class="chip">X1C</span>
+          <span class="chip">X1E</span>
+          <span class="chip">H2D</span>
+        </div>
+      </div>
 
-  <!-- Modal container -->
-  <div id="modal-overlay" class="modal-overlay">
-    <div id="modal" class="modal"></div>
-  </div>
+      <aside class="hero-panel" aria-label="Fleet preview">
+        <div class="fleet-mock" role="img" aria-label="Fleet dashboard preview">
+          <div class="bar"><span class="led"></span> Fleet · 4 printers · 2 printing</div>
+          <div class="grid">
+            <div class="fleet-card">
+              <div class="chassis"></div>
+              <div class="ams"><i></i><i></i><i></i><i></i></div>
+              <div class="name">P1S · Bay 1</div>
+              <div class="prog"></div>
+              <div class="row"><span>64%</span><span>1h 12m</span></div>
+            </div>
+            <div class="fleet-card">
+              <div class="chassis"></div>
+              <div class="ams"><i></i><i></i><i></i><i></i></div>
+              <div class="name">X1C · Bay 2</div>
+              <div class="prog"></div>
+              <div class="row"><span>38%</span><span>2h 04m</span></div>
+            </div>
+            <div class="fleet-card">
+              <div class="chassis"></div>
+              <div class="ams"><i></i><i></i><i></i><i></i></div>
+              <div class="name">A1 · Bay 3</div>
+              <div class="prog"></div>
+              <div class="row"><span>Idle</span><span>—</span></div>
+            </div>
+            <div class="fleet-card">
+              <div class="chassis"></div>
+              <div class="ams"><i></i><i></i><i></i><i></i></div>
+              <div class="name">A1 Mini · Bay 4</div>
+              <div class="prog"></div>
+              <div class="row"><span>Idle</span><span>—</span></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </section>
 
-  <!-- Vendored ES module map (offline-friendly; no CDN at runtime) -->
-  <script type="importmap">
-    { "imports": { "three": "/vendor/three/three.module.js" } }
+    <section id="for-operators" aria-labelledby="operators-title">
+      <h2 class="section-title" id="operators-title">For farm operators</h2>
+      <p class="section-lead">Manage the fleet, automation policy, merchant approvals, and edge nodes from one console.</p>
+      <div class="audience-grid">
+        <article class="panel">
+          <div class="icon-head" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 20h10"/></svg></div>
+          <h3>Fleet visibility</h3>
+          <p>Live printer state, AMS trays, job progress, and camera snapshots mirrored from your farm node.</p>
+        </article>
+        <article class="panel">
+          <div class="icon-head" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-8 0v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+          <h3>Merchant control</h3>
+          <p>Approve signups, issue setup tokens, revoke API keys, and tune full-auto vs approval-required onboarding.</p>
+        </article>
+        <article class="panel">
+          <div class="icon-head" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg></div>
+          <h3>Edge execution</h3>
+          <p>Commands flow to the Windows node over a durable channel — upload, start, pause, resume, and stop prints.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="for-merchants" aria-labelledby="merchants-title">
+      <h2 class="section-title" id="merchants-title">For merchants</h2>
+      <p class="section-lead">Sign up, get approved, and connect a storefront — or upload a file manually with no code.</p>
+      <div class="entry-grid">
+        <a class="card primary" href="/merchant-onboarding">
+          <div class="eyebrow">Get started</div>
+          <h3>Sign up &amp; onboarding</h3>
+          <p>Request access, create your portal account, exchange a setup token, and receive a live API key.</p>
+          <div class="go">Start onboarding →</div>
+        </a>
+        <a class="card" href="/merchant">
+          <div class="eyebrow">Existing accounts</div>
+          <h3>Merchant portal</h3>
+          <p>Sign in with email and password to manage API keys, account status, and print activity.</p>
+          <div class="go">Merchant sign in →</div>
+        </a>
+        <a class="card" href="/cloud">
+          <div class="eyebrow">Operators</div>
+          <h3>Operator console</h3>
+          <p>Not a merchant? Farm operators sign in here to manage nodes, printers, and merchant approvals.</p>
+          <div class="go">Operator login →</div>
+        </a>
+      </div>
+    </section>
+
+    <section id="developers" aria-labelledby="developers-title">
+      <h2 class="section-title" id="developers-title">For developers</h2>
+      <p class="section-lead">HTTP API for storefront integrations — upload sliced files, submit jobs, track status, and receive webhooks.</p>
+      <div class="feature-grid">
+        <article class="panel">
+          <h3>Merchant API v1</h3>
+          <p>Core print-job ingestion: signup, API keys, file upload, ready-to-print submission, and job status.</p>
+        </article>
+        <article class="panel">
+          <h3>Merchant API v2</h3>
+          <p>Adapter backbone for files, slicing, orders, routing estimates, batches, shipping, billing, and webhooks.</p>
+        </article>
+        <article class="panel">
+          <h3>Authentication</h3>
+          <p>After onboarding, call the API with a bearer token: <code>Authorization: Bearer pkx_live_…</code></p>
+        </article>
+      </div>
+
+      <div class="panel">
+        <h3>Quick start</h3>
+        <p>Sign up, create a live key, upload a sliced file, and submit a print job — all over HTTP.</p>
+        <div class="code-block">
+          <div class="code-head">
+            <span>curl · bash</span>
+            <button class="copy-btn" data-copy-target="api-example" type="button">Copy</button>
+          </div>
+          <pre id="api-example"><code># 1) Create a merchant account (returns a setup token in full-auto mode)
+curl -X POST https://bambu-print-farm-automation.vercel.app/api/public/merchants/signup \
+  -H 'Content-Type: application/json' \
+  -d '{"company_name":"Acme Prints","contact_email":"ops@acme.com","password":"a-strong-password"}'
+
+# 2) Exchange the setup token for a live API key
+curl -X POST https://bambu-print-farm-automation.vercel.app/api/public/api-keys \
+  -H 'Content-Type: application/json' \
+  -d '{"setup_token":"pkx_setup_...","name":"storefront"}'
+
+# 3) Submit a print job with your live key
+curl -X POST https://bambu-print-farm-automation.vercel.app/api/public/print-jobs \
+  -H 'Authorization: Bearer pkx_live_...' \
+  -H 'Content-Type: application/json' \
+  -d '{"file_id":"...","printer_preference":{"model":"X1C"}}'
+
+# 4) Poll status
+curl https://bambu-print-farm-automation.vercel.app/api/public/print-jobs/status?job_id=...</code></pre>
+        </div>
+
+        <div class="try-it" aria-labelledby="try-it-title">
+          <h3 id="try-it-title">Try it live</h3>
+          <div class="row">
+            <input id="try-url" type="text" value="/api/public/openapi.json" aria-label="Endpoint to call" spellcheck="false">
+            <button class="btn btn-secondary" id="try-run" type="button">Send GET</button>
+          </div>
+          <div class="out" id="try-out" aria-live="polite">Response appears here.</div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <h3>API resources</h3>
+        <p>Human-readable docs, machine-readable OpenAPI specs, and the live schema index served from production.</p>
+        <div class="pill-row">
+          <a href="/merchant-api.html">API guide</a>
+          <a href="/openapi/merchant-api-v1.json">OpenAPI v1</a>
+          <a href="/openapi/merchant-api-v2.json">OpenAPI v2</a>
+          <a href="/api/public/openapi.json">Live OpenAPI index</a>
+          <a href="https://github.com/Chain-Haven/bambu-print-farm-automation" rel="noopener" target="_blank">Source on GitHub ↗</a>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="diff-title">
+      <h2 class="section-title" id="diff-title">Why PrintKinetix</h2>
+      <p class="section-lead">Built specifically for Bambu Lab fleets — the cloud orchestrates, the edge executes.</p>
+      <div class="diff-grid">
+        <article class="panel">
+          <h3>Printers stay private</h3>
+          <p>The Windows node talks to printers over your LAN (FTPS + MQTT). Nothing on the public internet touches a printer directly.</p>
+        </article>
+        <article class="panel">
+          <h3>Automated farm loops</h3>
+          <p>Cool-release ejection and N-loop runs are baked into the sliced file, so finished parts clear automatically and the next run starts.</p>
+        </article>
+        <article class="panel">
+          <h3>AMS-aware routing</h3>
+          <p>Live filament inventory feeds the router, so jobs land on a printer with the right material — and idle capacity — without manual mapping.</p>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="pricing-title">
+      <h2 class="section-title" id="pricing-title">Pricing</h2>
+      <p class="section-lead">Usage-based, with a generous free tier for getting a farm online. Rate cards are configurable per merchant.</p>
+      <div class="pricing-row">
+        <div class="price-card">
+          <div class="tier">Starter</div>
+          <div class="price">$0<small> / month</small></div>
+          <p>Run your own farm and try the full loop.</p>
+          <ul>
+            <li>1 farm node</li>
+            <li>Up to 3 printers</li>
+            <li>Merchant portal + API keys</li>
+            <li>Community support</li>
+          </ul>
+        </div>
+        <div class="price-card featured">
+          <div class="tier">Farm</div>
+          <div class="price">Usage-based<small> · per print</small></div>
+          <p>For growing print farms taking storefront orders.</p>
+          <ul>
+            <li>Unlimited nodes &amp; printers</li>
+            <li>Merchant API v1 + v2</li>
+            <li>Routing, batches, webhooks</li>
+            <li>Configurable rate cards &amp; invoices</li>
+          </ul>
+        </div>
+        <div class="price-card">
+          <div class="tier">Self-host</div>
+          <div class="price">$0<small> · MIT licensed</small></div>
+          <p>Run the whole control plane yourself.</p>
+          <ul>
+            <li>Local cloud server included</li>
+            <li>No Vercel/Supabase required</li>
+            <li>Full offline e2e test suite</li>
+            <li><a href="https://github.com/Chain-Haven/bambu-print-farm-automation" target="_blank" rel="noopener">Source on GitHub ↗</a></li>
+          </ul>
+        </div>
+      </div>
+      <p class="note" style="margin-top:16px">
+        Pricing is illustrative while billing adapters are in beta. Live rate cards and invoices are available
+        through the Merchant API (<code>/api/public/billing/rate-card</code>).
+      </p>
+    </section>
+
+    <section aria-labelledby="setup-title">
+      <h2 class="section-title" id="setup-title">Setup</h2>
+      <p class="section-lead">The cloud orchestrates; the Windows node executes on your LAN.</p>
+      <div class="entry-grid">
+        <a class="card" href="/windows-node-guide.html">
+          <div class="eyebrow">Farm setup</div>
+          <h3>Windows node guide</h3>
+          <p>Download the portable node package, connect it to your PrintKinetix org, and register printers on the LAN.</p>
+          <div class="go">Set up a node →</div>
+        </a>
+        <a class="card" href="/merchant-api.html">
+          <div class="eyebrow">Architecture</div>
+          <h3>Cloud + edge model</h3>
+          <p>Printers stay private on your network. The node handles FTPS upload, MQTT control, and heartbeat telemetry.</p>
+          <div class="go">Learn more →</div>
+        </a>
+      </div>
+      <p class="note">
+        The live printer dashboard for starting and monitoring individual printers runs on the
+        <strong>Windows node at your farm</strong>, not in the cloud — it needs direct LAN access to your Bambu printers.
+        Install it from the <a href="/windows-node-guide.html">Windows Node Setup</a> guide.
+      </p>
+    </section>
+
+    <footer class="site-footer">
+      <span>PrintKinetix · Bambu Lab print-farm automation · <a href="https://github.com/Chain-Haven/bambu-print-farm-automation" target="_blank" rel="noopener">GitHub ↗</a></span>
+      <nav aria-label="Footer">
+        <a href="/cloud">Console</a>
+        <a href="/merchant">Merchant portal</a>
+        <a href="/merchant-onboarding">Onboarding</a>
+        <a href="/merchant-api.html">API docs</a>
+        <a href="/windows-node-guide.html">Windows node</a>
+      </nav>
+    </footer>
+  </main>
+
+  <script>
+    // Mobile menu toggle
+    (function () {
+      var btn = document.getElementById('nav-toggle');
+      var nav = document.getElementById('primary-nav');
+      if (!btn || !nav) return;
+      btn.addEventListener('click', function () {
+        var open = nav.classList.toggle('open');
+        btn.setAttribute('aria-expanded', String(open));
+      });
+      nav.addEventListener('click', function (e) {
+        if (e.target.tagName === 'A') {
+          nav.classList.remove('open');
+          btn.setAttribute('aria-expanded', 'false');
+        }
+      });
+    })();
+
+    // Copy-to-clipboard for code blocks
+    document.querySelectorAll('.copy-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var target = document.getElementById(btn.getAttribute('data-copy-target'));
+        if (!target) return;
+        var text = target.innerText;
+        navigator.clipboard.writeText(text).then(function () {
+          var old = btn.textContent;
+          btn.textContent = 'Copied';
+          setTimeout(function () { btn.textContent = old; }, 1500);
+        }).catch(function () {});
+      });
+    });
+
+    // Live API health badge
+    (function () {
+      var chip = document.getElementById('status-chip');
+      var text = document.getElementById('status-text');
+      if (!chip || !text) return;
+      fetch('/api/health', { headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error(String(r.status))); })
+        .then(function (data) {
+          if (data && data.ok) {
+            chip.classList.add('ok');
+            text.textContent = 'API operational';
+          } else {
+            text.textContent = 'Degraded';
+          }
+        })
+        .catch(function () { text.textContent = 'Unavailable'; });
+    })();
+
+    // Try-it widget
+    (function () {
+      var run = document.getElementById('try-run');
+      var url = document.getElementById('try-url');
+      var out = document.getElementById('try-out');
+      if (!run || !url || !out) return;
+      run.addEventListener('click', function () {
+        out.textContent = 'Requesting ' + url.value + ' …';
+        out.style.color = 'var(--muted)';
+        fetch(url.value, { headers: { 'Accept': 'application/json' } })
+          .then(function (r) {
+            return r.text().then(function (body) {
+              out.textContent = 'HTTP ' + r.status + '\n\n' + (function () {
+                try { return JSON.stringify(JSON.parse(body), null, 2); } catch (e) { return body; }
+              })();
+              out.style.color = r.ok ? 'var(--ok)' : 'var(--ink)';
+            });
+          })
+          .catch(function (err) {
+            out.textContent = 'Error: ' + (err && err.message ? err.message : err);
+            out.style.color = 'var(--ink)';
+          });
+      });
+    })();
   </script>
-
-  <!-- App Scripts -->
-  <script src="/js/api.js"></script>
-  <script src="/js/ws.js"></script>
-  <script type="module" src="/js/app.js"></script>
 </body>
 
 </html>

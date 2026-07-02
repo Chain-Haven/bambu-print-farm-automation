@@ -284,6 +284,33 @@ function stableCursorFilter({ cursor, timestampColumn, idColumn }) {
     return `or=(${timestampColumn}.lt.${encodedTs},and(${timestampColumn}.eq.${encodedTs},${idColumn}.lt.${encodeURIComponent(requireValue(id, 'cursor id'))}))`;
 }
 
+export function isSupabaseMissingTableError(error, tableName = null) {
+    const message = String(error?.message || error || '');
+    if (!message.includes('PGRST205') && !message.includes('Could not find the table')) {
+        return false;
+    }
+    if (tableName && !message.includes(tableName)) {
+        return false;
+    }
+    return true;
+}
+
+export class SupabaseMissingTableError extends Error {
+    constructor(tableName, cause = null) {
+        super(`Supabase table is not available: ${tableName}`);
+        this.name = 'SupabaseMissingTableError';
+        this.tableName = tableName;
+        this.cause = cause;
+    }
+}
+
+function rethrowMissingTableError(error, tableName) {
+    if (isSupabaseMissingTableError(error, tableName)) {
+        throw new SupabaseMissingTableError(tableName, error);
+    }
+    throw error;
+}
+
 export function createSupabaseRestClient({
     url = null,
     supabaseUrl = null,
@@ -612,22 +639,30 @@ export function createSupabaseRestClient({
         },
 
         async createMerchantUser(merchantUser) {
-            const rows = await request(
-                `/rest/v1/merchant_users?select=${MERCHANT_USER_SELECT}`,
-                {
-                    method: 'POST',
-                    headers: { Prefer: 'return=representation' },
-                    body: merchantUser,
-                },
-            );
-            return firstRow(rows);
+            try {
+                const rows = await request(
+                    `/rest/v1/merchant_users?select=${MERCHANT_USER_SELECT}`,
+                    {
+                        method: 'POST',
+                        headers: { Prefer: 'return=representation' },
+                        body: merchantUser,
+                    },
+                );
+                return firstRow(rows);
+            } catch (error) {
+                rethrowMissingTableError(error, 'merchant_users');
+            }
         },
 
         async findMerchantUserByEmail(email) {
-            const rows = await request(
-                `/rest/v1/merchant_users?email=eq.${encodeURIComponent(requireValue(email, 'merchant user email'))}&select=${MERCHANT_USER_SELECT}&limit=1`,
-            );
-            return firstRow(rows);
+            try {
+                const rows = await request(
+                    `/rest/v1/merchant_users?email=eq.${encodeURIComponent(requireValue(email, 'merchant user email'))}&select=${MERCHANT_USER_SELECT}&limit=1`,
+                );
+                return firstRow(rows);
+            } catch (error) {
+                rethrowMissingTableError(error, 'merchant_users');
+            }
         },
 
         async findMerchantUserById(merchantUserId) {

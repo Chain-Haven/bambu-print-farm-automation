@@ -296,12 +296,56 @@ describe('merchant API docs', () => {
     });
 
     it('keeps the local controller shell bootable with API and app scripts', () => {
-        const html = fs.readFileSync('public/index.html', 'utf8');
+        const html = fs.readFileSync('public/farm-dashboard.html', 'utf8');
 
         expect(html).toContain('<script src="/js/api.js"></script>');
         expect(html).toContain('<script src="/js/ws.js"></script>');
         expect(html).toContain('<script type="module" src="/js/app.js"></script>');
         expect(html.trim()).toMatch(/<\/html>$/);
+    });
+
+    it('publishes a public cloud landing page at the site root', () => {
+        const html = fs.readFileSync('public/index.html', 'utf8');
+
+        expect(html).toContain('PrintKinetix');
+        expect(html).toContain('href="/cloud"');
+        expect(html).toContain('href="/merchant"');
+        expect(html).toContain('href="/merchant-api.html"');
+        expect(html).toContain('/openapi/merchant-api-v2.json');
+        expect(html).not.toContain('/js/app.js');
+    });
+
+    it('surfaces supported printers, API example, social meta, and a health badge on the landing page', () => {
+        const html = fs.readFileSync('public/index.html', 'utf8');
+
+        // Supported Bambu models (mirrors ADOPTABLE_MODELS in the codebase)
+        expect(html).toContain('A1 Mini');
+        expect(html).toContain('X1C');
+        expect(html).toContain('H2D');
+
+        // Real API example + interactive try-it
+        expect(html).toContain('/api/public/merchants/signup');
+        expect(html).toContain('id="try-run"');
+        expect(html).toContain('id="api-example"');
+
+        // Social/Open Graph + structured data
+        expect(html).toContain('property="og:title"');
+        expect(html).toContain('application/ld+json');
+
+        // Live status badge wired to the public health endpoint
+        expect(html).toContain('id="status-chip"');
+        expect(html).toContain("fetch('/api/health'");
+
+        // Source / self-host link
+        expect(html).toContain('github.com/Chain-Haven/bambu-print-farm-automation');
+    });
+
+    it('ships public favicon, robots, and sitemap assets for SEO and link previews', () => {
+        expect(fs.readFileSync('public/favicon.svg', 'utf8')).toContain('<svg');
+        const robots = fs.readFileSync('public/robots.txt', 'utf8');
+        expect(robots).toContain('Sitemap:');
+        expect(robots).toContain('Disallow: /api/');
+        expect(fs.readFileSync('public/sitemap.xml', 'utf8')).toContain('<urlset');
     });
 
     it('exposes ready-print cloud commands from the admin console without duplicate payload inputs', () => {

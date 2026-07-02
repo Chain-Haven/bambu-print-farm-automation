@@ -18,10 +18,6 @@
   },
   "rewrites": [
     {
-      "source": "/",
-      "destination": "/home.html"
-    },
-    {
       "source": "/cloud",
       "destination": "/cloud.html"
     },

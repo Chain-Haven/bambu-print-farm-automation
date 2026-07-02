@@ -19,6 +19,7 @@ import {
     createMerchantUserForSignup,
     redactMerchantUser,
 } from './merchantUserHandlers.js';
+import { SupabaseMissingTableError } from './supabaseRest.js';
 
 const SETUP_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MIN_PASSWORD_LENGTH = 12;
@@ -246,7 +247,10 @@ export function createMerchantSignupHandler({
             }
 
             const existingUser = typeof store.findMerchantUserByEmail === 'function'
-                ? await store.findMerchantUserByEmail(body.contact_email)
+                ? await store.findMerchantUserByEmail(body.contact_email).catch((error) => {
+                    if (error instanceof SupabaseMissingTableError) return null;
+                    throw error;
+                })
                 : null;
             if (existingUser) {
                 return sendJson(res, 409, { ok: false, error: 'merchant_already_exists' });
@@ -269,15 +273,24 @@ export function createMerchantSignupHandler({
             // A password at signup creates the portal owner account so the
             // merchant can sign in immediately (even while pending approval).
             let merchantUser = null;
+            let portal_auth_deferred = false;
             if (body.password && typeof store.createMerchantUser === 'function') {
-                merchantUser = await createMerchantUserForSignup({
-                    store,
-                    merchant,
-                    email: body.contact_email,
-                    displayName: body.contact_name,
-                    password: body.password,
-                    bcryptCost,
-                });
+                try {
+                    merchantUser = await createMerchantUserForSignup({
+                        store,
+                        merchant,
+                        email: body.contact_email,
+                        displayName: body.contact_name,
+                        password: body.password,
+                        bcryptCost,
+                    });
+                } catch (error) {
+                    if (error instanceof SupabaseMissingTableError) {
+                        portal_auth_deferred = true;
+                    } else {
+                        throw error;
+                    }
+                }
             }
 
             if (!fullAutoEnabled) {
@@ -285,6 +298,10 @@ export function createMerchantSignupHandler({
                     ok: true,
                     merchant: redactMerchant(merchant),
                     ...(merchantUser ? { merchant_user: redactMerchantUser(merchantUser) } : {}),
+                    ...(portal_auth_deferred ? {
+                        portal_auth_deferred: true,
+                        message: 'Merchant created. Portal sign-in will be enabled after the operator applies the merchant user database migration.',
+                    } : {}),
                     approval_required: true,
                 });
             }
@@ -301,6 +318,10 @@ export function createMerchantSignupHandler({
                 ok: true,
                 merchant: redactMerchant(merchant),
                 ...(merchantUser ? { merchant_user: redactMerchantUser(merchantUser) } : {}),
+                ...(portal_auth_deferred ? {
+                    portal_auth_deferred: true,
+                    message: 'Merchant created. Portal sign-in will be enabled after the operator applies the merchant user database migration.',
+                } : {}),
                 approval_required: false,
                 merchant_setup_token: setupToken.secret,
                 setup_token_expires_at: setupToken.expires_at,

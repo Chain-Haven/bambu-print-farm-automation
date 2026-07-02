@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createSupabaseRestClient } from '../../src/cloud/supabaseRest.js';
+import {
+    SupabaseMissingTableError,
+    createSupabaseRestClient,
+    isSupabaseMissingTableError,
+} from '../../src/cloud/supabaseRest.js';
 
 function jsonResponse(payload, status = 200) {
     return {
@@ -339,5 +343,27 @@ describe('supabase REST cloud admin methods', () => {
         expect(urls[9]).toContain('admin_user_id=eq.admin-1');
         expect(urls[9]).toContain('revoked_at=is.null');
         expect(urls[10]).toContain('admin_user_id=eq.admin-1');
+    });
+
+    it('detects missing Supabase tables and surfaces a typed error for merchant user lookups', async () => {
+        const fetchImpl = vi.fn().mockResolvedValue({
+            ok: false,
+            status: 404,
+            text: async () => JSON.stringify({
+                code: 'PGRST205',
+                message: "Could not find the table 'public.merchant_users' in the schema cache",
+            }),
+        });
+        const client = createSupabaseRestClient({
+            url: 'https://example.supabase.co',
+            serviceKey: 'service-key',
+            fetchImpl,
+        });
+
+        const missingTableMessage = 'Supabase GET /rest/v1/merchant_users failed (404): PGRST205';
+        expect(isSupabaseMissingTableError(new Error(missingTableMessage), 'merchant_users')).toBe(true);
+        await expect(client.findMerchantUserByEmail('ops@example.com')).rejects.toBeInstanceOf(
+            SupabaseMissingTableError,
+        );
     });
 });

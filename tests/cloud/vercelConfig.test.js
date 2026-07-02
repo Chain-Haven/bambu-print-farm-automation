@@ -5,13 +5,16 @@ describe('Vercel cloud node package config', () => {
     it('serves the cloud landing at the root (not the LAN-only printer SPA) and bundles sql.js wasm', () => {
         const config = JSON.parse(fs.readFileSync('vercel.json', 'utf8'));
 
-        // The root must NOT be index.html: that is the local Windows-node printer
-        // dashboard, whose /api/auth,/api/printers routes only exist in the Express
-        // server (not on Vercel), so it 500s with an HTML-not-JSON parse error.
-        expect(config.rewrites).toContainEqual({
-            source: '/',
-            destination: '/home.html',
-        });
+        // index.html is the public landing on Vercel. The LAN farm dashboard lives
+        // at farm-dashboard.html and is only served by the local Express server.
+        const landing = fs.readFileSync('public/index.html', 'utf8');
+        expect(landing).toContain('PrintKinetix');
+        expect(landing).toContain('/merchant-api.html');
+        expect(landing).not.toContain('/js/app.js');
+
+        const farmDashboard = fs.readFileSync('public/farm-dashboard.html', 'utf8');
+        expect(farmDashboard).toContain('/js/app.js');
+
         expect(config.rewrites).toContainEqual({
             source: '/cloud',
             destination: '/cloud.html',

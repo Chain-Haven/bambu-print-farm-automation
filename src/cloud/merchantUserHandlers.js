@@ -12,6 +12,7 @@ import {
     hashMerchantUserSecret,
     normalizeMerchantUserEmail,
 } from './merchantUserAuth.js';
+import { SupabaseMissingTableError } from './supabaseRest.js';
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -177,7 +178,19 @@ export function createMerchantLoginHandler({
                 }
             }
 
-            const merchantUser = await store.findMerchantUserByEmail(email);
+            let merchantUser;
+            try {
+                merchantUser = await store.findMerchantUserByEmail(email);
+            } catch (error) {
+                if (error instanceof SupabaseMissingTableError) {
+                    return sendJson(res, 503, {
+                        ok: false,
+                        error: 'merchant_portal_unavailable',
+                        message: 'Merchant portal sign-in is not configured yet. Sign up at /merchant-onboarding or contact your operator.',
+                    });
+                }
+                throw error;
+            }
             if (!merchantUser || merchantUser.status !== 'active' || !merchantUser.password_hash) {
                 return sendJson(res, 401, { ok: false, error: 'invalid_merchant_credentials' });
             }

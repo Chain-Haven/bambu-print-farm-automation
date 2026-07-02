@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /cloud
+Disallow: /merchant
+Disallow: /admin-reset
+
+Sitemap: https://bambu-print-farm-automation.vercel.app/sitemap.xml

@@ -25,6 +25,12 @@ const __dirname = import.meta.url
     : (process.env.PKX_ASSET_ROOT || process.cwd());
 const publicDir = resolveAsset('public', path.join(__dirname, 'public'));
 const log = createLogger('Server');
+const isVercelRuntime = Boolean(process.env.VERCEL);
+// On Vercel, `/` must be the public cloud landing (index.html). Locally it is
+// the LAN farm dashboard (farm-dashboard.html) that talks to this Express API.
+const farmDashboardFile = 'farm-dashboard.html';
+const cloudLandingFile = 'index.html';
+const rootPageFile = isVercelRuntime ? cloudLandingFile : farmDashboardFile;
 
 const app = express();
 const server = createServer(app);
@@ -42,8 +48,8 @@ app.use((req, res, next) => {
     next();
 });
 
-// Static files (frontend)
-app.use(express.static(publicDir));
+// Static files (frontend). Disable automatic index.html so `/` is routed explicitly.
+app.use(express.static(publicDir, { index: false }));
 
 app.get('/cloud', (req, res) => {
     res.sendFile(path.join(publicDir, 'cloud.html'));
@@ -57,16 +63,20 @@ app.get('/admin-reset', (req, res) => {
     res.sendFile(path.join(publicDir, 'admin-reset.html'));
 });
 
+app.get('/', (req, res) => {
+    res.sendFile(path.join(publicDir, rootPageFile));
+});
+
 // API routes
 app.use('/api', apiRouter);
 
 // Error handler
 app.use(errorHandler);
 
-// SPA fallback
+// SPA fallback (local farm dashboard only — cloud static pages are served above).
 app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api')) {
-        res.sendFile(path.join(publicDir, 'index.html'));
+    if (!req.path.startsWith('/api') && !isVercelRuntime) {
+        res.sendFile(path.join(publicDir, farmDashboardFile));
     }
 });
 

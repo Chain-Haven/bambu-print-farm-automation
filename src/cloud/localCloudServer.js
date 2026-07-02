@@ -116,6 +116,25 @@ export function createLocalCloudApp({
     app.all('/api/public/print-jobs', wire(createMerchantPrintJobsHandler({ store, pepper, now, fetchImpl })));
     app.all('/api/public/print-jobs/status', wire(createMerchantPrintJobStatusHandler({ store, pepper, now })));
 
+    // Public liveness (parity with the Vercel /api/health function) + OpenAPI
+    // index, so the landing page status badge and spec links work self-hosted.
+    app.get('/api/health', (_req, res) => res.json({
+        ok: true,
+        status: 'operational',
+        service: 'printkinetix-cloud',
+        time: now().toISOString(),
+        env: 'local',
+    }));
+    app.get('/api/public/openapi.json', (_req, res) => res.json({
+        ok: true,
+        service: 'printkinetix-merchant-api',
+        specs: {
+            v1: { url: '/openapi/merchant-api-v1.json' },
+            v2: { url: '/openapi/merchant-api-v2.json', live_route: '/api/public/openapi-v2' },
+        },
+        docs_url: '/merchant-api.html',
+    }));
+
     // Merchant portal sign-in (email/password sessions + password resets).
     app.all('/api/public/merchant/login', wire(createMerchantLoginHandler({ store, pepper, now })));
     app.all('/api/public/merchant/logout', wire(createMerchantLogoutHandler({ store, pepper, now })));
