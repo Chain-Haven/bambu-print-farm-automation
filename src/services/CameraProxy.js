@@ -22,36 +22,48 @@ import * as net from 'net';
 let _ffmpegPath = null;
 async function resolveFfmpegPath() {
     if (_ffmpegPath) return _ffmpegPath;
-    const mod = await import('@ffmpeg-installer/ffmpeg');
-    _ffmpegPath = mod.path || mod.default?.path || mod.default;
-    if (!_ffmpegPath) throw new Error('ffmpeg binary not available for X1 RTSP streaming');
+
+    // Prefer the npm-installed binary; the portable farm-node bundle keeps it
+    // external, so fall back to a system ffmpeg (PATH / FFMPEG_PATH) before
+    // giving up.
+    try {
+        const mod = await import('@ffmpeg-installer/ffmpeg');
+        _ffmpegPath = mod.path || mod.default?.path || mod.default;
+    } catch {
+        _ffmpegPath = null;
+    }
+
+    if (!_ffmpegPath) {
+        const envPath = process.env.FFMPEG_PATH;
+        if (envPath) {
+            _ffmpegPath = envPath;
+        } else {
+            const { execSync } = await import('node:child_process');
+            try {
+                const probe = process.platform === 'win32' ? 'where ffmpeg' : 'command -v ffmpeg';
+                const found = execSync(probe, { encoding: 'utf8' }).split(/\r?\n/)[0].trim();
+                if (found) _ffmpegPath = found;
+            } catch {
+                /* not on PATH */
+            }
+        }
+    }
+
+    if (!_ffmpegPath) {
+        throw new Error('ffmpeg not found — X1/X2/P2S/H2 cameras stream RTSPS and need ffmpeg. Install ffmpeg (or set FFMPEG_PATH) on the farm node.');
+    }
     return _ffmpegPath;
 }
 import { createLogger } from '../utils/logger.js';
+import { cameraFamilyFor } from '../models/PrinterModels.js';
 
 const log = createLogger('CameraProxy');
 
 // ─── Model → camera family mapping ──────────────────────────────────
-const CAMERA_FAMILY = {
-    'Bambu P1S':      'p1',
-    'Bambu P1P':      'p1',
-    'Bambu P1':       'p1',
-    'Bambu A1':       'p1',
-    'Bambu A1 Mini':  'p1',
-    'Bambu X1':       'x1',
-    'Bambu X1C':      'x1',
-    'Bambu X1E':      'x1',
-    'Bambu H2D':      'x1',
-};
-
+// Resolved through the canonical model registry (src/models/PrinterModels.js)
+// so newly-added models automatically pick the right transport.
 function getCameraFamily(model) {
-    if (!model) return 'p1'; // default to P1-style
-    const m = model.trim();
-    if (CAMERA_FAMILY[m]) return CAMERA_FAMILY[m];
-    // Fuzzy match
-    const lower = m.toLowerCase();
-    if (lower.includes('x1') || lower.includes('h2d')) return 'x1';
-    return 'p1'; // default
+    return cameraFamilyFor(model);
 }
 
 function getCameraPort(family) {

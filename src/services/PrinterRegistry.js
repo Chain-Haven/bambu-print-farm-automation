@@ -5,20 +5,11 @@ import { PrinterModel } from '../models/Printer.js';
 import { AccessoryModel } from '../models/Accessory.js';
 import { EventModel } from '../models/Event.js';
 import { createLogger } from '../utils/logger.js';
+import { capabilitiesFor } from '../models/PrinterModels.js';
 
 import systemEvents from '../utils/SystemEvents.js';
 
 const log = createLogger('PrinterRegistry');
-
-// Known model capabilities (base defaults)
-const MODEL_CAPABILITIES = {
-    'Bambu A1': { mqtt_control: true, ams: true, camera: false, max_y: 256, max_x: 256, max_z: 256 },
-    'Bambu A1 Mini': { mqtt_control: true, ams: true, camera: false, max_y: 180, max_x: 180, max_z: 180 },
-    'Bambu P1S': { mqtt_control: true, ams: true, camera: true, max_y: 256, max_x: 256, max_z: 256 },
-    'Bambu P1P': { mqtt_control: true, ams: true, camera: false, max_y: 256, max_x: 256, max_z: 256 },
-    'Bambu X1C': { mqtt_control: true, ams: true, camera: true, max_y: 256, max_x: 256, max_z: 256 },
-    'Bambu X1': { mqtt_control: true, ams: true, camera: true, max_y: 256, max_x: 256, max_z: 256 },
-};
 
 export class PrinterRegistry {
     /**
@@ -79,7 +70,9 @@ export class PrinterRegistry {
      * Derive capabilities from model + attached accessories.
      */
     static deriveCapabilities(model, accessories = []) {
-        const base = MODEL_CAPABILITIES[model] || { mqtt_control: true, ams: false, camera: false };
+        // Resolved through the canonical model registry; unknown models get a
+        // conservative baseline.
+        const base = capabilitiesFor(model) || { mqtt_control: true, ams: false, camera: false };
         const caps = { ...base };
 
         // Merge accessory capabilities

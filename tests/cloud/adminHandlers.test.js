@@ -225,6 +225,38 @@ describe('cloud command handler', () => {
         expect(res.body).toEqual({ ok: true, command });
     });
 
+    it('looks up a single command by id (camera/adopt polling path)', async () => {
+        const command = {
+            command_id: 'cmd-1',
+            command_type: 'printer.camera.snapshot',
+            status: 'succeeded',
+            result: { image_base64: 'abc' },
+        };
+        const store = {
+            getNodeCommandById: vi.fn().mockResolvedValue(command),
+        };
+        const handler = createCloudCommandHandler({ store, adminToken: 'admin-secret' });
+        const res = createMockResponse();
+
+        await handler(
+            { method: 'GET', headers: { authorization: 'Bearer admin-secret' }, query: { command_id: 'cmd-1' } },
+            res,
+        );
+
+        expect(store.getNodeCommandById).toHaveBeenCalledWith('cmd-1');
+        expect(res.statusCode).toBe(200);
+        expect(res.body).toEqual({ ok: true, command });
+
+        const missing = createMockResponse();
+        store.getNodeCommandById.mockResolvedValue(null);
+        await handler(
+            { method: 'GET', headers: { authorization: 'Bearer admin-secret' }, query: { command_id: 'nope' } },
+            missing,
+        );
+        expect(missing.statusCode).toBe(404);
+        expect(missing.body).toEqual({ ok: false, error: 'command_not_found' });
+    });
+
     it('rejects commands without a command type', async () => {
         const store = {
             createNodeCommand: vi.fn(),
@@ -352,6 +384,118 @@ describe('cloud node provisioning handler', () => {
             node,
             local_node_token: 'pkx_node_generated_secret',
         });
+    });
+});
+
+describe('cloud node deletion', () => {
+    function createDeleteHandler(store) {
+        return createCloudNodeProvisionHandler({
+            store,
+            adminToken: 'admin-secret',
+            pepper: 'pepper',
+        });
+    }
+
+    it('deletes an idle node', async () => {
+        const store = {
+            getNodeWorkSummary: vi.fn().mockResolvedValue({
+                node_id: 'node-1',
+                active_jobs: 0,
+                pending_commands: 0,
+            }),
+            deleteFarmNode: vi.fn().mockResolvedValue({ node_id: 'node-1', name: 'Windows NUC' }),
+        };
+        const res = createMockResponse();
+
+        await createDeleteHandler(store)(
+            {
+                method: 'DELETE',
+                headers: { authorization: 'Bearer admin-secret' },
+                body: { node_id: 'node-1' },
+            },
+            res,
+        );
+
+        expect(store.deleteFarmNode).toHaveBeenCalledWith('node-1');
+        expect(res.statusCode).toBe(200);
+        expect(res.body).toEqual({ ok: true, node: { node_id: 'node-1', name: 'Windows NUC' } });
+    });
+
+    it('refuses to delete a node with active work unless force=true', async () => {
+        const store = {
+            getNodeWorkSummary: vi.fn().mockResolvedValue({
+                node_id: 'node-1',
+                active_jobs: 2,
+                pending_commands: 1,
+            }),
+            deleteFarmNode: vi.fn(),
+        };
+        const res = createMockResponse();
+
+        await createDeleteHandler(store)(
+            {
+                method: 'DELETE',
+                headers: { authorization: 'Bearer admin-secret' },
+                body: { node_id: 'node-1' },
+            },
+            res,
+        );
+
+        expect(res.statusCode).toBe(409);
+        expect(res.body.error).toBe('node_has_active_work');
+        expect(store.deleteFarmNode).not.toHaveBeenCalled();
+
+        const forcedRes = createMockResponse();
+        store.deleteFarmNode.mockResolvedValue({ node_id: 'node-1' });
+        await createDeleteHandler(store)(
+            {
+                method: 'DELETE',
+                headers: { authorization: 'Bearer admin-secret' },
+                body: { node_id: 'node-1', force: true },
+            },
+            forcedRes,
+        );
+
+        expect(forcedRes.statusCode).toBe(200);
+        expect(store.deleteFarmNode).toHaveBeenCalledWith('node-1');
+    });
+
+    it('returns 404 for unknown nodes and accepts node_id via query string', async () => {
+        const store = {
+            getNodeWorkSummary: vi.fn().mockResolvedValue(null),
+            deleteFarmNode: vi.fn(),
+        };
+        const res = createMockResponse();
+
+        await createDeleteHandler(store)(
+            {
+                method: 'DELETE',
+                headers: { authorization: 'Bearer admin-secret' },
+                query: { node_id: 'missing-node' },
+            },
+            res,
+        );
+
+        expect(store.getNodeWorkSummary).toHaveBeenCalledWith('missing-node');
+        expect(res.statusCode).toBe(404);
+        expect(res.body).toEqual({ ok: false, error: 'node_not_found' });
+        expect(store.deleteFarmNode).not.toHaveBeenCalled();
+    });
+
+    it('rejects unauthenticated delete requests', async () => {
+        const store = {
+            getNodeWorkSummary: vi.fn(),
+            deleteFarmNode: vi.fn(),
+        };
+        const res = createMockResponse();
+
+        await createDeleteHandler(store)(
+            { method: 'DELETE', headers: {}, body: { node_id: 'node-1' } },
+            res,
+        );
+
+        expect(res.statusCode).toBe(401);
+        expect(store.deleteFarmNode).not.toHaveBeenCalled();
     });
 });
 

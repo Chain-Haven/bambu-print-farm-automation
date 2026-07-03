@@ -96,9 +96,9 @@ function normalizeKeyName(body) {
     return optionalString(source.name) || 'Production';
 }
 
-function normalizeKeyId(body) {
+function normalizeKeyId(body, query = {}) {
     const source = isPlainObject(body) ? body : {};
-    return requiredString(source.key_id, 'key_id');
+    return requiredString(source.key_id || query.key_id, 'key_id');
 }
 
 function redactMerchant(merchant) {
@@ -136,7 +136,7 @@ function redactMerchant(merchant) {
     }).filter(([, value]) => value !== undefined));
 }
 
-function redactApiKey(apiKey) {
+export function redactApiKey(apiKey) {
     if (!apiKey) return null;
     const {
         key_id,
@@ -175,18 +175,23 @@ function handleMerchantAuthError(res, error, requestId = createRequestId()) {
     return null;
 }
 
-// Portal sessions (humans signed in with a password) may manage the same
-// resources as API keys. The merchant must be active for farm actions.
-async function authenticateMerchantHumanOrKey(req, { store, pepper, now }) {
+// Unified merchant auth resolver: accepts either a portal session (a human
+// signed in with a password) or a live API key on the same endpoint. Portal
+// sessions may manage the same resources as API keys; the merchant must be
+// active for farm actions either way. This is THE single entry point for
+// "human or machine" merchant auth — handlers should use it instead of
+// hand-rolling the session/key branch.
+export async function resolveMerchantAuth(req, { store, pepper, now }) {
     if (isMerchantUserSessionToken(getMerchantUserBearerToken(req.headers || {}))) {
         const context = await authenticateMerchantUser(req, { store, pepper, now });
         if (context.merchant.status !== 'active') {
             throw new MerchantUserAuthError(403, 'merchant_not_active');
         }
-        return { merchant: context.merchant, merchantUser: context.merchantUser };
+        return { auth_type: 'portal_session', merchant: context.merchant, merchantUser: context.merchantUser };
     }
 
-    return authenticateMerchantRequest(req, { store, pepper, now });
+    const context = await authenticateMerchantRequest(req, { store, pepper, now });
+    return { auth_type: 'api_key', ...context };
 }
 
 async function getFullAutoEnabled(store) {
@@ -195,8 +200,19 @@ async function getFullAutoEnabled(store) {
     return setting?.enabled === true;
 }
 
-async function createSetupTokenForMerchant({ store, merchant, pepper, now, setupTokenFactory }) {
+// Shared setup-token issuance used by the public signup flow AND the admin
+// console routes (adminHandlers.js) so there is exactly one implementation.
+export async function createSetupTokenForMerchant({
+    store,
+    merchant,
+    pepper,
+    now = () => new Date(),
+    setupTokenFactory = generateMerchantSetupToken,
+}) {
     if (!pepper) throw new Error('merchant api key pepper is required');
+    if (!merchant || merchant.status !== 'active') {
+        throw new Error('merchant must be active before issuing setup token');
+    }
 
     const issuedAt = now();
     const expiresAt = new Date(issuedAt.getTime() + SETUP_TOKEN_TTL_MS).toISOString();
@@ -216,8 +232,20 @@ async function createSetupTokenForMerchant({ store, merchant, pepper, now, setup
     };
 }
 
-async function createLiveKeyForMerchant({ store, merchant, name, pepper, liveKeyFactory, scopes = ['*'] }) {
+// Shared live-key issuance used by the public key-management endpoint AND the
+// admin console route (adminHandlers.js) so there is exactly one implementation.
+export async function createLiveKeyForMerchant({
+    store,
+    merchant,
+    name,
+    pepper,
+    liveKeyFactory = generateMerchantApiKey,
+    scopes = ['*'],
+}) {
     if (!pepper) throw new Error('merchant api key pepper is required');
+    if (!merchant || merchant.status !== 'active') {
+        throw new Error('merchant must be active before issuing live API keys');
+    }
 
     const rawKey = liveKeyFactory();
     const apiKey = buildMerchantApiKeyRecord({
@@ -408,13 +436,13 @@ export function createMerchantApiKeysHandler({
             return { ...context, setupToken: context.setupToken };
         }
 
-        return authenticateMerchantHumanOrKey(req, { store, pepper, now });
+        return resolveMerchantAuth(req, { store, pepper, now });
     }
 
     return async function merchantApiKeysHandler(req, res) {
         if (req.method === 'GET') {
             try {
-                const context = await authenticateMerchantHumanOrKey(req, { store, pepper, now });
+                const context = await resolveMerchantAuth(req, { store, pepper, now });
                 const apiKeys = await store.listMerchantApiKeys(context.merchant.merchant_id);
                 return sendJson(res, 200, {
                     ok: true,
@@ -431,8 +459,38 @@ export function createMerchantApiKeysHandler({
             }
         }
 
+        // Canonical revoke verb. POST /api/public/api-keys/revoke remains as a
+        // backwards-compatible alias (see createMerchantApiKeyRevokeHandler).
+        if (req.method === 'DELETE') {
+            try {
+                const context = await resolveMerchantAuth(req, { store, pepper, now });
+                const revoked = await store.revokeMerchantApiKey({
+                    merchantId: context.merchant.merchant_id,
+                    keyId: normalizeKeyId(parseJsonBody(req.body), req.query || {}),
+                    revokedAt: now().toISOString(),
+                });
+
+                if (!revoked) {
+                    return sendJson(res, 404, { ok: false, error: 'api_key_not_found' });
+                }
+
+                return sendJson(res, 200, {
+                    ok: true,
+                    api_key: redactApiKey(revoked),
+                });
+            } catch (error) {
+                const handled = handleMerchantAuthError(res, error);
+                if (handled) return handled;
+                return sendJson(res, 400, {
+                    ok: false,
+                    error: 'revoke_api_key_failed',
+                    message: error.message,
+                });
+            }
+        }
+
         if (req.method && req.method !== 'POST') {
-            return methodNotAllowed(res, 'GET, POST');
+            return methodNotAllowed(res, 'GET, POST, DELETE');
         }
 
         try {
@@ -493,7 +551,7 @@ export function createMerchantApiKeyRevokeHandler({
         }
 
         try {
-            const context = await authenticateMerchantHumanOrKey(req, { store, pepper, now });
+            const context = await resolveMerchantAuth(req, { store, pepper, now });
             const revoked = await store.revokeMerchantApiKey({
                 merchantId: context.merchant.merchant_id,
                 keyId: normalizeKeyId(parseJsonBody(req.body)),

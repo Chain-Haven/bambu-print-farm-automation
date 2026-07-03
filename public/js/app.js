@@ -1,4 +1,4 @@
-// public/js/app.js — Antigravity SPA (Router + Pages + Components)
+// public/js/app.js — PrintKinetix SPA (Router + Pages + Components)
 
 // ===== UTILITY =====
 const $ = (s, p = document) => p.querySelector(s);
@@ -77,7 +77,7 @@ function renderHeader() {
         <path d="M4 12c2.2 0 4-1.8 4-4s-1.8-4-4-4"/>
         <path d="M20 12c-2.2 0-4 1.8-4 4s1.8 4 4 4"/>
       </svg>
-      3DFLOW
+      PrintKinetix
     </div>
     <nav>
       <a href="#/" data-route="/">Dashboard</a>
@@ -170,7 +170,7 @@ window.navigateTo = navigateTo;
 
 // Logout (header button)
 window.confirmLogout = function () {
-  if (confirm('Log out of 3DFLOW?')) {
+  if (confirm('Log out of PrintKinetix?')) {
     try { window.ws?.disconnect?.(); } catch { /* ignore */ }
     api.logout();
   }
@@ -218,7 +218,7 @@ route('/login', (el) => {
     <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1rem;">
       <div class="card" style="max-width:380px;width:100%;">
         <div style="text-align:center;margin-bottom:1.5rem;">
-          <div style="font-size:1.8rem;font-weight:800;background:var(--accent-gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">3DFLOW</div>
+          <div style="font-size:1.8rem;font-weight:800;background:var(--accent-gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">PrintKinetix</div>
           <p style="color:var(--text-muted);font-size:0.85rem;margin-top:0.3rem;">Deep Space Print Farm Orchestrator</p>
         </div>
         <form id="login-form">
@@ -1596,8 +1596,10 @@ route('/slicer', async (el) => {
         <div>
           <label style="font-size:0.78rem;color:var(--text-muted);">Printer Model</label>
           <select class="form-control" id="sl-model">
-            <option value="P1S">P1S</option><option value="X1">X1</option>
+            <option value="P1S">P1S</option><option value="P2S">P2S</option>
+            <option value="X1">X1 / X1C</option><option value="X2D">X2D</option>
             <option value="A1">A1</option><option value="A1_MINI">A1 Mini</option>
+            <option value="A2L">A2L</option><option value="H2D">H2 Series</option>
           </select>
         </div>
         <div id="sl-drop" style="border:1.5px dashed var(--border,#33415c);border-radius:8px;padding:1rem;text-align:center;cursor:pointer;font-size:0.85rem;color:var(--text-muted);">
@@ -2271,9 +2273,13 @@ function showSubmitJobModal(profiles, printers) {
               <label style="font-size:0.78rem;">Printer Model</label>
               <select class="form-control" id="sj-printer-model">
                 <option value="P1S">P1S</option>
-                <option value="X1">X1</option>
+                <option value="P2S">P2S</option>
+                <option value="X1">X1 / X1C</option>
+                <option value="X2D">X2D</option>
                 <option value="A1">A1</option>
                 <option value="A1_MINI">A1 Mini</option>
+                <option value="A2L">A2L</option>
+                <option value="H2D">H2 Series</option>
               </select>
             </div>
             <div class="form-group" style="margin:0;">
@@ -2491,9 +2497,13 @@ function showSaveTemplateModal(profiles, printers) {
               <label style="font-size:0.78rem;">Printer Model</label>
               <select class="form-control" id="st-printer-model">
                 <option value="P1S">P1S</option>
-                <option value="X1">X1</option>
+                <option value="P2S">P2S</option>
+                <option value="X1">X1 / X1C</option>
+                <option value="X2D">X2D</option>
                 <option value="A1">A1</option>
                 <option value="A1_MINI">A1 Mini</option>
+                <option value="A2L">A2L</option>
+                <option value="H2D">H2 Series</option>
               </select>
             </div>
             <div class="form-group" style="margin:0;">
@@ -2710,9 +2720,13 @@ window.useTemplate = async function (templateId) {
                   <label style="font-size:0.78rem;">Printer Model</label>
                   <select class="form-control" id="qs-printer-model">
                     <option value="P1S" ${ov.printer_model === 'P1S' ? 'selected' : ''}>P1S</option>
-                    <option value="X1" ${ov.printer_model === 'X1' ? 'selected' : ''}>X1</option>
+                    <option value="P2S" ${ov.printer_model === 'P2S' ? 'selected' : ''}>P2S</option>
+                    <option value="X1" ${ov.printer_model === 'X1' ? 'selected' : ''}>X1 / X1C</option>
+                    <option value="X2D" ${ov.printer_model === 'X2D' ? 'selected' : ''}>X2D</option>
                     <option value="A1" ${ov.printer_model === 'A1' ? 'selected' : ''}>A1</option>
                     <option value="A1_MINI" ${ov.printer_model === 'A1_MINI' ? 'selected' : ''}>A1 Mini</option>
+                    <option value="A2L" ${ov.printer_model === 'A2L' ? 'selected' : ''}>A2L</option>
+                    <option value="H2D" ${ov.printer_model === 'H2D' ? 'selected' : ''}>H2 Series</option>
                   </select>
                 </div>
                 <div class="form-group" style="margin:0;">
@@ -2880,9 +2894,13 @@ window.useTemplate = async function (templateId) {
                   <label style="font-size:0.78rem;">Printer Model</label>
                   <select class="form-control" id="sft-printer-model">
                     <option value="P1S" ${ov.printer_model === 'P1S' ? 'selected' : ''}>P1S</option>
-                    <option value="X1" ${ov.printer_model === 'X1' ? 'selected' : ''}>X1</option>
+                    <option value="P2S" ${ov.printer_model === 'P2S' ? 'selected' : ''}>P2S</option>
+                    <option value="X1" ${ov.printer_model === 'X1' ? 'selected' : ''}>X1 / X1C</option>
+                    <option value="X2D" ${ov.printer_model === 'X2D' ? 'selected' : ''}>X2D</option>
                     <option value="A1" ${ov.printer_model === 'A1' ? 'selected' : ''}>A1</option>
                     <option value="A1_MINI" ${ov.printer_model === 'A1_MINI' ? 'selected' : ''}>A1 Mini</option>
+                    <option value="A2L" ${ov.printer_model === 'A2L' ? 'selected' : ''}>A2L</option>
+                    <option value="H2D" ${ov.printer_model === 'H2D' ? 'selected' : ''}>H2 Series</option>
                   </select>
                 </div>
                 <div class="form-group" style="margin:0;">

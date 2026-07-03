@@ -383,6 +383,78 @@ describe('merchant API key handler', () => {
         });
         expect(JSON.stringify(res.body)).not.toContain(keyHash);
     });
+
+    it('revokes keys via the canonical DELETE verb on the same endpoint', async () => {
+        const keyHash = hashMerchantApiKey('pkx_live_secret', 'pepper');
+        const store = {
+            findMerchantApiKeyByHash: vi.fn().mockResolvedValue({
+                key_id: 'auth-key',
+                merchant_id: 'merchant-1',
+                org_id: 'org-1',
+                key_hash: keyHash,
+            }),
+            findMerchantById: vi.fn().mockResolvedValue({
+                merchant_id: 'merchant-1',
+                org_id: 'org-1',
+                status: 'active',
+            }),
+            touchMerchantApiKey: vi.fn(),
+            revokeMerchantApiKey: vi.fn().mockResolvedValue({
+                key_id: 'key-2',
+                merchant_id: 'merchant-1',
+                org_id: 'org-1',
+                name: 'Old key',
+                key_prefix: 'pkx_live_old',
+                revoked_at: '2026-07-01T12:00:00.000Z',
+            }),
+        };
+        const handler = createMerchantApiKeysHandler({ store, pepper: 'pepper', now });
+        const res = createMockResponse();
+
+        await handler({
+            method: 'DELETE',
+            headers: { authorization: 'Bearer pkx_live_secret' },
+            query: { key_id: 'key-2' },
+        }, res);
+
+        expect(store.revokeMerchantApiKey).toHaveBeenCalledWith({
+            merchantId: 'merchant-1',
+            keyId: 'key-2',
+            revokedAt: '2026-07-01T12:00:00.000Z',
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.body.api_key.key_id).toBe('key-2');
+    });
+
+    it('returns 404 when DELETE targets an unknown key', async () => {
+        const keyHash = hashMerchantApiKey('pkx_live_secret', 'pepper');
+        const store = {
+            findMerchantApiKeyByHash: vi.fn().mockResolvedValue({
+                key_id: 'auth-key',
+                merchant_id: 'merchant-1',
+                org_id: 'org-1',
+                key_hash: keyHash,
+            }),
+            findMerchantById: vi.fn().mockResolvedValue({
+                merchant_id: 'merchant-1',
+                org_id: 'org-1',
+                status: 'active',
+            }),
+            touchMerchantApiKey: vi.fn(),
+            revokeMerchantApiKey: vi.fn().mockResolvedValue(null),
+        };
+        const handler = createMerchantApiKeysHandler({ store, pepper: 'pepper', now });
+        const res = createMockResponse();
+
+        await handler({
+            method: 'DELETE',
+            headers: { authorization: 'Bearer pkx_live_secret' },
+            body: { key_id: 'missing' },
+        }, res);
+
+        expect(res.statusCode).toBe(404);
+        expect(res.body).toEqual({ ok: false, error: 'api_key_not_found' });
+    });
 });
 
 describe('merchant API key revoke handler', () => {

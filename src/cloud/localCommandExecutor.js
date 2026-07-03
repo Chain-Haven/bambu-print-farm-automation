@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import AdmZip from 'adm-zip';
 import { collectLocalPrinterRecords } from './localPrinterSnapshot.js';
+import { automatorModelKey, normalizeModel } from '../models/PrinterModels.js';
 
 function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -149,8 +150,11 @@ async function defaultCaptureCameraFrame(localPrinterId) {
 
     const { default: cameraProxy } = await import('../services/CameraProxy.js');
     const auth = PrinterModel.getAuth(localPrinterId) || {};
+    if (!auth.access_code) {
+        throw new Error(`No LAN access code stored for ${printer.name || localPrinterId} — the camera cannot authenticate. Edit the printer and add its access code.`);
+    }
     if (!cameraProxy.isRunning(localPrinterId)) {
-        await cameraProxy.start(localPrinterId, printer.ip_hostname, auth.access_code || '', printer.model);
+        await cameraProxy.start(localPrinterId, printer.ip_hostname, auth.access_code, printer.model);
     }
 
     let frame = cameraProxy.getFrame(localPrinterId);
@@ -179,6 +183,49 @@ async function executeCameraSnapshot(command, deps) {
     };
 }
 
+// Hardware eject sequence driven by the cloud auto-eject policy. Uses the same
+// EjectionService the local completion loop uses: if the printer has no
+// eject_printhead accessory it returns { skipped: true } immediately (the
+// in-gcode sweep, when configured, already ran inside the print file), so a
+// cloud-triggered eject can never fight the in-file ejection.
+async function defaultEjectPrinter(localPrinterId, options = {}) {
+    const [{ PrinterModel }, ejection] = await Promise.all([
+        import('../models/Printer.js'),
+        import('../services/EjectionService.js'),
+    ]);
+    const printer = PrinterModel.findById(localPrinterId);
+    if (!printer) throw new Error(`Local printer not found: ${localPrinterId}`);
+
+    return ejection.executeEjectionSequence({
+        job_id: options.command_id || `cloud-eject-${localPrinterId}`,
+        printer_id: localPrinterId,
+        profile: {
+            eject_params: {
+                ...(Number.isFinite(options.max_eject_attempts)
+                    ? { max_eject_attempts: options.max_eject_attempts }
+                    : {}),
+            },
+        },
+        ...(Number.isFinite(options.release_temperature_c)
+            ? { release_temp_c: options.release_temperature_c }
+            : {}),
+    });
+}
+
+async function executePrinterEject(command, deps) {
+    const localPrinterId = requiredString(command.payload?.local_printer_id, 'payload.local_printer_id');
+    const result = await deps.ejectPrinter(localPrinterId, {
+        command_id: command.command_id,
+        release_temperature_c: Number(command.payload?.release_temperature_c),
+        max_eject_attempts: Number(command.payload?.max_eject_attempts),
+    });
+    return {
+        ok: true,
+        local_printer_id: localPrinterId,
+        ...result,
+    };
+}
+
 async function executePrinterAction(command, deps) {
     if (command.command_type.startsWith('printer.ams.')) {
         return executeAmsAction(command, deps);
@@ -186,6 +233,10 @@ async function executePrinterAction(command, deps) {
 
     if (command.command_type === 'printer.camera.snapshot') {
         return executeCameraSnapshot(command, deps);
+    }
+
+    if (command.command_type === 'printer.eject') {
+        return executePrinterEject(command, deps);
     }
 
     const localPrinterId = requiredString(command.payload?.local_printer_id, 'payload.local_printer_id');
@@ -320,28 +371,12 @@ async function executeCloudPrintReadyRaw({ payload, localPrinterId, worker, buff
     };
 }
 
-async function executeCloudPrintReady(command, deps) {
-    const payload = command.payload || {};
-    const localPrinterId = requiredString(payload.local_printer_id, 'payload.local_printer_id');
-    const downloadUrl = requiredString(payload.download_url, 'payload.download_url');
-    const originalName = safeRemoteFileName(payload.original_name);
-    const worker = await getRequiredWorker(localPrinterId, deps);
-
-    const downloaded = await deps.downloadArtifact(downloadUrl);
-    const { buffer, remoteFileName } = prepareReadyPrintArtifact({
-        buffer: Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded),
-        originalName,
-    });
-
-    if (payload.pipeline === 'raw') {
-        return executeCloudPrintReadyRaw({ payload, localPrinterId, worker, buffer, remoteFileName }, deps);
-    }
-
-    // Orchestrated (default): route through JobOrchestrator so merchant prints
-    // get the full farm pipeline — transform (cool-release ejection + optional
-    // loops), preflight, verified FTPS upload, MQTT start with ACK wait, and
-    // completion tracking (auto-eject / repeat / auto-start-next + cloud status
-    // forwarding via job metadata).
+// Orchestrated submit shared by cloud.print.ready and cloud.print.source:
+// routes through JobOrchestrator so cloud prints get the full farm pipeline —
+// transform (cool-release ejection + optional loops), preflight, verified FTPS
+// upload, MQTT start with ACK wait, and completion tracking (auto-eject /
+// repeat / auto-start-next + cloud status forwarding via job metadata).
+async function submitOrchestratedPrint({ command, payload, localPrinterId, worker, buffer, remoteFileName, originalName, extraResult = {} }, deps) {
     const amsMapping = Array.isArray(payload.ams_mapping) ? payload.ams_mapping : [];
     const slotMap = {};
     amsMapping.forEach((value, index) => { slotMap[index] = value; });
@@ -388,7 +423,111 @@ async function executeCloudPrintReady(command, deps) {
             error: job.transform_report?.transform_error || null,
             loops: job.diff_summary?.loops || 1,
         },
+        ...extraResult,
     };
+}
+
+async function executeCloudPrintReady(command, deps) {
+    const payload = command.payload || {};
+    const localPrinterId = requiredString(payload.local_printer_id, 'payload.local_printer_id');
+    const downloadUrl = requiredString(payload.download_url, 'payload.download_url');
+    const originalName = safeRemoteFileName(payload.original_name);
+    const worker = await getRequiredWorker(localPrinterId, deps);
+
+    const downloaded = await deps.downloadArtifact(downloadUrl);
+    const { buffer, remoteFileName } = prepareReadyPrintArtifact({
+        buffer: Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded),
+        originalName,
+    });
+
+    if (payload.pipeline === 'raw') {
+        return executeCloudPrintReadyRaw({ payload, localPrinterId, worker, buffer, remoteFileName }, deps);
+    }
+
+    return submitOrchestratedPrint({
+        command,
+        payload,
+        localPrinterId,
+        worker,
+        buffer,
+        remoteFileName,
+        originalName,
+    }, deps);
+}
+
+// Slice a source model (STL / OBJ / STEP / unsliced 3MF) on this node, then
+// run the sliced .gcode.3mf through the same orchestrated print pipeline. The
+// slicer runs on the SAME node that prints, so no artifact upload-back to the
+// cloud is needed.
+async function defaultSliceSourceModel({ buffer, originalName, printerModel, settings }) {
+    const { SliceService } = await import('../services/SliceService.js');
+
+    if (process.env.MOCK_MODE === 'true') {
+        // MOCK_MODE: produce a minimal printable gcode so the full
+        // upload → route → slice → print loop stays testable without a slicer.
+        const gcode = [
+            `; mock-sliced from ${originalName}`,
+            'G28',
+            'G1 X10 Y10 F3000',
+            'M400',
+            '; MACHINE_END_GCODE_START',
+            'M140 S0',
+            '; EXECUTABLE_BLOCK_END',
+            '',
+        ].join('\n');
+        return {
+            ok: true,
+            gcode3mf: buildGcode3mf(gcode),
+            outputName: originalName.replace(/\.[^.]+$/i, '.gcode.3mf'),
+            report: { backend: 'mock' },
+        };
+    }
+
+    return SliceService.slice({
+        modelBuffer: buffer,
+        modelName: originalName,
+        profile: {},
+        options: {
+            // ORCA_PRESETS keys match the Automator geometry ids (P1S, X1, …).
+            printer_model: automatorModelKey(printerModel),
+            ...(isPlainObject(settings) ? settings : {}),
+        },
+    });
+}
+
+async function executeCloudPrintSource(command, deps) {
+    const payload = command.payload || {};
+    const localPrinterId = requiredString(payload.local_printer_id, 'payload.local_printer_id');
+    const downloadUrl = requiredString(payload.download_url, 'payload.download_url');
+    const originalName = safeRemoteFileName(payload.original_name);
+    const worker = await getRequiredWorker(localPrinterId, deps);
+
+    const downloaded = await deps.downloadArtifact(downloadUrl);
+    const sliced = await deps.sliceSourceModel({
+        buffer: Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded),
+        originalName,
+        printerModel: payload.printer_model || null,
+        settings: payload.slice_settings || null,
+    });
+
+    if (!sliced?.ok || !sliced.gcode3mf) {
+        throw new Error(`Slicing failed: ${sliced?.error || 'no slicer backend available on this node'}`);
+    }
+
+    const remoteFileName = safeRemoteFileName(sliced.outputName || originalName.replace(/\.[^.]+$/i, '.gcode.3mf'));
+    return submitOrchestratedPrint({
+        command,
+        payload,
+        localPrinterId,
+        worker,
+        buffer: Buffer.isBuffer(sliced.gcode3mf) ? sliced.gcode3mf : Buffer.from(sliced.gcode3mf),
+        remoteFileName,
+        originalName,
+        extraResult: {
+            sliced: true,
+            slice_report: sliced.report || null,
+        },
+    }, deps);
 }
 
 function normalizeStringList(value) {
@@ -518,23 +657,11 @@ async function defaultAdoptPrinter({ name, model, ip_hostname, access_code, seri
     return { already_added: false, printer };
 }
 
-const ADOPTABLE_MODELS = ['A1', 'A1 Mini', 'P1P', 'P1S', 'P2S', 'X1', 'X1C', 'X1E', 'H2D'];
-
 function normalizeAdoptModel(value) {
     const raw = String(value || '').trim();
     if (!raw) return 'P1S';
-    const match = ADOPTABLE_MODELS.find((model) => model.toLowerCase() === raw.toLowerCase());
-    if (match) return match;
-    const upper = raw.toUpperCase();
-    if (upper.includes('A1') && upper.includes('MINI')) return 'A1 Mini';
-    if (upper.includes('A1')) return 'A1';
-    if (upper.includes('X1E')) return 'X1E';
-    if (upper.includes('X1')) return 'X1C';
-    if (upper.includes('P1P')) return 'P1P';
-    if (upper.includes('P1')) return 'P1S';
-    if (upper.includes('P2')) return 'P2S';
-    if (upper.includes('H2')) return 'H2D';
-    return raw;
+    const model = normalizeModel(raw);
+    return model ? model.short : raw;
 }
 
 async function executePrinterAdopt(command, deps) {
@@ -579,6 +706,9 @@ async function executeCloudAction(command, deps) {
     if (command.command_type === 'cloud.print.ready') {
         return executeCloudPrintReady(command, deps);
     }
+    if (command.command_type === 'cloud.print.source') {
+        return executeCloudPrintSource(command, deps);
+    }
     if (command.command_type === 'cloud.printers.discover') {
         return executePrinterDiscovery(command, deps);
     }
@@ -615,6 +745,8 @@ function getDefaultDeps() {
         syncPrinters: defaultSyncPrinters,
         adoptPrinter: defaultAdoptPrinter,
         captureCameraFrame: defaultCaptureCameraFrame,
+        ejectPrinter: defaultEjectPrinter,
+        sliceSourceModel: defaultSliceSourceModel,
     };
 }
 

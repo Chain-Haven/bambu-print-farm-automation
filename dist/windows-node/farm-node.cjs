@@ -40851,8 +40851,331 @@ var init_Automator = __esm({
         hasChamberFan: false,
         hasAuxFan: false,
         purgeFamily: "A1"
+      },
+      // ── Newer-generation models ────────────────────────────────────────────
+      // Geometry below is derived from published build volumes and mirrors the
+      // proven P1S/A1 sweep patterns scaled to each bed. Validate the park/lane
+      // coordinates on real hardware before unattended production loops; every
+      // value can be overridden per-profile via transform overrides.
+      P2S: {
+        // 256mm CoreXY, enclosed — same physical envelope as the P1S.
+        zMax: 250,
+        sweepStartX: 128,
+        sweepStartY: 250,
+        sweepEndY: 0,
+        sweepLanesX: [128, 78, 178, 28, 228],
+        parkX: 65,
+        parkY: 245,
+        fTravel: 12e3,
+        fSweep: 2e3,
+        fZ: 600,
+        hasChamberFan: true,
+        hasAuxFan: true,
+        purgeFamily: "P1X1"
+      },
+      X2D: {
+        // 256 x 256 x 260 CoreXY, dual nozzle, enclosed.
+        zMax: 255,
+        sweepStartX: 128,
+        sweepStartY: 250,
+        sweepEndY: 0,
+        sweepLanesX: [128, 78, 178, 28, 228],
+        parkX: 65,
+        parkY: 245,
+        fTravel: 12e3,
+        fSweep: 2e3,
+        fZ: 600,
+        hasChamberFan: true,
+        hasAuxFan: true,
+        purgeFamily: "P1X1"
+      },
+      H2D: {
+        // H2 series (H2S / H2D / H2C): 325 x 320 x 325 large-format CoreXY.
+        zMax: 320,
+        sweepStartX: 162,
+        sweepStartY: 315,
+        sweepEndY: 0,
+        sweepLanesX: [162, 112, 212, 62, 262],
+        // center-out, 50mm increments
+        parkX: 82,
+        parkY: 310,
+        fTravel: 12e3,
+        fSweep: 2e3,
+        fZ: 600,
+        hasChamberFan: true,
+        hasAuxFan: true,
+        purgeFamily: "P1X1"
+      },
+      A2L: {
+        // 330 x 320 x 325 large-format bedslinger (A-series).
+        zMax: 320,
+        sweepStartX: 165,
+        sweepStartY: 315,
+        sweepEndY: 0,
+        sweepLanesX: [165, 115, 215, 65, 265],
+        // center-out, 50mm increments
+        parkX: -40,
+        parkY: 326,
+        fTravel: 12e3,
+        fSweep: 2e3,
+        fZ: 600,
+        hasChamberFan: false,
+        hasAuxFan: false,
+        purgeFamily: "A1"
       }
     };
+  }
+});
+
+// src/models/PrinterModels.js
+function canonicalKey(value) {
+  return String(value || "").trim().toUpperCase().replace(/^BAMBU\s+LAB\s+/, "BAMBU ").replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+}
+function normalizeModel(value) {
+  const key = canonicalKey(value);
+  if (!key) return null;
+  if (LOOKUP.has(key)) return LOOKUP.get(key);
+  const bare = key.replace(/^BAMBU\s+/, "");
+  if (LOOKUP.has(bare)) return LOOKUP.get(bare);
+  if (bare.includes("A1") && bare.includes("MINI")) return getModelById("A1_MINI");
+  if (bare.includes("A2L") || /\bA2\b/.test(bare)) return getModelById("A2L");
+  if (bare.includes("A1")) return getModelById("A1");
+  if (bare.includes("X2")) return getModelById("X2D");
+  if (bare.includes("X1E")) return getModelById("X1E");
+  if (bare.includes("X1C") || bare.includes("CARBON")) return getModelById("X1C");
+  if (bare.includes("X1")) return getModelById("X1");
+  if (bare.includes("P2")) return getModelById("P2S");
+  if (bare.includes("P1P")) return getModelById("P1P");
+  if (bare.includes("P1")) return getModelById("P1S");
+  if (bare.includes("H2S")) return getModelById("H2S");
+  if (bare.includes("H2C")) return getModelById("H2C");
+  if (bare.includes("H2")) return getModelById("H2D");
+  return null;
+}
+function getModelById(id) {
+  return PRINTER_MODELS.find((model) => model.id === id) || null;
+}
+function automatorModelKey(value) {
+  const model = normalizeModel(value);
+  if (!model) return "P1S";
+  switch (model.id) {
+    case "X1C":
+    case "X1E":
+      return "X1";
+    case "H2S":
+    case "H2C":
+      return "H2D";
+    case "P1P":
+      return "P1S";
+    default:
+      return model.id;
+  }
+}
+function cameraFamilyFor(value) {
+  const model = normalizeModel(value);
+  return model ? model.camera : "p1";
+}
+function capabilitiesFor(value) {
+  const model = normalizeModel(value);
+  if (!model) return null;
+  return {
+    mqtt_control: true,
+    ams: true,
+    camera: model.hasCamera,
+    max_x: model.bed.x,
+    max_y: model.bed.y,
+    max_z: model.bed.z
+  };
+}
+var PRINTER_MODELS, LOOKUP;
+var init_PrinterModels = __esm({
+  "src/models/PrinterModels.js"() {
+    PRINTER_MODELS = [
+      {
+        id: "A1_MINI",
+        name: "Bambu A1 Mini",
+        short: "A1 Mini",
+        family: "a1mini",
+        strategyFamily: "a1_series",
+        camera: "p1",
+        bed: { x: 180, y: 180, z: 180 },
+        kinematics: "bedslinger",
+        hasCamera: true,
+        adoptable: true,
+        aliases: ["A1M", "A1 MINI", "A1-MINI", "BAMBU LAB A1 MINI"]
+      },
+      {
+        id: "A1",
+        name: "Bambu A1",
+        short: "A1",
+        family: "a1",
+        strategyFamily: "a1_series",
+        camera: "p1",
+        bed: { x: 256, y: 256, z: 256 },
+        kinematics: "bedslinger",
+        hasCamera: true,
+        adoptable: true,
+        aliases: ["BAMBU LAB A1", "A1 COMBO", "BAMBU A1 (EARLY)"]
+      },
+      {
+        id: "A2L",
+        name: "Bambu A2L",
+        short: "A2L",
+        family: "a2",
+        strategyFamily: "a1_series",
+        camera: "p1",
+        bed: { x: 330, y: 320, z: 325 },
+        kinematics: "bedslinger",
+        hasCamera: true,
+        adoptable: true,
+        aliases: ["BAMBU LAB A2L", "A2"]
+      },
+      {
+        id: "P1P",
+        name: "Bambu P1P",
+        short: "P1P",
+        family: "p1",
+        strategyFamily: "p1_series",
+        camera: "p1",
+        bed: { x: 256, y: 256, z: 256 },
+        kinematics: "corexy",
+        hasCamera: false,
+        adoptable: true,
+        aliases: ["BAMBU LAB P1P"]
+      },
+      {
+        id: "P1S",
+        name: "Bambu P1S",
+        short: "P1S",
+        family: "p1",
+        strategyFamily: "p1_series",
+        camera: "p1",
+        bed: { x: 256, y: 256, z: 256 },
+        kinematics: "corexy",
+        hasCamera: true,
+        adoptable: true,
+        aliases: ["P1", "BAMBU LAB P1S", "BAMBU P1S 2", "P1S 2"]
+      },
+      {
+        id: "P2S",
+        name: "Bambu P2S",
+        short: "P2S",
+        family: "p2",
+        strategyFamily: "p2_series",
+        camera: "x1",
+        bed: { x: 256, y: 256, z: 256 },
+        kinematics: "corexy",
+        hasCamera: true,
+        adoptable: true,
+        aliases: ["P2", "BAMBU LAB P2S"]
+      },
+      {
+        id: "X1",
+        name: "Bambu X1",
+        short: "X1",
+        family: "x1",
+        strategyFamily: "p1_series",
+        camera: "x1",
+        bed: { x: 256, y: 256, z: 256 },
+        kinematics: "corexy",
+        hasCamera: true,
+        adoptable: false,
+        aliases: ["BAMBU LAB X1"]
+      },
+      {
+        id: "X1C",
+        name: "Bambu X1C",
+        short: "X1C",
+        family: "x1",
+        strategyFamily: "p1_series",
+        camera: "x1",
+        bed: { x: 256, y: 256, z: 256 },
+        kinematics: "corexy",
+        hasCamera: true,
+        adoptable: true,
+        aliases: ["X1 CARBON", "BAMBU LAB X1C", "BAMBU LAB X1 CARBON", "3DPRINTER-X1-CARBON"]
+      },
+      {
+        id: "X1E",
+        name: "Bambu X1E",
+        short: "X1E",
+        family: "x1",
+        strategyFamily: "p1_series",
+        camera: "x1",
+        bed: { x: 256, y: 256, z: 256 },
+        kinematics: "corexy",
+        hasCamera: true,
+        adoptable: true,
+        aliases: ["BAMBU LAB X1E"]
+      },
+      {
+        id: "X2D",
+        name: "Bambu X2D",
+        short: "X2D",
+        family: "x2",
+        strategyFamily: "x2_series",
+        camera: "x1",
+        bed: { x: 256, y: 256, z: 260 },
+        kinematics: "corexy",
+        hasCamera: true,
+        adoptable: true,
+        // "X2C" does not exist in Bambu's lineup — the X-series successor is
+        // the X2D. Treat X2C as an alias so operators typing it still land on
+        // a real machine.
+        aliases: ["X2", "X2C", "BAMBU LAB X2D"]
+      },
+      {
+        id: "H2S",
+        name: "Bambu H2S",
+        short: "H2S",
+        family: "h2",
+        strategyFamily: "h2_series",
+        camera: "x1",
+        bed: { x: 325, y: 320, z: 325 },
+        kinematics: "corexy",
+        hasCamera: true,
+        adoptable: true,
+        aliases: ["BAMBU LAB H2S"]
+      },
+      {
+        id: "H2D",
+        name: "Bambu H2D",
+        short: "H2D",
+        family: "h2",
+        strategyFamily: "h2_series",
+        camera: "x1",
+        bed: { x: 325, y: 320, z: 325 },
+        kinematics: "corexy",
+        hasCamera: true,
+        adoptable: true,
+        aliases: ["BAMBU LAB H2D", "H2D PRO", "H2 PRO"]
+      },
+      {
+        id: "H2C",
+        name: "Bambu H2C",
+        short: "H2C",
+        family: "h2",
+        strategyFamily: "h2_series",
+        camera: "x1",
+        bed: { x: 325, y: 320, z: 325 },
+        kinematics: "corexy",
+        hasCamera: true,
+        adoptable: true,
+        aliases: ["BAMBU LAB H2C"]
+      }
+    ];
+    LOOKUP = /* @__PURE__ */ new Map();
+    for (const model of PRINTER_MODELS) {
+      const keys = [
+        model.id,
+        model.name,
+        model.short,
+        ...model.aliases || []
+      ];
+      for (const key of keys) {
+        LOOKUP.set(canonicalKey(key), model);
+      }
+    }
   }
 });
 
@@ -41154,6 +41477,11 @@ var init_AutomatorZip = __esm({
 });
 
 // src/services/EjectionService.js
+var EjectionService_exports = {};
+__export(EjectionService_exports, {
+  default: () => EjectionService_default,
+  executeEjectionSequence: () => executeEjectionSequence
+});
 async function executeEjectionSequence(params) {
   const {
     job_id,
@@ -41311,7 +41639,7 @@ async function waitForCoolDown(printerId, targetTemp, hysteresis, holdSeconds, m
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
-var log16;
+var log16, EjectionService_default;
 var init_EjectionService = __esm({
   "src/services/EjectionService.js"() {
     init_CommandBus();
@@ -41320,6 +41648,7 @@ var init_EjectionService = __esm({
     init_Accessory();
     init_logger();
     log16 = createLogger("EjectionService");
+    EjectionService_default = { executeEjectionSequence };
   }
 });
 
@@ -43623,6 +43952,7 @@ var init_JobOrchestrator = __esm({
     init_Event();
     init_CommandBus();
     init_Automator();
+    init_PrinterModels();
     init_AutomatorZip();
     init_EjectionService();
     init_logger();
@@ -43703,8 +44033,10 @@ var init_JobOrchestrator = __esm({
             });
             log18.info(`Job submitted (raw mode, no transform): ${rawFileName}`);
           } else {
+            const printerRow = printer_id ? PrinterModel.findById(printer_id) : null;
+            const rawModel = transform_overrides?.printer_model || (profile.printer_model && profile.printer_model !== "*" ? profile.printer_model : null) || printerRow?.model || "P1S";
             const automatorConfig = {
-              printerModel: transform_overrides?.printer_model || profile.printer_model || "P1S",
+              printerModel: automatorModelKey(rawModel),
               loopsN: transform_overrides?.n_loops || profile.n_loops || 1,
               // Cooldown mode: 'temperature' (cool-to-temp) or 'time' (fixed dwell).
               // Exactly one runs — never both.
@@ -45059,18 +45391,33 @@ __export(CameraProxy_exports, {
 });
 async function resolveFfmpegPath() {
   if (_ffmpegPath) return _ffmpegPath;
-  const mod = await import("@ffmpeg-installer/ffmpeg");
-  _ffmpegPath = mod.path || mod.default?.path || mod.default;
-  if (!_ffmpegPath) throw new Error("ffmpeg binary not available for X1 RTSP streaming");
+  try {
+    const mod = await import("@ffmpeg-installer/ffmpeg");
+    _ffmpegPath = mod.path || mod.default?.path || mod.default;
+  } catch {
+    _ffmpegPath = null;
+  }
+  if (!_ffmpegPath) {
+    const envPath = process.env.FFMPEG_PATH;
+    if (envPath) {
+      _ffmpegPath = envPath;
+    } else {
+      const { execSync } = await import("node:child_process");
+      try {
+        const probe = process.platform === "win32" ? "where ffmpeg" : "command -v ffmpeg";
+        const found = execSync(probe, { encoding: "utf8" }).split(/\r?\n/)[0].trim();
+        if (found) _ffmpegPath = found;
+      } catch {
+      }
+    }
+  }
+  if (!_ffmpegPath) {
+    throw new Error("ffmpeg not found \u2014 X1/X2/P2S/H2 cameras stream RTSPS and need ffmpeg. Install ffmpeg (or set FFMPEG_PATH) on the farm node.");
+  }
   return _ffmpegPath;
 }
 function getCameraFamily(model) {
-  if (!model) return "p1";
-  const m = model.trim();
-  if (CAMERA_FAMILY[m]) return CAMERA_FAMILY[m];
-  const lower = m.toLowerCase();
-  if (lower.includes("x1") || lower.includes("h2d")) return "x1";
-  return "p1";
+  return cameraFamilyFor(model);
 }
 function getCameraPort(family) {
   return family === "x1" ? 322 : 6e3;
@@ -45094,26 +45441,16 @@ function probePort(ip, port, timeoutMs = 4e3) {
     });
   });
 }
-var import_child_process, tls2, net, _ffmpegPath, log22, CAMERA_FAMILY, CameraProxyManager, cameraProxy, CameraProxy_default;
+var import_child_process, tls2, net, _ffmpegPath, log22, CameraProxyManager, cameraProxy, CameraProxy_default;
 var init_CameraProxy = __esm({
   "src/services/CameraProxy.js"() {
     import_child_process = require("child_process");
     tls2 = __toESM(require("tls"), 1);
     net = __toESM(require("net"), 1);
     init_logger();
+    init_PrinterModels();
     _ffmpegPath = null;
     log22 = createLogger("CameraProxy");
-    CAMERA_FAMILY = {
-      "Bambu P1S": "p1",
-      "Bambu P1P": "p1",
-      "Bambu P1": "p1",
-      "Bambu A1": "p1",
-      "Bambu A1 Mini": "p1",
-      "Bambu X1": "x1",
-      "Bambu X1C": "x1",
-      "Bambu X1E": "x1",
-      "Bambu H2D": "x1"
-    };
     CameraProxyManager = class {
       constructor() {
         this.streams = /* @__PURE__ */ new Map();
@@ -45586,29 +45923,294 @@ Content-Length: ${state.frame.length}\r
   }
 });
 
+// src/services/SliceService.js
+var SliceService_exports = {};
+__export(SliceService_exports, {
+  SLICER_SETTING_FIELDS: () => SLICER_SETTING_FIELDS,
+  SliceService: () => SliceService,
+  default: () => SliceService_default
+});
+function orcaOverrides(settings = {}) {
+  const process2 = {}, filament = {};
+  const num3 = (v) => Number.parseFloat(v);
+  const int = (v) => String(Math.round(Number.parseFloat(v)));
+  if (settings.layer_height != null && settings.layer_height !== "") process2.layer_height = String(num3(settings.layer_height));
+  if (settings.infill_density != null && settings.infill_density !== "") process2.sparse_infill_density = `${Math.round(num3(settings.infill_density))}%`;
+  if (settings.infill_pattern) process2.sparse_infill_pattern = String(settings.infill_pattern);
+  if (settings.wall_loops != null && settings.wall_loops !== "") process2.wall_loops = int(settings.wall_loops);
+  if (settings.top_layers != null && settings.top_layers !== "") process2.top_shell_layers = int(settings.top_layers);
+  if (settings.bottom_layers != null && settings.bottom_layers !== "") process2.bottom_shell_layers = int(settings.bottom_layers);
+  if (settings.supports != null) process2.enable_support = settings.supports ? "1" : "0";
+  if (settings.support_type) process2.support_type = String(settings.support_type);
+  if (settings.brim != null) process2.brim_type = settings.brim ? "outer_only" : "no_brim";
+  if (settings.nozzle_temp != null && settings.nozzle_temp !== "") {
+    filament.nozzle_temperature = [int(settings.nozzle_temp)];
+    filament.nozzle_temperature_initial_layer = [int(settings.nozzle_temp)];
+  }
+  return { process: process2, filament };
+}
+function writeDerivedPreset(basePath, overrides, outPath) {
+  const obj = JSON.parse(import_node_fs6.default.readFileSync(basePath, "utf-8"));
+  delete obj.setting_id;
+  Object.assign(obj, overrides);
+  import_node_fs6.default.writeFileSync(outPath, JSON.stringify(obj, null, 2));
+  return outPath;
+}
+function detectCliEngine() {
+  const candidates = [
+    process.env.SLICER_CLI_PATH,
+    process.env.ORCA_CLI_PATH,
+    ...DEFAULT_CLI_CANDIDATES
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      if (import_node_fs6.default.existsSync(candidate)) return { path: candidate, label: import_node_path8.default.basename(candidate) };
+    } catch {
+    }
+  }
+  return null;
+}
+function runProcess(exe, args, { cwd, timeoutMs } = {}) {
+  return new Promise((resolve, reject) => {
+    (0, import_node_child_process.execFile)(
+      exe,
+      args,
+      { cwd, timeout: timeoutMs, maxBuffer: 128 * 1024 * 1024, windowsHide: true },
+      (err, stdout, stderr) => {
+        if (err && !stdout && !stderr) return reject(err);
+        resolve({ stdout: stdout?.toString() || "", stderr: stderr?.toString() || "", err });
+      }
+    );
+  });
+}
+var import_node_fs6, import_node_os4, import_node_path8, import_node_child_process, log23, DEFAULT_CLI_CANDIDATES, ORCA_RESOURCES, ORCA_PRESETS, SLICER_SETTING_FIELDS, SUPPORTED_INPUT_FORMATS, BACKENDS, BACKEND_PRIORITY, SliceService, SliceService_default;
+var init_SliceService = __esm({
+  "src/services/SliceService.js"() {
+    import_node_fs6 = __toESM(require("node:fs"), 1);
+    import_node_os4 = __toESM(require("node:os"), 1);
+    import_node_path8 = __toESM(require("node:path"), 1);
+    import_node_child_process = require("node:child_process");
+    init_logger();
+    init_AutomatorZip();
+    log23 = createLogger("SliceService");
+    DEFAULT_CLI_CANDIDATES = [
+      "C:\\Program Files\\OrcaSlicer\\orca-slicer.exe",
+      "C:\\Program Files (x86)\\OrcaSlicer\\orca-slicer.exe",
+      "/usr/bin/orca-slicer",
+      "/usr/local/bin/orca-slicer",
+      "/Applications/OrcaSlicer.app/Contents/MacOS/OrcaSlicer"
+    ];
+    ORCA_RESOURCES = process.env.ORCA_RESOURCES || "C:\\Program Files\\OrcaSlicer\\resources\\profiles\\BBL";
+    ORCA_PRESETS = {
+      P1S: { machine: "Bambu Lab P1S 0.4 nozzle", process: "0.20mm Standard @BBL X1C", filament: "Bambu PLA Basic @BBL X1C", modelId: "C12" },
+      X1: { machine: "Bambu Lab X1 Carbon 0.4 nozzle", process: "0.20mm Standard @BBL X1C", filament: "Bambu PLA Basic @BBL X1C", modelId: "BL-P001" },
+      A1: { machine: "Bambu Lab A1 0.4 nozzle", process: "0.20mm Standard @BBL A1", filament: "Bambu PLA Basic @BBL A1", modelId: "N1" },
+      A1_MINI: { machine: "Bambu Lab A1 mini 0.4 nozzle", process: "0.20mm Standard @BBL A1M", filament: "Bambu PLA Basic @BBL A1M", modelId: "N2" },
+      // Newer models: presets exist in current OrcaSlicer BBL bundles; if a
+      // given install is missing them, sliceViaCli reports the missing preset
+      // path so the operator can update OrcaSlicer or override ORCA_RESOURCES.
+      P2S: { machine: "Bambu Lab P2S 0.4 nozzle", process: "0.20mm Standard @BBL P2S", filament: "Bambu PLA Basic @BBL P2S", modelId: "C14" },
+      X2D: { machine: "Bambu Lab X2D 0.4 nozzle", process: "0.20mm Standard @BBL X2D", filament: "Bambu PLA Basic @BBL X2D", modelId: "X2D" },
+      H2D: { machine: "Bambu Lab H2D 0.4 nozzle", process: "0.20mm Standard @BBL H2D", filament: "Bambu PLA Basic @BBL H2D", modelId: "H2D" },
+      A2L: { machine: "Bambu Lab A2L 0.4 nozzle", process: "0.20mm Standard @BBL A2L", filament: "Bambu PLA Basic @BBL A2L", modelId: "A2L" }
+    };
+    SLICER_SETTING_FIELDS = [
+      { key: "layer_height", label: "Layer height (mm)", type: "number", min: 0.04, max: 0.6, step: 0.02, group: "process" },
+      { key: "infill_density", label: "Infill (%)", type: "number", min: 0, max: 100, step: 5, group: "process" },
+      { key: "infill_pattern", label: "Infill pattern", type: "select", options: ["grid", "gyroid", "honeycomb", "cubic", "line", "concentric", "rectilinear"], group: "process" },
+      { key: "wall_loops", label: "Wall loops", type: "number", min: 1, max: 10, step: 1, group: "process" },
+      { key: "top_layers", label: "Top layers", type: "number", min: 0, max: 20, step: 1, group: "process" },
+      { key: "bottom_layers", label: "Bottom layers", type: "number", min: 0, max: 20, step: 1, group: "process" },
+      { key: "supports", label: "Supports", type: "bool", group: "process" },
+      { key: "support_type", label: "Support type", type: "select", options: ["normal(auto)", "tree(auto)"], group: "process" },
+      { key: "brim", label: "Brim", type: "bool", group: "process" },
+      { key: "nozzle_temp", label: "Nozzle temp (\xB0C)", type: "number", min: 160, max: 300, step: 5, group: "filament" }
+    ];
+    SUPPORTED_INPUT_FORMATS = ["stl", "3mf", "obj", "step", "stp"];
+    BACKENDS = {
+      "local-agent": {
+        id: "local-agent",
+        label: "Local companion agent (operator PC)",
+        option: "B",
+        // Detected via a future local bridge handshake; not present yet.
+        detect: () => ({ available: false, reason: "Companion agent not detected on this device" })
+      },
+      "pi-cli": {
+        id: "pi-cli",
+        label: "Host CLI (OrcaSlicer headless)",
+        option: "C",
+        detect: () => {
+          const engine = detectCliEngine();
+          return engine ? { available: true, reason: `CLI found: ${engine.label}`, engine: engine.label } : { available: false, reason: "Set SLICER_CLI_PATH to an OrcaSlicer/Prusa CLI binary" };
+        }
+      },
+      "cloud": {
+        id: "cloud",
+        label: "Cloud slice workers",
+        option: "D",
+        detect: () => ({ available: false, reason: "Cloud slicing not configured" })
+      }
+    };
+    BACKEND_PRIORITY = ["local-agent", "pi-cli", "cloud"];
+    SliceService = {
+      SUPPORTED_INPUT_FORMATS,
+      /** Inspect every backend's current availability (for the UI to render). */
+      getBackends() {
+        return BACKEND_PRIORITY.map((id) => {
+          const b = BACKENDS[id];
+          const status = b.detect();
+          return { id: b.id, label: b.label, option: b.option, ...status };
+        });
+      },
+      /** The first available backend, or null. */
+      getActiveBackend() {
+        for (const id of BACKEND_PRIORITY) {
+          const b = BACKENDS[id];
+          const status = b.detect();
+          if (status.available) return { id: b.id, label: b.label, option: b.option, ...status };
+        }
+        return null;
+      },
+      /** True if `name`'s extension is a model format we can accept. */
+      isSupportedInput(name = "") {
+        const ext = name.split(".").pop()?.toLowerCase();
+        return SUPPORTED_INPUT_FORMATS.includes(ext);
+      },
+      /**
+       * Run a slice job through the active (or pinned) backend.
+       * @param {SliceJob} job
+       * @param {string} [preferredBackend]
+       * @returns {Promise<SliceResult>}
+       */
+      async slice(job, preferredBackend = null) {
+        const started = Date.now();
+        if (!job?.modelBuffer?.length) {
+          return { ok: false, code: "no_model", error: "No model data supplied" };
+        }
+        if (!this.isSupportedInput(job.modelName)) {
+          return {
+            ok: false,
+            code: "unsupported_format",
+            error: `Unsupported model format. Accepts: ${SUPPORTED_INPUT_FORMATS.join(", ")}`
+          };
+        }
+        const backend = preferredBackend ? { id: preferredBackend, ...BACKENDS[preferredBackend]?.detect?.() } : this.getActiveBackend();
+        if (!backend || !backend.available) {
+          log23.warn(`Slice requested but no backend available (model=${job.modelName})`);
+          return {
+            ok: false,
+            code: "no_backend",
+            error: backend ? `Backend "${backend.id}" is not available: ${backend.reason}` : "No slicing backend is configured yet. Configure a companion agent or set SLICER_CLI_PATH to an OrcaSlicer CLI.",
+            report: { backends: this.getBackends() }
+          };
+        }
+        log23.info(`Slice job: backend=${backend.id}, model=${job.modelName} (${job.modelBuffer.length} bytes)`);
+        try {
+          const result = await this._dispatch(backend.id, job);
+          return { ...result, report: { ...result.report || {}, backend: backend.id, durationMs: Date.now() - started } };
+        } catch (err) {
+          log23.error(`Slice failed (${backend.id}): ${err.message}`);
+          return { ok: false, code: "engine_error", error: err.message, report: { backend: backend.id } };
+        }
+      },
+      /** @private route to a concrete backend implementation. */
+      async _dispatch(backendId, job) {
+        switch (backendId) {
+          case "pi-cli":
+          case "local-agent":
+            return this._runCli(job);
+          default:
+            return { ok: false, code: "not_implemented", error: `Backend "${backendId}" has no runner yet` };
+        }
+      },
+      /**
+       * @private Run OrcaSlicer headless and wrap the result into a `.gcode.3mf`.
+       *
+       * NOTE: this build's `--export-3mf` segfaults headless, so we slice with
+       * `--outputdir` (reliable: emits Metadata-less `plate_N.gcode`) and build the
+       * `.gcode.3mf` ourselves via buildGcode3mf(). `--orient` is intentionally
+       * omitted (heavy, and we don't want auto-reorientation of functional parts).
+       */
+      async _runCli(job) {
+        const engine = detectCliEngine();
+        if (!engine) return { ok: false, code: "no_backend", error: "No CLI engine found" };
+        const model = job.options?.printer_model || job.profile?.printer_model || "P1S";
+        const preset = ORCA_PRESETS[model] || ORCA_PRESETS.P1S;
+        const machineJson = import_node_path8.default.join(ORCA_RESOURCES, "machine", `${preset.machine}.json`);
+        const processJson = import_node_path8.default.join(ORCA_RESOURCES, "process", `${preset.process}.json`);
+        const filamentJson = import_node_path8.default.join(ORCA_RESOURCES, "filament", `${preset.filament}.json`);
+        for (const [label, f] of [["machine", machineJson], ["process", processJson], ["filament", filamentJson]]) {
+          if (!import_node_fs6.default.existsSync(f)) {
+            return { ok: false, code: "preset_missing", error: `Slicer ${label} preset not found: ${f}` };
+          }
+        }
+        const work = import_node_fs6.default.mkdtempSync(import_node_path8.default.join(import_node_os4.default.tmpdir(), "ag-slice-"));
+        const ext = (job.modelName.split(".").pop() || "stl").toLowerCase();
+        const modelPath = import_node_path8.default.join(work, `input.${ext}`);
+        import_node_fs6.default.writeFileSync(modelPath, job.modelBuffer);
+        const ov = orcaOverrides(job.options?.settings);
+        let processArg = processJson, filamentArg = filamentJson;
+        if (Object.keys(ov.process).length) processArg = writeDerivedPreset(processJson, ov.process, import_node_path8.default.join(work, "process.json"));
+        if (Object.keys(ov.filament).length) filamentArg = writeDerivedPreset(filamentJson, ov.filament, import_node_path8.default.join(work, "filament.json"));
+        const appliedSettings = { ...ov.process, ...ov.filament };
+        if (Object.keys(appliedSettings).length) log23.info(`Slice overrides: ${JSON.stringify(appliedSettings)}`);
+        const args = [
+          modelPath,
+          "--load-settings",
+          `${machineJson};${processArg}`,
+          "--load-filaments",
+          filamentArg,
+          "--arrange",
+          "1",
+          "--ensure-on-bed",
+          "--slice",
+          "0",
+          "--outputdir",
+          work
+        ];
+        try {
+          const { stdout } = await runProcess(engine.path, args, { cwd: void 0, timeoutMs: 18e4 });
+          const plates = import_node_fs6.default.readdirSync(work).map((f) => ({ f, m: /^plate_(\d+)\.gcode$/i.exec(f) })).filter((x) => x.m).map((x) => ({ index: parseInt(x.m[1], 10), gcode: import_node_fs6.default.readFileSync(import_node_path8.default.join(work, x.f), "utf-8") })).sort((a, b) => a.index - b.index);
+          if (!plates.length) {
+            const tail = (stdout || "").split("\n").slice(-4).join(" ");
+            return { ok: false, code: "no_output", error: `Slicer produced no plate gcode. ${tail}` };
+          }
+          const gcode3mf = buildGcode3mf(plates, { printerModelId: preset.modelId, clientVersion: engine.label });
+          const base = job.modelName.replace(/\.[^.]+$/, "");
+          return {
+            ok: true,
+            gcode3mf,
+            outputName: `${base}.gcode.3mf`,
+            report: { engine: engine.label, plates: plates.length, printerModel: model, settings: appliedSettings }
+          };
+        } finally {
+          try {
+            import_node_fs6.default.rmSync(work, { recursive: true, force: true });
+          } catch {
+          }
+        }
+      }
+    };
+    SliceService_default = SliceService;
+  }
+});
+
 // src/services/PrinterRegistry.js
 var PrinterRegistry_exports = {};
 __export(PrinterRegistry_exports, {
   PrinterRegistry: () => PrinterRegistry,
   default: () => PrinterRegistry_default
 });
-var log23, MODEL_CAPABILITIES, PrinterRegistry, PrinterRegistry_default;
+var log24, PrinterRegistry, PrinterRegistry_default;
 var init_PrinterRegistry = __esm({
   "src/services/PrinterRegistry.js"() {
     init_Printer();
     init_Accessory();
     init_Event();
     init_logger();
+    init_PrinterModels();
     init_SystemEvents();
-    log23 = createLogger("PrinterRegistry");
-    MODEL_CAPABILITIES = {
-      "Bambu A1": { mqtt_control: true, ams: true, camera: false, max_y: 256, max_x: 256, max_z: 256 },
-      "Bambu A1 Mini": { mqtt_control: true, ams: true, camera: false, max_y: 180, max_x: 180, max_z: 180 },
-      "Bambu P1S": { mqtt_control: true, ams: true, camera: true, max_y: 256, max_x: 256, max_z: 256 },
-      "Bambu P1P": { mqtt_control: true, ams: true, camera: false, max_y: 256, max_x: 256, max_z: 256 },
-      "Bambu X1C": { mqtt_control: true, ams: true, camera: true, max_y: 256, max_x: 256, max_z: 256 },
-      "Bambu X1": { mqtt_control: true, ams: true, camera: true, max_y: 256, max_x: 256, max_z: 256 }
-    };
+    log24 = createLogger("PrinterRegistry");
     PrinterRegistry = class {
       /**
        * Register a new printer.
@@ -45623,7 +46225,7 @@ var init_PrinterRegistry = __esm({
           payload: { name: data.name, model: data.model }
         });
         SystemEvents_default.emit("printer.created", printer);
-        log23.info(`Printer registered: ${printer.name} (${printer.model})`);
+        log24.info(`Printer registered: ${printer.name} (${printer.model})`);
         return printer;
       }
       static findAll() {
@@ -45658,7 +46260,7 @@ var init_PrinterRegistry = __esm({
             payload: { name: printer.name }
           });
           SystemEvents_default.emit("printer.deleted", id);
-          log23.info(`Printer removed: ${printer.name}`);
+          log24.info(`Printer removed: ${printer.name}`);
         }
         return printer;
       }
@@ -45666,7 +46268,7 @@ var init_PrinterRegistry = __esm({
        * Derive capabilities from model + attached accessories.
        */
       static deriveCapabilities(model, accessories = []) {
-        const base = MODEL_CAPABILITIES[model] || { mqtt_control: true, ams: false, camera: false };
+        const base = capabilitiesFor(model) || { mqtt_control: true, ams: false, camera: false };
         const caps = { ...base };
         for (const acc of accessories) {
           if (acc.type === "camera") caps.camera = true;
@@ -45828,8 +46430,11 @@ async function defaultCaptureCameraFrame(localPrinterId) {
   }
   const { default: cameraProxy2 } = await Promise.resolve().then(() => (init_CameraProxy(), CameraProxy_exports));
   const auth = PrinterModel2.getAuth(localPrinterId) || {};
+  if (!auth.access_code) {
+    throw new Error(`No LAN access code stored for ${printer.name || localPrinterId} \u2014 the camera cannot authenticate. Edit the printer and add its access code.`);
+  }
   if (!cameraProxy2.isRunning(localPrinterId)) {
-    await cameraProxy2.start(localPrinterId, printer.ip_hostname, auth.access_code || "", printer.model);
+    await cameraProxy2.start(localPrinterId, printer.ip_hostname, auth.access_code, printer.model);
   }
   let frame = cameraProxy2.getFrame(localPrinterId);
   for (let attempt = 0; attempt < 20 && !frame; attempt += 1) {
@@ -45855,12 +46460,46 @@ async function executeCameraSnapshot(command, deps) {
     ...frame
   };
 }
+async function defaultEjectPrinter(localPrinterId, options = {}) {
+  const [{ PrinterModel: PrinterModel2 }, ejection] = await Promise.all([
+    Promise.resolve().then(() => (init_Printer(), Printer_exports)),
+    Promise.resolve().then(() => (init_EjectionService(), EjectionService_exports))
+  ]);
+  const printer = PrinterModel2.findById(localPrinterId);
+  if (!printer) throw new Error(`Local printer not found: ${localPrinterId}`);
+  return ejection.executeEjectionSequence({
+    job_id: options.command_id || `cloud-eject-${localPrinterId}`,
+    printer_id: localPrinterId,
+    profile: {
+      eject_params: {
+        ...Number.isFinite(options.max_eject_attempts) ? { max_eject_attempts: options.max_eject_attempts } : {}
+      }
+    },
+    ...Number.isFinite(options.release_temperature_c) ? { release_temp_c: options.release_temperature_c } : {}
+  });
+}
+async function executePrinterEject(command, deps) {
+  const localPrinterId = requiredString(command.payload?.local_printer_id, "payload.local_printer_id");
+  const result = await deps.ejectPrinter(localPrinterId, {
+    command_id: command.command_id,
+    release_temperature_c: Number(command.payload?.release_temperature_c),
+    max_eject_attempts: Number(command.payload?.max_eject_attempts)
+  });
+  return {
+    ok: true,
+    local_printer_id: localPrinterId,
+    ...result
+  };
+}
 async function executePrinterAction(command, deps) {
   if (command.command_type.startsWith("printer.ams.")) {
     return executeAmsAction(command, deps);
   }
   if (command.command_type === "printer.camera.snapshot") {
     return executeCameraSnapshot(command, deps);
+  }
+  if (command.command_type === "printer.eject") {
+    return executePrinterEject(command, deps);
   }
   const localPrinterId = requiredString(command.payload?.local_printer_id, "payload.local_printer_id");
   const worker = await getRequiredWorker(localPrinterId, deps);
@@ -45970,20 +46609,7 @@ async function executeCloudPrintReadyRaw({ payload, localPrinterId, worker, buff
     start_result: startResult
   };
 }
-async function executeCloudPrintReady(command, deps) {
-  const payload = command.payload || {};
-  const localPrinterId = requiredString(payload.local_printer_id, "payload.local_printer_id");
-  const downloadUrl = requiredString(payload.download_url, "payload.download_url");
-  const originalName = safeRemoteFileName(payload.original_name);
-  const worker = await getRequiredWorker(localPrinterId, deps);
-  const downloaded = await deps.downloadArtifact(downloadUrl);
-  const { buffer, remoteFileName } = prepareReadyPrintArtifact({
-    buffer: Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded),
-    originalName
-  });
-  if (payload.pipeline === "raw") {
-    return executeCloudPrintReadyRaw({ payload, localPrinterId, worker, buffer, remoteFileName }, deps);
-  }
+async function submitOrchestratedPrint({ command, payload, localPrinterId, worker, buffer, remoteFileName, originalName, extraResult = {} }, deps) {
   const amsMapping = Array.isArray(payload.ams_mapping) ? payload.ams_mapping : [];
   const slotMap = {};
   amsMapping.forEach((value, index) => {
@@ -46026,8 +46652,95 @@ async function executeCloudPrintReady(command, deps) {
       applied: job.transform_report?.skipped !== true,
       error: job.transform_report?.transform_error || null,
       loops: job.diff_summary?.loops || 1
-    }
+    },
+    ...extraResult
   };
+}
+async function executeCloudPrintReady(command, deps) {
+  const payload = command.payload || {};
+  const localPrinterId = requiredString(payload.local_printer_id, "payload.local_printer_id");
+  const downloadUrl = requiredString(payload.download_url, "payload.download_url");
+  const originalName = safeRemoteFileName(payload.original_name);
+  const worker = await getRequiredWorker(localPrinterId, deps);
+  const downloaded = await deps.downloadArtifact(downloadUrl);
+  const { buffer, remoteFileName } = prepareReadyPrintArtifact({
+    buffer: Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded),
+    originalName
+  });
+  if (payload.pipeline === "raw") {
+    return executeCloudPrintReadyRaw({ payload, localPrinterId, worker, buffer, remoteFileName }, deps);
+  }
+  return submitOrchestratedPrint({
+    command,
+    payload,
+    localPrinterId,
+    worker,
+    buffer,
+    remoteFileName,
+    originalName
+  }, deps);
+}
+async function defaultSliceSourceModel({ buffer, originalName, printerModel, settings }) {
+  const { SliceService: SliceService2 } = await Promise.resolve().then(() => (init_SliceService(), SliceService_exports));
+  if (process.env.MOCK_MODE === "true") {
+    const gcode = [
+      `; mock-sliced from ${originalName}`,
+      "G28",
+      "G1 X10 Y10 F3000",
+      "M400",
+      "; MACHINE_END_GCODE_START",
+      "M140 S0",
+      "; EXECUTABLE_BLOCK_END",
+      ""
+    ].join("\n");
+    return {
+      ok: true,
+      gcode3mf: buildGcode3mf2(gcode),
+      outputName: originalName.replace(/\.[^.]+$/i, ".gcode.3mf"),
+      report: { backend: "mock" }
+    };
+  }
+  return SliceService2.slice({
+    modelBuffer: buffer,
+    modelName: originalName,
+    profile: {},
+    options: {
+      // ORCA_PRESETS keys match the Automator geometry ids (P1S, X1, …).
+      printer_model: automatorModelKey(printerModel),
+      ...isPlainObject(settings) ? settings : {}
+    }
+  });
+}
+async function executeCloudPrintSource(command, deps) {
+  const payload = command.payload || {};
+  const localPrinterId = requiredString(payload.local_printer_id, "payload.local_printer_id");
+  const downloadUrl = requiredString(payload.download_url, "payload.download_url");
+  const originalName = safeRemoteFileName(payload.original_name);
+  const worker = await getRequiredWorker(localPrinterId, deps);
+  const downloaded = await deps.downloadArtifact(downloadUrl);
+  const sliced = await deps.sliceSourceModel({
+    buffer: Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded),
+    originalName,
+    printerModel: payload.printer_model || null,
+    settings: payload.slice_settings || null
+  });
+  if (!sliced?.ok || !sliced.gcode3mf) {
+    throw new Error(`Slicing failed: ${sliced?.error || "no slicer backend available on this node"}`);
+  }
+  const remoteFileName = safeRemoteFileName(sliced.outputName || originalName.replace(/\.[^.]+$/i, ".gcode.3mf"));
+  return submitOrchestratedPrint({
+    command,
+    payload,
+    localPrinterId,
+    worker,
+    buffer: Buffer.isBuffer(sliced.gcode3mf) ? sliced.gcode3mf : Buffer.from(sliced.gcode3mf),
+    remoteFileName,
+    originalName,
+    extraResult: {
+      sliced: true,
+      slice_report: sliced.report || null
+    }
+  }, deps);
 }
 function normalizeStringList(value) {
   if (Array.isArray(value)) {
@@ -46134,18 +46847,8 @@ async function defaultAdoptPrinter({ name, model, ip_hostname, access_code, seri
 function normalizeAdoptModel(value) {
   const raw = String(value || "").trim();
   if (!raw) return "P1S";
-  const match = ADOPTABLE_MODELS.find((model) => model.toLowerCase() === raw.toLowerCase());
-  if (match) return match;
-  const upper = raw.toUpperCase();
-  if (upper.includes("A1") && upper.includes("MINI")) return "A1 Mini";
-  if (upper.includes("A1")) return "A1";
-  if (upper.includes("X1E")) return "X1E";
-  if (upper.includes("X1")) return "X1C";
-  if (upper.includes("P1P")) return "P1P";
-  if (upper.includes("P1")) return "P1S";
-  if (upper.includes("P2")) return "P2S";
-  if (upper.includes("H2")) return "H2D";
-  return raw;
+  const model = normalizeModel(raw);
+  return model ? model.short : raw;
 }
 async function executePrinterAdopt(command, deps) {
   const payload = command.payload || {};
@@ -46182,6 +46885,9 @@ async function executeCloudAction(command, deps) {
   if (command.command_type === "cloud.print.ready") {
     return executeCloudPrintReady(command, deps);
   }
+  if (command.command_type === "cloud.print.source") {
+    return executeCloudPrintSource(command, deps);
+  }
   if (command.command_type === "cloud.printers.discover") {
     return executePrinterDiscovery(command, deps);
   }
@@ -46216,7 +46922,9 @@ function getDefaultDeps() {
     discoverPrinters: defaultDiscoverPrinters,
     syncPrinters: defaultSyncPrinters,
     adoptPrinter: defaultAdoptPrinter,
-    captureCameraFrame: defaultCaptureCameraFrame
+    captureCameraFrame: defaultCaptureCameraFrame,
+    ejectPrinter: defaultEjectPrinter,
+    sliceSourceModel: defaultSliceSourceModel
   };
 }
 async function executeCloudCommand(command, deps = {}) {
@@ -46233,13 +46941,13 @@ async function executeCloudCommand(command, deps = {}) {
   }
   throw new Error(`Unsupported cloud command: ${commandType}`);
 }
-var import_node_crypto3, import_adm_zip4, ADOPTABLE_MODELS;
+var import_node_crypto3, import_adm_zip4;
 var init_localCommandExecutor = __esm({
   "src/cloud/localCommandExecutor.js"() {
     import_node_crypto3 = require("node:crypto");
     import_adm_zip4 = __toESM(require_adm_zip(), 1);
     init_localPrinterSnapshot();
-    ADOPTABLE_MODELS = ["A1", "A1 Mini", "P1P", "P1S", "P2S", "X1", "X1C", "X1E", "H2D"];
+    init_PrinterModels();
   }
 });
 
@@ -46492,12 +47200,12 @@ var init_localNodeClient = __esm({
 
 // src/cloud/localResultOutbox.js
 function ensureDirectory(filePath) {
-  import_node_fs6.default.mkdirSync(import_node_path8.default.dirname(filePath), { recursive: true });
+  import_node_fs7.default.mkdirSync(import_node_path9.default.dirname(filePath), { recursive: true });
 }
 function readEntries(filePath) {
-  if (!import_node_fs6.default.existsSync(filePath)) return [];
+  if (!import_node_fs7.default.existsSync(filePath)) return [];
   try {
-    const parsed = JSON.parse(import_node_fs6.default.readFileSync(filePath, "utf8"));
+    const parsed = JSON.parse(import_node_fs7.default.readFileSync(filePath, "utf8"));
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -46506,9 +47214,9 @@ function readEntries(filePath) {
 function writeEntries(filePath, entries) {
   ensureDirectory(filePath);
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  import_node_fs6.default.writeFileSync(tempPath, `${JSON.stringify(entries, null, 2)}
+  import_node_fs7.default.writeFileSync(tempPath, `${JSON.stringify(entries, null, 2)}
 `);
-  import_node_fs6.default.renameSync(tempPath, filePath);
+  import_node_fs7.default.renameSync(tempPath, filePath);
 }
 function requireString(value, name) {
   if (typeof value !== "string" || value.trim() === "") {
@@ -46574,11 +47282,11 @@ function createLocalResultOutbox({
     filePath: normalizedPath
   };
 }
-var import_node_fs6, import_node_path8, import_node_crypto4;
+var import_node_fs7, import_node_path9, import_node_crypto4;
 var init_localResultOutbox = __esm({
   "src/cloud/localResultOutbox.js"() {
-    import_node_fs6 = __toESM(require("node:fs"), 1);
-    import_node_path8 = __toESM(require("node:path"), 1);
+    import_node_fs7 = __toESM(require("node:fs"), 1);
+    import_node_path9 = __toESM(require("node:path"), 1);
     import_node_crypto4 = require("node:crypto");
   }
 });
@@ -69091,6 +69799,38 @@ var init_default_profiles = __esm({
         is_system: 1
       },
       {
+        name: "P2S",
+        description: "Default profile for Bambu P2S",
+        printer_model: "Bambu P2S",
+        park_y_mm: 251,
+        eject_params: DEFAULT_EJECT_PARAMS,
+        is_system: 1
+      },
+      {
+        name: "X2D",
+        description: "Default profile for Bambu X2D (dual nozzle)",
+        printer_model: "Bambu X2D",
+        park_y_mm: 251,
+        eject_params: DEFAULT_EJECT_PARAMS,
+        is_system: 1
+      },
+      {
+        name: "H2 Series",
+        description: "Default profile for Bambu H2S / H2D / H2C (325mm large format)",
+        printer_model: "Bambu H2D",
+        park_y_mm: 315,
+        eject_params: DEFAULT_EJECT_PARAMS,
+        is_system: 1
+      },
+      {
+        name: "A2L",
+        description: "Default profile for Bambu A2L (large-format bedslinger)",
+        printer_model: "Bambu A2L",
+        park_y_mm: 320,
+        eject_params: DEFAULT_EJECT_PARAMS,
+        is_system: 1
+      },
+      {
         name: "Universal",
         description: "Universal fallback profile (any printer model)",
         printer_model: "*",
@@ -74738,7 +75478,7 @@ function ensureAdminUser() {
     "INSERT INTO users (user_id, username, password_hash, role) VALUES (?, ?, ?, ?)",
     [generateId(), username, hash, "admin"]
   );
-  log24.info(`Created default admin user: ${username}`);
+  log25.info(`Created default admin user: ${username}`);
 }
 function login(username, password) {
   const user = dbGet("SELECT * FROM users WHERE username = ?", [username]);
@@ -74785,7 +75525,7 @@ function requireAdmin(req, res, next) {
     next();
   });
 }
-var import_bcryptjs, import_jsonwebtoken, log24, JWT_EXPIRES;
+var import_bcryptjs, import_jsonwebtoken, log25, JWT_EXPIRES;
 var init_auth = __esm({
   "src/auth/auth.js"() {
     import_bcryptjs = __toESM(require_bcryptjs(), 1);
@@ -74793,14 +75533,14 @@ var init_auth = __esm({
     init_database();
     init_uuid();
     init_logger();
-    log24 = createLogger("Auth");
+    log25 = createLogger("Auth");
     JWT_EXPIRES = "24h";
   }
 });
 
 // src/api/middleware/errorHandler.js
 function errorHandler(err, req, res, _next) {
-  log25.error(`${req.method} ${req.path}`, err.message);
+  log26.error(`${req.method} ${req.path}`, err.message);
   if (err.status) {
     return res.status(err.status).json({ error: err.message });
   }
@@ -74814,11 +75554,11 @@ function asyncHandler(fn) {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
 }
-var log25;
+var log26;
 var init_errorHandler = __esm({
   "src/api/middleware/errorHandler.js"() {
     init_logger();
-    log25 = createLogger("API");
+    log26 = createLogger("API");
   }
 });
 
@@ -74827,7 +75567,7 @@ var BambuClient_exports = {};
 __export(BambuClient_exports, {
   BambuClient: () => BambuClient
 });
-var import_mqtt, import_node_tls2, import_node_net, import_node_crypto5, log26, BambuClient;
+var import_mqtt, import_node_tls2, import_node_net, import_node_crypto5, log27, BambuClient;
 var init_BambuClient = __esm({
   "src/mqtt/BambuClient.js"() {
     import_mqtt = __toESM(require_build2(), 1);
@@ -74836,7 +75576,7 @@ var init_BambuClient = __esm({
     import_node_crypto5 = __toESM(require("node:crypto"), 1);
     init_logger();
     init_Printer();
-    log26 = createLogger("BambuClient");
+    log27 = createLogger("BambuClient");
     BambuClient = class {
       constructor(printerConfig) {
         this.ip = printerConfig.ip;
@@ -74861,13 +75601,13 @@ var init_BambuClient = __esm({
        * @returns {Promise<{success: boolean, diagnostics: object, fingerprint: string|null}>}
        */
       async connect(trustNewCert = false) {
-        log26.info(`[${this.printerId}] Starting connection sequence...`);
+        log27.info(`[${this.printerId}] Starting connection sequence...`);
         try {
           await this._checkTcp();
           this.diagnostics.tcp = { status: "ok", error: null };
         } catch (err) {
           this.diagnostics.tcp = { status: "failed", error: err.message };
-          log26.error(`[${this.printerId}] TCP check failed: ${err.message}`);
+          log27.error(`[${this.printerId}] TCP check failed: ${err.message}`);
           return this._getResult(false);
         }
         let fingerprint = null;
@@ -74882,7 +75622,7 @@ var init_BambuClient = __esm({
           }
         } catch (err) {
           this.diagnostics.tls = { status: "failed", error: err.message, fingerprint };
-          log26.error(`[${this.printerId}] TLS check failed: ${err.message}`);
+          log27.error(`[${this.printerId}] TLS check failed: ${err.message}`);
           return this._getResult(false);
         }
         try {
@@ -75537,7 +76277,7 @@ ${err}\r
 });
 
 // src/services/AccessoryRegistry.js
-var log27, AccessoryRegistry;
+var log28, AccessoryRegistry;
 var init_AccessoryRegistry = __esm({
   "src/services/AccessoryRegistry.js"() {
     init_Accessory();
@@ -75545,7 +76285,7 @@ var init_AccessoryRegistry = __esm({
     init_PrinterRegistry();
     init_DriverManager();
     init_logger();
-    log27 = createLogger("AccessoryRegistry");
+    log28 = createLogger("AccessoryRegistry");
     AccessoryRegistry = class {
       static create(data) {
         const accessory = AccessoryModel.create(data);
@@ -75558,7 +76298,7 @@ var init_AccessoryRegistry = __esm({
           event_type: "accessory.registered",
           payload: { type: data.type, printer_id: data.printer_id }
         });
-        log27.info(`Accessory registered: ${accessory.type} [${accessory.accessory_id}]`);
+        log28.info(`Accessory registered: ${accessory.type} [${accessory.accessory_id}]`);
         return accessory;
       }
       static findAll() {
@@ -75587,7 +76327,7 @@ var init_AccessoryRegistry = __esm({
           if (accessory.printer_id) {
             PrinterRegistry.refreshCapabilities(accessory.printer_id);
           }
-          log27.info(`Accessory removed: ${accessory.type} [${id}]`);
+          log28.info(`Accessory removed: ${accessory.type} [${id}]`);
         }
         return accessory;
       }
@@ -75768,25 +76508,25 @@ function is3mfFilename(filename) {
   return lower.endsWith(".3mf") || lower.endsWith(".gcode.3mf");
 }
 async function extractGcodeFrom3mf2(buffer, filename = "") {
-  log28.info(`Extracting G-code from 3MF: ${filename} (${buffer.length} bytes)`);
+  log29.info(`Extracting G-code from 3MF: ${filename} (${buffer.length} bytes)`);
   if (!isZipFile(buffer)) {
     throw new Error("File is not a valid ZIP/3MF archive");
   }
   const eocd = findEOCD(buffer);
   if (!eocd) throw new Error("Could not find ZIP End of Central Directory record");
   const entries = parseCentralDirectory(buffer, eocd);
-  log28.info(`Found ${entries.length} entries in 3MF archive`);
+  log29.info(`Found ${entries.length} entries in 3MF archive`);
   const gcodeEntry = entries.find((e) => e.name.toLowerCase().endsWith(".gcode"));
   if (!gcodeEntry) {
     throw new Error(`No .gcode file found inside 3MF. Entries: ${entries.map((e) => e.name).join(", ")}`);
   }
-  log28.info(`Found G-code entry: ${gcodeEntry.name} (${gcodeEntry.uncompressedSize} bytes, method=${gcodeEntry.method})`);
+  log29.info(`Found G-code entry: ${gcodeEntry.name} (${gcodeEntry.uncompressedSize} bytes, method=${gcodeEntry.method})`);
   const content = await extractEntry(buffer, gcodeEntry);
-  log28.info(`Extracted ${content.length} characters of G-code`);
+  log29.info(`Extracted ${content.length} characters of G-code`);
   return { content, entryName: gcodeEntry.name };
 }
 function repack3mf2(originalBuffer, newGcodeContent) {
-  log28.info("Repacking 3MF with transformed G-code");
+  log29.info("Repacking 3MF with transformed G-code");
   const eocd = findEOCD(originalBuffer);
   if (!eocd) throw new Error("Cannot repack: no EOCD found");
   const entries = parseCentralDirectory(originalBuffer, eocd);
@@ -75823,7 +76563,7 @@ function repack3mf2(originalBuffer, newGcodeContent) {
   const localBuffer = Buffer.concat(localParts);
   const eocdBuffer = buildEOCD(cdEntries.length, cdBuffer.length, cdOffset);
   const result = Buffer.concat([localBuffer, cdBuffer, eocdBuffer]);
-  log28.info(`Repacked 3MF: ${result.length} bytes (original: ${originalBuffer.length})`);
+  log29.info(`Repacked 3MF: ${result.length} bytes (original: ${originalBuffer.length})`);
   return result;
 }
 function findEOCD(buffer) {
@@ -75964,12 +76704,12 @@ function buildEOCD(entryCount, cdSize, cdOffset) {
   buf.writeUInt16LE(0, 20);
   return buf;
 }
-var import_node_zlib2, log28, Extract3mf_default;
+var import_node_zlib2, log29, Extract3mf_default;
 var init_Extract3mf = __esm({
   "src/gcode/Extract3mf.js"() {
     import_node_zlib2 = require("node:zlib");
     init_logger();
-    log28 = createLogger("Extract3mf");
+    log29 = createLogger("Extract3mf");
     Extract3mf_default = { isZipFile, is3mfFilename, extractGcodeFrom3mf: extractGcodeFrom3mf2, repack3mf: repack3mf2 };
   }
 });
@@ -83086,7 +83826,7 @@ var require_multer = __commonJS({
 });
 
 // src/api/routes/jobs.js
-var import_express4, import_multer, import_node_fs7, import_node_path9, UPLOADS_DIR2, router4, upload, jobs_default;
+var import_express4, import_multer, import_node_fs8, import_node_path10, UPLOADS_DIR2, router4, upload, jobs_default;
 var init_jobs = __esm({
   "src/api/routes/jobs.js"() {
     import_express4 = __toESM(require_express2(), 1);
@@ -83098,8 +83838,8 @@ var init_jobs = __esm({
     init_errorHandler();
     init_Extract3mf();
     import_multer = __toESM(require_multer(), 1);
-    import_node_fs7 = __toESM(require("node:fs"), 1);
-    import_node_path9 = __toESM(require("node:path"), 1);
+    import_node_fs8 = __toESM(require("node:fs"), 1);
+    import_node_path10 = __toESM(require("node:path"), 1);
     init_uploadPaths();
     UPLOADS_DIR2 = getUploadRoot();
     router4 = (0, import_express4.Router)();
@@ -83198,13 +83938,13 @@ var init_jobs = __esm({
       const type = req.query.type || "transformed";
       let filePath, downloadName;
       if (type === "original") {
-        filePath = import_node_path9.default.join(UPLOADS_DIR2, `${job.job_id}_${job.source_file_name}`);
+        filePath = import_node_path10.default.join(UPLOADS_DIR2, `${job.job_id}_${job.source_file_name}`);
         downloadName = job.source_file_name;
       } else {
-        filePath = import_node_path9.default.join(UPLOADS_DIR2, `${job.job_id}_${job.transformed_file_name || job.source_file_name}`);
+        filePath = import_node_path10.default.join(UPLOADS_DIR2, `${job.job_id}_${job.transformed_file_name || job.source_file_name}`);
         downloadName = job.transformed_file_name || job.source_file_name;
       }
-      if (!filePath || !import_node_fs7.default.existsSync(filePath)) {
+      if (!filePath || !import_node_fs8.default.existsSync(filePath)) {
         return res.status(404).json({ error: `No ${type} file found for this job` });
       }
       res.download(filePath, downloadName);
@@ -83346,9 +84086,9 @@ var init_JobTemplate = __esm({
 
 // src/api/routes/jobTemplates.js
 function ensureTemplatesDir() {
-  import_node_fs8.default.mkdirSync(TEMPLATES_DIR, { recursive: true });
+  import_node_fs9.default.mkdirSync(TEMPLATES_DIR, { recursive: true });
 }
-var import_express5, import_multer2, import_node_fs8, import_node_path10, router5, TEMPLATES_DIR, upload2, jobTemplates_default;
+var import_express5, import_multer2, import_node_fs9, import_node_path11, router5, TEMPLATES_DIR, upload2, jobTemplates_default;
 var init_jobTemplates = __esm({
   "src/api/routes/jobTemplates.js"() {
     import_express5 = __toESM(require_express2(), 1);
@@ -83356,8 +84096,8 @@ var init_jobTemplates = __esm({
     init_auth();
     init_errorHandler();
     import_multer2 = __toESM(require_multer(), 1);
-    import_node_fs8 = __toESM(require("node:fs"), 1);
-    import_node_path10 = __toESM(require("node:path"), 1);
+    import_node_fs9 = __toESM(require("node:fs"), 1);
+    import_node_path11 = __toESM(require("node:path"), 1);
     init_uploadPaths();
     router5 = (0, import_express5.Router)();
     TEMPLATES_DIR = getUploadPath("templates");
@@ -83393,8 +84133,8 @@ var init_jobTemplates = __esm({
           transform_overrides: parsedOverrides || {}
         });
         ensureTemplatesDir();
-        source_file_path = import_node_path10.default.join(TEMPLATES_DIR, `${tmpl2.template_id}_${source_file_name}`);
-        import_node_fs8.default.writeFileSync(source_file_path, req.file.buffer);
+        source_file_path = import_node_path11.default.join(TEMPLATES_DIR, `${tmpl2.template_id}_${source_file_name}`);
+        import_node_fs9.default.writeFileSync(source_file_path, req.file.buffer);
         const updated = JobTemplateModel.update(tmpl2.template_id, { source_file_name, source_file_path });
         return res.status(201).json(updated);
       }
@@ -83423,21 +84163,21 @@ var init_jobTemplates = __esm({
         updates.ams_roles = JSON.parse(updates.ams_roles);
       }
       if (req.file) {
-        if (existing.source_file_path && import_node_fs8.default.existsSync(existing.source_file_path)) {
-          import_node_fs8.default.unlinkSync(existing.source_file_path);
+        if (existing.source_file_path && import_node_fs9.default.existsSync(existing.source_file_path)) {
+          import_node_fs9.default.unlinkSync(existing.source_file_path);
         }
         ensureTemplatesDir();
         updates.source_file_name = req.file.originalname;
-        updates.source_file_path = import_node_path10.default.join(TEMPLATES_DIR, `${req.params.id}_${req.file.originalname}`);
-        import_node_fs8.default.writeFileSync(updates.source_file_path, req.file.buffer);
+        updates.source_file_path = import_node_path11.default.join(TEMPLATES_DIR, `${req.params.id}_${req.file.originalname}`);
+        import_node_fs9.default.writeFileSync(updates.source_file_path, req.file.buffer);
       }
       const tmpl = JobTemplateModel.update(req.params.id, updates);
       res.json(tmpl);
     }));
     router5.delete("/:id", requireAuth, asyncHandler(async (req, res) => {
       const existing = JobTemplateModel.findById(req.params.id);
-      if (existing?.source_file_path && import_node_fs8.default.existsSync(existing.source_file_path)) {
-        import_node_fs8.default.unlinkSync(existing.source_file_path);
+      if (existing?.source_file_path && import_node_fs9.default.existsSync(existing.source_file_path)) {
+        import_node_fs9.default.unlinkSync(existing.source_file_path);
       }
       JobTemplateModel.delete(req.params.id);
       res.json({ deleted: true });
@@ -83445,7 +84185,7 @@ var init_jobTemplates = __esm({
     router5.get("/:id/file", requireAuth, asyncHandler(async (req, res) => {
       const tmpl = JobTemplateModel.findById(req.params.id);
       if (!tmpl) return res.status(404).json({ error: "Template not found" });
-      if (!tmpl.source_file_path || !import_node_fs8.default.existsSync(tmpl.source_file_path)) {
+      if (!tmpl.source_file_path || !import_node_fs9.default.existsSync(tmpl.source_file_path)) {
         return res.status(404).json({ error: "No file stored for this template" });
       }
       res.download(tmpl.source_file_path, tmpl.source_file_name);
@@ -83453,10 +84193,10 @@ var init_jobTemplates = __esm({
     router5.post("/:id/submit", requireAuth, asyncHandler(async (req, res) => {
       const tmpl = JobTemplateModel.findById(req.params.id);
       if (!tmpl) return res.status(404).json({ error: "Template not found" });
-      if (!tmpl.source_file_path || !import_node_fs8.default.existsSync(tmpl.source_file_path)) {
+      if (!tmpl.source_file_path || !import_node_fs9.default.existsSync(tmpl.source_file_path)) {
         return res.status(400).json({ error: "Template has no stored file \u2014 upload a G-code file first" });
       }
-      const rawBuffer = import_node_fs8.default.readFileSync(tmpl.source_file_path);
+      const rawBuffer = import_node_fs9.default.readFileSync(tmpl.source_file_path);
       let fileContent;
       let fileName = tmpl.source_file_name;
       let rawBuffer3mf = null;
@@ -83884,7 +84624,7 @@ function transformGcode(content, profile, meta = {}) {
   const startTime = Date.now();
   const originalLines = content.split("\n");
   const lines = [...originalLines];
-  log29.info(`Starting transform: ${originalLines.length} lines, profile="${profile.name || "unnamed"}"`);
+  log30.info(`Starting transform: ${originalLines.length} lines, profile="${profile.name || "unnamed"}"`);
   const report = {
     profile_id: profile.profile_id || null,
     profile_name: profile.name || "unnamed",
@@ -83914,14 +84654,14 @@ function transformGcode(content, profile, meta = {}) {
   const detection = detectSections(lines);
   report.printer_model = detection.printerModel || "unknown";
   report.purge_recognizer = detection.purgeWindow?.method || "none";
-  log29.info(`Detection: model=${report.printer_model}, purge=${detection.purgeWindow?.method || "none"} (${detection.purgeWindow ? `L${detection.purgeWindow.start}-L${detection.purgeWindow.end}` : "n/a"}), anchor=${detection.insertionAnchor?.method}@L${detection.insertionAnchor?.line}, zMax=${detection.zMax}, fans:P2=${detection.fanChannels.hasP2},P3=${detection.fanChannels.hasP3}`);
+  log30.info(`Detection: model=${report.printer_model}, purge=${detection.purgeWindow?.method || "none"} (${detection.purgeWindow ? `L${detection.purgeWindow.start}-L${detection.purgeWindow.end}` : "n/a"}), anchor=${detection.insertionAnchor?.method}@L${detection.insertionAnchor?.line}, zMax=${detection.zMax}, fans:P2=${detection.fanChannels.hasP2},P3=${detection.fanChannels.hasP3}`);
   const eMotionBefore = collectEMotionLines(lines);
   let purgeStart = -1, purgeEnd = -1;
   let ejectInsertStart = -1, ejectInsertEnd = -1;
   if (profile.remove_front_prime_line !== false) {
     if (!detection.purgeWindow) {
       report.warnings.push("Purge removal requested but no recognized purge window found \u2014 skipped (fail-safe)");
-      log29.warn("No recognized purge window \u2014 skipping purge removal");
+      log30.warn("No recognized purge window \u2014 skipping purge removal");
     }
     const primeReport = removePrimeLine(lines, detection.purgeWindow);
     report.prime_line = primeReport;
@@ -83930,7 +84670,7 @@ function transformGcode(content, profile, meta = {}) {
       purgeStart = primeReport.window_start;
       purgeEnd = primeReport.window_end;
     }
-    log29.info(`Purge removal: method=${primeReport.method_used}, disabled=${primeReport.lines_disabled_count}`);
+    log30.info(`Purge removal: method=${primeReport.method_used}, disabled=${primeReport.lines_disabled_count}`);
   }
   const ejectResult = insertAutoEject(lines, profile, detection);
   report.auto_eject = ejectResult;
@@ -83938,7 +84678,7 @@ function transformGcode(content, profile, meta = {}) {
   report.z_clear_travel = ejectResult.z_clear_travel;
   ejectInsertStart = ejectResult.insertedAt;
   ejectInsertEnd = ejectResult.insertedAt + ejectResult.linesInserted - 1;
-  log29.info(`Auto-eject: anchor=${ejectResult.anchor_method}, at=L${ejectResult.insertedAt}, Z_CLEAR=${ejectResult.z_clear_travel}, cool=${ejectResult.cool_command}, lanes=${ejectResult.sweep_lanes.length}`);
+  log30.info(`Auto-eject: anchor=${ejectResult.anchor_method}, at=L${ejectResult.insertedAt}, Z_CLEAR=${ejectResult.z_clear_travel}, cool=${ejectResult.cool_command}, lanes=${ejectResult.sweep_lanes.length}`);
   const eMotionAfter = collectEMotionLines(lines);
   const eMotionViolations = verifyEMotionIntegrity(
     eMotionBefore,
@@ -83956,10 +84696,10 @@ function transformGcode(content, profile, meta = {}) {
   };
   if (eMotionViolations.length > 0) {
     const errMsg = `E-MOTION SAFETY VIOLATION: ${eMotionViolations.length} E-motion line(s) changed outside allowed regions. First: ${eMotionViolations[0]}`;
-    log29.error(errMsg);
+    log30.error(errMsg);
     throw new Error(errMsg);
   }
-  log29.info(`E-motion safety: ${eMotionBefore.length} original E-motions, 0 violations \u2713`);
+  log30.info(`E-motion safety: ${eMotionBefore.length} original E-motions, 0 violations \u2713`);
   const insertedLines = lines.slice(ejectInsertStart, ejectInsertEnd + 1);
   const hasM190R = insertedLines.some((l) => /^M190\s+R/i.test(l.trim()));
   const hasM190S = insertedLines.some((l) => /^M190\s+S/i.test(l.trim()));
@@ -83984,7 +84724,7 @@ function transformGcode(content, profile, meta = {}) {
   });
   report.loops = { requested: nLoops, applied: loopCount, dwell_sec: profile.inter_loop_dwell_sec || 2 };
   if (loopCount > 1) {
-    log29.info(`Loops: ${loopCount} copies with ${profile.inter_loop_dwell_sec || 2}s dwell`);
+    log30.info(`Loops: ${loopCount} copies with ${profile.inter_loop_dwell_sec || 2}s dwell`);
   }
   const hash = import_node_crypto6.default.createHash("sha256").update(finalOutput).digest("hex");
   report.hash = `sha256:${hash}`;
@@ -83995,18 +84735,18 @@ function transformGcode(content, profile, meta = {}) {
   const stem = baseName.slice(0, baseName.length - ext.length);
   const loopSuffix = loopCount > 1 ? `.x${loopCount}` : "";
   const outputFilename = `${stem}.AG${loopSuffix}${ext}`;
-  log29.info("=== TRANSFORM VALIDATION REPORT ===");
-  log29.info(`  Printer model:       ${report.printer_model}`);
-  log29.info(`  Purge recognizer:    ${report.purge_recognizer}`);
-  log29.info(`  Eject anchor:        ${report.eject_anchor}`);
-  log29.info(`  M190 S present:      ${hasM190S} \u2713`);
-  log29.info(`  M190 R in block:     ${hasM190R} (must be false) \u2713`);
-  log29.info(`  E-motion violations: ${eMotionViolations.length} (must be 0) \u2713`);
-  log29.info(`  Z_CLEAR_TRAVEL:      ${report.z_clear_travel} mm`);
-  log29.info(`  Loops:               ${loopCount} (dwell ${profile.inter_loop_dwell_sec || 2}s)`);
-  log29.info(`  Output:              ${outputFilename}`);
-  log29.info(`  Transform time:      ${report.transform_time_ms}ms`);
-  log29.info("=== END REPORT ===");
+  log30.info("=== TRANSFORM VALIDATION REPORT ===");
+  log30.info(`  Printer model:       ${report.printer_model}`);
+  log30.info(`  Purge recognizer:    ${report.purge_recognizer}`);
+  log30.info(`  Eject anchor:        ${report.eject_anchor}`);
+  log30.info(`  M190 S present:      ${hasM190S} \u2713`);
+  log30.info(`  M190 R in block:     ${hasM190R} (must be false) \u2713`);
+  log30.info(`  E-motion violations: ${eMotionViolations.length} (must be 0) \u2713`);
+  log30.info(`  Z_CLEAR_TRAVEL:      ${report.z_clear_travel} mm`);
+  log30.info(`  Loops:               ${loopCount} (dwell ${profile.inter_loop_dwell_sec || 2}s)`);
+  log30.info(`  Output:              ${outputFilename}`);
+  log30.info(`  Transform time:      ${report.transform_time_ms}ms`);
+  log30.info("=== END REPORT ===");
   return {
     output: finalOutput,
     outputFilename,
@@ -84052,7 +84792,7 @@ function verifyEMotionIntegrity(before, after, originalLines, transformedLines, 
   }
   return violations;
 }
-var import_node_crypto6, log29;
+var import_node_crypto6, log30;
 var init_GcodeTransformer = __esm({
   "src/gcode/GcodeTransformer.js"() {
     import_node_crypto6 = __toESM(require("node:crypto"), 1);
@@ -84062,7 +84802,7 @@ var init_GcodeTransformer = __esm({
     init_WrapLoops();
     init_GcodeValidator();
     init_logger();
-    log29 = createLogger("GcodeTransformer");
+    log30 = createLogger("GcodeTransformer");
   }
 });
 
@@ -84122,264 +84862,6 @@ var init_gcode = __esm({
       res.json({ deleted: true });
     }));
     gcode_default = router6;
-  }
-});
-
-// src/services/SliceService.js
-function orcaOverrides(settings = {}) {
-  const process2 = {}, filament = {};
-  const num3 = (v) => Number.parseFloat(v);
-  const int = (v) => String(Math.round(Number.parseFloat(v)));
-  if (settings.layer_height != null && settings.layer_height !== "") process2.layer_height = String(num3(settings.layer_height));
-  if (settings.infill_density != null && settings.infill_density !== "") process2.sparse_infill_density = `${Math.round(num3(settings.infill_density))}%`;
-  if (settings.infill_pattern) process2.sparse_infill_pattern = String(settings.infill_pattern);
-  if (settings.wall_loops != null && settings.wall_loops !== "") process2.wall_loops = int(settings.wall_loops);
-  if (settings.top_layers != null && settings.top_layers !== "") process2.top_shell_layers = int(settings.top_layers);
-  if (settings.bottom_layers != null && settings.bottom_layers !== "") process2.bottom_shell_layers = int(settings.bottom_layers);
-  if (settings.supports != null) process2.enable_support = settings.supports ? "1" : "0";
-  if (settings.support_type) process2.support_type = String(settings.support_type);
-  if (settings.brim != null) process2.brim_type = settings.brim ? "outer_only" : "no_brim";
-  if (settings.nozzle_temp != null && settings.nozzle_temp !== "") {
-    filament.nozzle_temperature = [int(settings.nozzle_temp)];
-    filament.nozzle_temperature_initial_layer = [int(settings.nozzle_temp)];
-  }
-  return { process: process2, filament };
-}
-function writeDerivedPreset(basePath, overrides, outPath) {
-  const obj = JSON.parse(import_node_fs9.default.readFileSync(basePath, "utf-8"));
-  delete obj.setting_id;
-  Object.assign(obj, overrides);
-  import_node_fs9.default.writeFileSync(outPath, JSON.stringify(obj, null, 2));
-  return outPath;
-}
-function detectCliEngine() {
-  const candidates = [
-    process.env.SLICER_CLI_PATH,
-    process.env.ORCA_CLI_PATH,
-    ...DEFAULT_CLI_CANDIDATES
-  ].filter(Boolean);
-  for (const candidate of candidates) {
-    try {
-      if (import_node_fs9.default.existsSync(candidate)) return { path: candidate, label: import_node_path11.default.basename(candidate) };
-    } catch {
-    }
-  }
-  return null;
-}
-function runProcess(exe, args, { cwd, timeoutMs } = {}) {
-  return new Promise((resolve, reject) => {
-    (0, import_node_child_process.execFile)(
-      exe,
-      args,
-      { cwd, timeout: timeoutMs, maxBuffer: 128 * 1024 * 1024, windowsHide: true },
-      (err, stdout, stderr) => {
-        if (err && !stdout && !stderr) return reject(err);
-        resolve({ stdout: stdout?.toString() || "", stderr: stderr?.toString() || "", err });
-      }
-    );
-  });
-}
-var import_node_fs9, import_node_os4, import_node_path11, import_node_child_process, log30, DEFAULT_CLI_CANDIDATES, ORCA_RESOURCES, ORCA_PRESETS, SLICER_SETTING_FIELDS, SUPPORTED_INPUT_FORMATS, BACKENDS, BACKEND_PRIORITY, SliceService;
-var init_SliceService = __esm({
-  "src/services/SliceService.js"() {
-    import_node_fs9 = __toESM(require("node:fs"), 1);
-    import_node_os4 = __toESM(require("node:os"), 1);
-    import_node_path11 = __toESM(require("node:path"), 1);
-    import_node_child_process = require("node:child_process");
-    init_logger();
-    init_AutomatorZip();
-    log30 = createLogger("SliceService");
-    DEFAULT_CLI_CANDIDATES = [
-      "C:\\Program Files\\OrcaSlicer\\orca-slicer.exe",
-      "C:\\Program Files (x86)\\OrcaSlicer\\orca-slicer.exe",
-      "/usr/bin/orca-slicer",
-      "/usr/local/bin/orca-slicer",
-      "/Applications/OrcaSlicer.app/Contents/MacOS/OrcaSlicer"
-    ];
-    ORCA_RESOURCES = process.env.ORCA_RESOURCES || "C:\\Program Files\\OrcaSlicer\\resources\\profiles\\BBL";
-    ORCA_PRESETS = {
-      P1S: { machine: "Bambu Lab P1S 0.4 nozzle", process: "0.20mm Standard @BBL X1C", filament: "Bambu PLA Basic @BBL X1C", modelId: "C12" },
-      X1: { machine: "Bambu Lab X1 Carbon 0.4 nozzle", process: "0.20mm Standard @BBL X1C", filament: "Bambu PLA Basic @BBL X1C", modelId: "BL-P001" },
-      A1: { machine: "Bambu Lab A1 0.4 nozzle", process: "0.20mm Standard @BBL A1", filament: "Bambu PLA Basic @BBL A1", modelId: "N1" },
-      A1_MINI: { machine: "Bambu Lab A1 mini 0.4 nozzle", process: "0.20mm Standard @BBL A1M", filament: "Bambu PLA Basic @BBL A1M", modelId: "N2" }
-    };
-    SLICER_SETTING_FIELDS = [
-      { key: "layer_height", label: "Layer height (mm)", type: "number", min: 0.04, max: 0.6, step: 0.02, group: "process" },
-      { key: "infill_density", label: "Infill (%)", type: "number", min: 0, max: 100, step: 5, group: "process" },
-      { key: "infill_pattern", label: "Infill pattern", type: "select", options: ["grid", "gyroid", "honeycomb", "cubic", "line", "concentric", "rectilinear"], group: "process" },
-      { key: "wall_loops", label: "Wall loops", type: "number", min: 1, max: 10, step: 1, group: "process" },
-      { key: "top_layers", label: "Top layers", type: "number", min: 0, max: 20, step: 1, group: "process" },
-      { key: "bottom_layers", label: "Bottom layers", type: "number", min: 0, max: 20, step: 1, group: "process" },
-      { key: "supports", label: "Supports", type: "bool", group: "process" },
-      { key: "support_type", label: "Support type", type: "select", options: ["normal(auto)", "tree(auto)"], group: "process" },
-      { key: "brim", label: "Brim", type: "bool", group: "process" },
-      { key: "nozzle_temp", label: "Nozzle temp (\xB0C)", type: "number", min: 160, max: 300, step: 5, group: "filament" }
-    ];
-    SUPPORTED_INPUT_FORMATS = ["stl", "3mf", "obj", "step", "stp"];
-    BACKENDS = {
-      "local-agent": {
-        id: "local-agent",
-        label: "Local companion agent (operator PC)",
-        option: "B",
-        // Detected via a future local bridge handshake; not present yet.
-        detect: () => ({ available: false, reason: "Companion agent not detected on this device" })
-      },
-      "pi-cli": {
-        id: "pi-cli",
-        label: "Host CLI (OrcaSlicer headless)",
-        option: "C",
-        detect: () => {
-          const engine = detectCliEngine();
-          return engine ? { available: true, reason: `CLI found: ${engine.label}`, engine: engine.label } : { available: false, reason: "Set SLICER_CLI_PATH to an OrcaSlicer/Prusa CLI binary" };
-        }
-      },
-      "cloud": {
-        id: "cloud",
-        label: "Cloud slice workers",
-        option: "D",
-        detect: () => ({ available: false, reason: "Cloud slicing not configured" })
-      }
-    };
-    BACKEND_PRIORITY = ["local-agent", "pi-cli", "cloud"];
-    SliceService = {
-      SUPPORTED_INPUT_FORMATS,
-      /** Inspect every backend's current availability (for the UI to render). */
-      getBackends() {
-        return BACKEND_PRIORITY.map((id) => {
-          const b = BACKENDS[id];
-          const status = b.detect();
-          return { id: b.id, label: b.label, option: b.option, ...status };
-        });
-      },
-      /** The first available backend, or null. */
-      getActiveBackend() {
-        for (const id of BACKEND_PRIORITY) {
-          const b = BACKENDS[id];
-          const status = b.detect();
-          if (status.available) return { id: b.id, label: b.label, option: b.option, ...status };
-        }
-        return null;
-      },
-      /** True if `name`'s extension is a model format we can accept. */
-      isSupportedInput(name = "") {
-        const ext = name.split(".").pop()?.toLowerCase();
-        return SUPPORTED_INPUT_FORMATS.includes(ext);
-      },
-      /**
-       * Run a slice job through the active (or pinned) backend.
-       * @param {SliceJob} job
-       * @param {string} [preferredBackend]
-       * @returns {Promise<SliceResult>}
-       */
-      async slice(job, preferredBackend = null) {
-        const started = Date.now();
-        if (!job?.modelBuffer?.length) {
-          return { ok: false, code: "no_model", error: "No model data supplied" };
-        }
-        if (!this.isSupportedInput(job.modelName)) {
-          return {
-            ok: false,
-            code: "unsupported_format",
-            error: `Unsupported model format. Accepts: ${SUPPORTED_INPUT_FORMATS.join(", ")}`
-          };
-        }
-        const backend = preferredBackend ? { id: preferredBackend, ...BACKENDS[preferredBackend]?.detect?.() } : this.getActiveBackend();
-        if (!backend || !backend.available) {
-          log30.warn(`Slice requested but no backend available (model=${job.modelName})`);
-          return {
-            ok: false,
-            code: "no_backend",
-            error: backend ? `Backend "${backend.id}" is not available: ${backend.reason}` : "No slicing backend is configured yet. Configure a companion agent or set SLICER_CLI_PATH to an OrcaSlicer CLI.",
-            report: { backends: this.getBackends() }
-          };
-        }
-        log30.info(`Slice job: backend=${backend.id}, model=${job.modelName} (${job.modelBuffer.length} bytes)`);
-        try {
-          const result = await this._dispatch(backend.id, job);
-          return { ...result, report: { ...result.report || {}, backend: backend.id, durationMs: Date.now() - started } };
-        } catch (err) {
-          log30.error(`Slice failed (${backend.id}): ${err.message}`);
-          return { ok: false, code: "engine_error", error: err.message, report: { backend: backend.id } };
-        }
-      },
-      /** @private route to a concrete backend implementation. */
-      async _dispatch(backendId, job) {
-        switch (backendId) {
-          case "pi-cli":
-          case "local-agent":
-            return this._runCli(job);
-          default:
-            return { ok: false, code: "not_implemented", error: `Backend "${backendId}" has no runner yet` };
-        }
-      },
-      /**
-       * @private Run OrcaSlicer headless and wrap the result into a `.gcode.3mf`.
-       *
-       * NOTE: this build's `--export-3mf` segfaults headless, so we slice with
-       * `--outputdir` (reliable: emits Metadata-less `plate_N.gcode`) and build the
-       * `.gcode.3mf` ourselves via buildGcode3mf(). `--orient` is intentionally
-       * omitted (heavy, and we don't want auto-reorientation of functional parts).
-       */
-      async _runCli(job) {
-        const engine = detectCliEngine();
-        if (!engine) return { ok: false, code: "no_backend", error: "No CLI engine found" };
-        const model = job.options?.printer_model || job.profile?.printer_model || "P1S";
-        const preset = ORCA_PRESETS[model] || ORCA_PRESETS.P1S;
-        const machineJson = import_node_path11.default.join(ORCA_RESOURCES, "machine", `${preset.machine}.json`);
-        const processJson = import_node_path11.default.join(ORCA_RESOURCES, "process", `${preset.process}.json`);
-        const filamentJson = import_node_path11.default.join(ORCA_RESOURCES, "filament", `${preset.filament}.json`);
-        for (const [label, f] of [["machine", machineJson], ["process", processJson], ["filament", filamentJson]]) {
-          if (!import_node_fs9.default.existsSync(f)) {
-            return { ok: false, code: "preset_missing", error: `Slicer ${label} preset not found: ${f}` };
-          }
-        }
-        const work = import_node_fs9.default.mkdtempSync(import_node_path11.default.join(import_node_os4.default.tmpdir(), "ag-slice-"));
-        const ext = (job.modelName.split(".").pop() || "stl").toLowerCase();
-        const modelPath = import_node_path11.default.join(work, `input.${ext}`);
-        import_node_fs9.default.writeFileSync(modelPath, job.modelBuffer);
-        const ov = orcaOverrides(job.options?.settings);
-        let processArg = processJson, filamentArg = filamentJson;
-        if (Object.keys(ov.process).length) processArg = writeDerivedPreset(processJson, ov.process, import_node_path11.default.join(work, "process.json"));
-        if (Object.keys(ov.filament).length) filamentArg = writeDerivedPreset(filamentJson, ov.filament, import_node_path11.default.join(work, "filament.json"));
-        const appliedSettings = { ...ov.process, ...ov.filament };
-        if (Object.keys(appliedSettings).length) log30.info(`Slice overrides: ${JSON.stringify(appliedSettings)}`);
-        const args = [
-          modelPath,
-          "--load-settings",
-          `${machineJson};${processArg}`,
-          "--load-filaments",
-          filamentArg,
-          "--arrange",
-          "1",
-          "--ensure-on-bed",
-          "--slice",
-          "0",
-          "--outputdir",
-          work
-        ];
-        try {
-          const { stdout } = await runProcess(engine.path, args, { cwd: void 0, timeoutMs: 18e4 });
-          const plates = import_node_fs9.default.readdirSync(work).map((f) => ({ f, m: /^plate_(\d+)\.gcode$/i.exec(f) })).filter((x) => x.m).map((x) => ({ index: parseInt(x.m[1], 10), gcode: import_node_fs9.default.readFileSync(import_node_path11.default.join(work, x.f), "utf-8") })).sort((a, b) => a.index - b.index);
-          if (!plates.length) {
-            const tail = (stdout || "").split("\n").slice(-4).join(" ");
-            return { ok: false, code: "no_output", error: `Slicer produced no plate gcode. ${tail}` };
-          }
-          const gcode3mf = buildGcode3mf(plates, { printerModelId: preset.modelId, clientVersion: engine.label });
-          const base = job.modelName.replace(/\.[^.]+$/, "");
-          return {
-            ok: true,
-            gcode3mf,
-            outputName: `${base}.gcode.3mf`,
-            report: { engine: engine.label, plates: plates.length, printerModel: model, settings: appliedSettings }
-          };
-        } finally {
-          try {
-            import_node_fs9.default.rmSync(work, { recursive: true, force: true });
-          } catch {
-          }
-        }
-      }
-    };
   }
 });
 
@@ -85612,6 +86094,14 @@ var init_AlertDispatcher = __esm({
   }
 });
 
+// src/config/branding.js
+var LOCAL_APP_NAME;
+var init_branding = __esm({
+  "src/config/branding.js"() {
+    LOCAL_APP_NAME = "PrintKinetix Farm Manager";
+  }
+});
+
 // server.js
 var server_exports = {};
 async function init() {
@@ -85632,7 +86122,7 @@ async function init() {
     const port = parseInt(process.env.PORT) || 3e3;
     const host = process.env.HOST || "0.0.0.0";
     server.listen(port, host, () => {
-      log33.info(`\u{1F680} Antigravity running at http://${host}:${port}`);
+      log33.info(`\u{1F680} ${LOCAL_APP_NAME} running at http://${host}:${port}`);
       log33.info(`   Mode: ${process.env.MOCK_MODE === "true" ? "MOCK (simulators)" : "LIVE"}`);
     });
     const shutdown = async () => {
@@ -85671,6 +86161,7 @@ var init_server = __esm({
     init_errorHandler();
     init_logger();
     init_runtimePaths();
+    init_branding();
     import_meta2 = {};
     __dirname3 = import_meta2.url ? import_node_path13.default.dirname((0, import_node_url2.fileURLToPath)(import_meta2.url)) : process.env.PKX_ASSET_ROOT || process.cwd();
     publicDir = resolveAsset("public", import_node_path13.default.join(__dirname3, "public"));
@@ -85727,6 +86218,20 @@ function getHostInfo() {
     network_interfaces: collectNetworkInterfaces()
   };
 }
+async function detectSlicerAvailable() {
+  if (_slicerAvailable !== null) return _slicerAvailable;
+  if (process.env.MOCK_MODE === "true") {
+    _slicerAvailable = true;
+    return _slicerAvailable;
+  }
+  try {
+    const { SliceService: SliceService2 } = await Promise.resolve().then(() => (init_SliceService(), SliceService_exports));
+    _slicerAvailable = SliceService2.getActiveBackend() !== null;
+  } catch {
+    _slicerAvailable = false;
+  }
+  return _slicerAvailable;
+}
 async function sendHeartbeat(client, status = "online", resultOutbox = null) {
   const networkInterfaces = collectNetworkInterfaces();
   let printers = [];
@@ -85746,6 +86251,7 @@ async function sendHeartbeat(client, status = "online", resultOutbox = null) {
       local_controller: true,
       command_polling: true,
       printer_lan_control: true,
+      can_slice: await detectSlicerAvailable(),
       network_interface_count: networkInterfaces.length,
       pending_result_count: resultOutbox?.size?.() || 0,
       printer_count: printers.length
@@ -85825,7 +86331,7 @@ async function main() {
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 }
-var import_node_os6, log34;
+var import_node_os6, log34, _slicerAvailable;
 var init_runLocalNode = __esm({
   "src/cloud/runLocalNode.js"() {
     init_config();
@@ -85838,6 +86344,7 @@ var init_runLocalNode = __esm({
     init_SystemEvents();
     init_logger();
     log34 = createLogger("CloudNode");
+    _slicerAvailable = null;
     main().catch(async (error) => {
       log34.error(`Cloud node failed to start: ${error.message}`);
       if (process.env.PKX_HOLD_CONSOLE === "1" && process.stdin.isTTY) {

@@ -229,6 +229,48 @@ export function createMemoryCloudStore({ now = () => new Date() } = {}) {
             row.capabilities = clone(heartbeat.capabilities);
             row.updated_at = heartbeat.last_seen_at;
         },
+        async getNodeWorkSummary(nodeId) {
+            const row = db.nodes.find((node) => node.node_id === nodeId);
+            if (!row) return null;
+            const activeJobStatuses = new Set([
+                'queued', 'assigned', 'transforming', 'uploading', 'printing', 'waiting_for_capacity',
+            ]);
+            const pendingCommandStatuses = new Set(['queued', 'claimed', 'running']);
+            return {
+                node_id: row.node_id,
+                org_id: row.org_id,
+                name: row.name,
+                status: row.status,
+                active_jobs: db.printJobs.filter((job) => (
+                    job.node_id === nodeId && activeJobStatuses.has(String(job.status || '').toLowerCase())
+                )).length,
+                pending_commands: db.commands.filter((command) => (
+                    command.node_id === nodeId && pendingCommandStatuses.has(String(command.status || '').toLowerCase())
+                )).length,
+            };
+        },
+        async deleteFarmNode(nodeId) {
+            const index = db.nodes.findIndex((node) => node.node_id === nodeId);
+            if (index === -1) return null;
+            const [row] = db.nodes.splice(index, 1);
+
+            // Mirror the production FK behavior (cloud_control_plane migration):
+            // printers + commands CASCADE, jobs/events/routing decisions SET NULL.
+            db.printers = db.printers.filter((printer) => printer.node_id !== nodeId);
+            db.commands = db.commands.filter((command) => command.node_id !== nodeId);
+            for (const job of db.printJobs) {
+                if (job.node_id === nodeId) job.node_id = null;
+            }
+            for (const event of db.events) {
+                if (event.node_id === nodeId) event.node_id = null;
+            }
+            for (const decision of db.routingDecisions) {
+                if (decision.selected_node_id === nodeId) decision.selected_node_id = null;
+            }
+
+            const { token_hash, ...visible } = row;
+            return clone(visible);
+        },
         async upsertCloudPrinters(node, printers, lastSeenAt = ts()) {
             const orgId = node.organization_id || node.org_id;
             for (const printer of Array.isArray(printers) ? printers : []) {
@@ -286,6 +328,16 @@ export function createMemoryCloudStore({ now = () => new Date() } = {}) {
             };
             db.commands.push(row);
             return clone(row);
+        },
+        async getNodeCommandById(commandId) {
+            return clone(db.commands.find((command) => command.command_id === commandId) || null);
+        },
+        async listNodeCommands({ nodeId, commandType = null, limit = 50 } = {}) {
+            const rows = db.commands.filter((command) => (
+                command.node_id === nodeId
+                && (!commandType || command.command_type === commandType)
+            ));
+            return clone(latest(rows, limit));
         },
         async claimNodeCommands(nodeId, limit = 10) {
             const claimed = [];

@@ -369,6 +369,35 @@ function buildEjectionQueue({ printers, settings }) {
     });
 }
 
+/**
+ * Actionable auto-eject plan for one node's heartbeat printers. Unlike the
+ * advisory ejection_queue (which reports manual-clear/verify states too), this
+ * returns ONLY the printers that should receive a durable `printer.eject`
+ * node command right now: print finished, bed not clear, auto-eject enabled
+ * and the printer advertises an eject capability.
+ */
+export function planAutoEjectCommands({ printers = [], settings = {} } = {}) {
+    const normalized = normalizeFarmAutomationSettings(settings);
+    if (!normalized.policy.auto_eject_enabled) return [];
+
+    return (Array.isArray(printers) ? printers : []).flatMap((printer) => {
+        const state = getPrinterState(printer);
+        if (!FINISHED_PRINT_STATES.has(state)) return [];
+        if (!printerSupportsAutoEject(printer)) return [];
+        if (isBedClear(printer)) return [];
+
+        const localPrinterId = printer.local_printer_id || printer.printer_id;
+        if (!localPrinterId) return [];
+
+        return [{
+            local_printer_id: localPrinterId,
+            release_temperature_c: normalized.policy.release_temperature_c,
+            max_eject_attempts: normalized.policy.max_eject_attempts,
+            verification: normalized.policy.bed_clear_verification,
+        }];
+    });
+}
+
 function buildJobRecommendations({ overview, settings }) {
     if (!settings.policy.smart_queue_enabled) return [];
     const routableOverview = augmentOverviewWithInventory(overview, settings.inventory);

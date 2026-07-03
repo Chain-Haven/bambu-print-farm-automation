@@ -1,14 +1,10 @@
-import { parseJsonBody } from './agentProtocol.js';
 import { createRequestId } from './httpServerUtils.js';
-import {
-    MerchantAuthError,
-    authenticateMerchantRequest,
-} from './merchantAuth.js';
-import {
-    getSupportedIntegrations,
-    normalizeWebhookConfig,
-    redactWebhookConfig,
-} from './webhooks.js';
+import { getSupportedIntegrations } from './webhooks.js';
+
+// NOTE: the legacy v1 webhook *config* handler (merchants.metadata.webhook)
+// was retired — webhook endpoints are managed via the v2 API at
+// /api/public/webhooks/*. Outbound v1 deliveries (deliverMerchantWebhook)
+// still honor any previously-stored metadata.webhook config.
 
 function sendJson(res, statusCode, payload) {
     if (typeof res.status === 'function' && typeof res.json === 'function') {
@@ -27,65 +23,6 @@ function methodNotAllowed(res, methods, requestId = createRequestId()) {
         message: 'Method not allowed',
         request_id: requestId,
     });
-}
-
-function handleMerchantAuthError(res, error, requestId = createRequestId()) {
-    if (error instanceof MerchantAuthError) {
-        return sendJson(res, error.statusCode, {
-            ok: false,
-            error: error.code,
-            message: 'Authentication failed',
-            request_id: requestId,
-        });
-    }
-    return null;
-}
-
-export function createMerchantWebhooksHandler({
-    store,
-    pepper = process.env.MERCHANT_API_KEY_PEPPER || process.env.NODE_TOKEN_PEPPER,
-    now = () => new Date(),
-}) {
-    if (!store) throw new Error('store is required');
-
-    return async function merchantWebhooksHandler(req, res) {
-        if (req.method && !['GET', 'POST'].includes(req.method)) {
-            return methodNotAllowed(res, 'GET, POST');
-        }
-
-        try {
-            const context = await authenticateMerchantRequest(req, { store, pepper, now });
-            const current = context.merchant.metadata?.webhook || {};
-
-            if (req.method === 'GET') {
-                return sendJson(res, 200, {
-                    ok: true,
-                    webhook: redactWebhookConfig(current),
-                });
-            }
-
-            const body = parseJsonBody(req.body);
-            const webhook = normalizeWebhookConfig(body, current);
-            const metadata = {
-                ...(context.merchant.metadata || {}),
-                webhook,
-            };
-            await store.updateMerchantMetadata(context.merchant.merchant_id, metadata);
-
-            return sendJson(res, 200, {
-                ok: true,
-                webhook: redactWebhookConfig(webhook),
-            });
-        } catch (error) {
-            const handled = handleMerchantAuthError(res, error);
-            if (handled) return handled;
-            return sendJson(res, 400, {
-                ok: false,
-                error: 'merchant_webhook_failed',
-                message: error.message,
-            });
-        }
-    };
 }
 
 export function createMerchantIntegrationsHandler() {

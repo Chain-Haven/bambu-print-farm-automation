@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef';
@@ -8,6 +9,9 @@ let dbRun;
 let dbGet;
 
 beforeAll(async () => {
+    // Start from a clean database: the fresh event this test inserts survives
+    // pruning, so a leftover DB from a previous run breaks the counts.
+    fs.rmSync(process.env.DB_PATH, { force: true });
     const db = await import('../../src/db/database.js');
     await db.initDb();
     db.runMigrations();

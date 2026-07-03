@@ -45,6 +45,13 @@ const ORCA_PRESETS = {
     X1: { machine: 'Bambu Lab X1 Carbon 0.4 nozzle', process: '0.20mm Standard @BBL X1C', filament: 'Bambu PLA Basic @BBL X1C', modelId: 'BL-P001' },
     A1: { machine: 'Bambu Lab A1 0.4 nozzle', process: '0.20mm Standard @BBL A1', filament: 'Bambu PLA Basic @BBL A1', modelId: 'N1' },
     A1_MINI: { machine: 'Bambu Lab A1 mini 0.4 nozzle', process: '0.20mm Standard @BBL A1M', filament: 'Bambu PLA Basic @BBL A1M', modelId: 'N2' },
+    // Newer models: presets exist in current OrcaSlicer BBL bundles; if a
+    // given install is missing them, sliceViaCli reports the missing preset
+    // path so the operator can update OrcaSlicer or override ORCA_RESOURCES.
+    P2S: { machine: 'Bambu Lab P2S 0.4 nozzle', process: '0.20mm Standard @BBL P2S', filament: 'Bambu PLA Basic @BBL P2S', modelId: 'C14' },
+    X2D: { machine: 'Bambu Lab X2D 0.4 nozzle', process: '0.20mm Standard @BBL X2D', filament: 'Bambu PLA Basic @BBL X2D', modelId: 'X2D' },
+    H2D: { machine: 'Bambu Lab H2D 0.4 nozzle', process: '0.20mm Standard @BBL H2D', filament: 'Bambu PLA Basic @BBL H2D', modelId: 'H2D' },
+    A2L: { machine: 'Bambu Lab A2L 0.4 nozzle', process: '0.20mm Standard @BBL A2L', filament: 'Bambu PLA Basic @BBL A2L', modelId: 'A2L' },
 };
 
 // Curated UI settings -> OrcaSlicer JSON keys. The UI sends simple values; we

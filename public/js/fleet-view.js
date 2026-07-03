@@ -10,8 +10,10 @@
 const FAMILY_LABELS = {
   a1: 'A1',
   a1mini: 'A1 Mini',
+  a2: 'A2L',
   p1: 'P1',
   x1: 'X1',
+  x2: 'X2',
   p2: 'P2',
   h2: 'H2',
   generic: 'Bambu',
@@ -20,8 +22,10 @@ const FAMILY_LABELS = {
 export function detectPrinterFamily(model) {
   const value = String(model || '').toUpperCase();
   if (value.includes('A1') && value.includes('MINI')) return 'a1mini';
-  if (/\bA1\b/.test(value) || value.includes('A1')) return 'a1';
+  if (value.includes('A2')) return 'a2';
+  if (value.includes('A1')) return 'a1';
   if (value.includes('H2')) return 'h2';
+  if (value.includes('X2')) return 'x2';
   if (value.includes('X1')) return 'x1';
   if (value.includes('P2')) return 'p2';
   if (value.includes('P1')) return 'p1';
@@ -104,10 +108,12 @@ function bedslingerSvg({ body, accent, trim, label, mini = false }) {
 const CHASSIS = {
   p1: () => corexySvg({ body: '#d9dde1', trim: '#7c858c', accent: '#146c5a', brandBand: '#c6ccd1', label: 'P1S' }),
   x1: () => corexySvg({ body: '#2c3136', trim: '#14181c', accent: '#4fd1ae', brandBand: '#22262b', label: 'X1C' }),
+  x2: () => corexySvg({ body: '#31363c', trim: '#171b1f', accent: '#5bd6b4', brandBand: '#262b30', label: 'X2D', dualNozzle: true }),
   p2: () => corexySvg({ body: '#39423f', trim: '#1d2422', accent: '#7fd4c0', brandBand: '#2c3431', label: 'P2S' }),
-  h2: () => corexySvg({ body: '#23282e', trim: '#101418', accent: '#66d9b8', brandBand: '#1a1f24', label: 'H2D', dualNozzle: true }),
+  h2: () => corexySvg({ body: '#23282e', trim: '#101418', accent: '#66d9b8', brandBand: '#1a1f24', label: 'H2', dualNozzle: true }),
   a1: () => bedslingerSvg({ body: '#e4e7ea', trim: '#8d959b', accent: '#146c5a', label: 'A1' }),
   a1mini: () => bedslingerSvg({ body: '#e9ebee', trim: '#98a0a5', accent: '#1d8a72', label: 'A1 MINI', mini: true }),
+  a2: () => bedslingerSvg({ body: '#dfe3e6', trim: '#868f95', accent: '#12735e', label: 'A2L' }),
   generic: () => corexySvg({ body: '#cfd4d8', trim: '#7c858c', accent: '#146c5a', brandBand: '#bfc6cb', label: 'BAMBU' }),
 };
 
@@ -373,11 +379,13 @@ export function createFleetView(deps) {
   }
 
   async function pollCommandResult(commandId, { attempts = 30, intervalMs = 1000 } = {}) {
+    if (!commandId) return null;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
-      const params = new URLSearchParams({ limit: String(Math.min(getRowLimit(), 50)) });
-      const payload = await apiRequest(`/api/cloud/overview?${params.toString()}`);
-      const command = (payload.overview.commands || []).find((item) => item.command_id === commandId);
+      // Direct lookup — never misses the result on busy farms the way the
+      // capped overview command list could.
+      const payload = await apiRequest(`/api/cloud/commands?command_id=${encodeURIComponent(commandId)}`);
+      const command = payload.command;
       if (command && ['succeeded', 'failed'].includes(command.status)) {
         return command;
       }
@@ -458,6 +466,25 @@ export function createFleetView(deps) {
     e.cameraImage.removeAttribute('src');
   }
 
+  // Translate raw node/proxy errors into something an operator can act on.
+  function describeCameraError(message) {
+    const text = String(message || '');
+    const lower = text.toLowerCase();
+    if (lower.includes('access code')) {
+      return `${text} — add the printer's LAN access code (printer screen → Settings → WLAN).`;
+    }
+    if (lower.includes('econnrefused') || lower.includes('unreachable') || lower.includes('timed out') || lower.includes('etimedout')) {
+      return `${text} — check the printer is on the node's network with LAN Mode + Developer Mode enabled.`;
+    }
+    if (lower.includes('ffmpeg')) {
+      return `${text} — this model streams RTSPS and needs ffmpeg on the farm node (npm i @ffmpeg-installer/ffmpeg).`;
+    }
+    if (lower.includes('not yet available')) {
+      return 'Camera stream is starting up — retrying…';
+    }
+    return text || 'node did not answer in time';
+  }
+
   async function cameraLoop(printer, generation) {
     const e = els();
     if (generation !== local.cameraGeneration) return;
@@ -468,7 +495,9 @@ export function createFleetView(deps) {
         commandType: 'printer.camera.snapshot',
         payload: { local_printer_id: printer.local_printer_id },
       });
-      const command = await pollCommandResult(response.command?.command_id, { attempts: 15, intervalMs: 1000 });
+      // Node poll interval (~2s) + stream startup (~3s) means the first frame
+      // can take a while; give it a generous window before declaring failure.
+      const command = await pollCommandResult(response.command?.command_id, { attempts: 25, intervalMs: 1000 });
       if (generation !== local.cameraGeneration) return;
 
       if (command?.status === 'succeeded' && command.result?.image_base64) {
@@ -478,11 +507,11 @@ export function createFleetView(deps) {
           ? `Simulated frame · ${new Date().toLocaleTimeString()}`
           : `Live · ${new Date().toLocaleTimeString()}`;
       } else {
-        e.cameraStatus.textContent = `Camera unavailable: ${command?.error || 'node did not answer'}`;
+        e.cameraStatus.textContent = `Camera unavailable: ${describeCameraError(command?.error)}`;
       }
     } catch (error) {
       if (generation === local.cameraGeneration) {
-        e.cameraStatus.textContent = `Camera error: ${error.message}`;
+        e.cameraStatus.textContent = `Camera error: ${describeCameraError(error.message)}`;
       }
     }
 
@@ -493,6 +522,10 @@ export function createFleetView(deps) {
 
   function openCamera(printer) {
     const e = els();
+    if (!printer.node_id) {
+      showToast('This printer has no online farm node — camera unavailable');
+      return;
+    }
     local.cameraGeneration += 1;
     const generation = local.cameraGeneration;
     local.cameraPrinter = printer;

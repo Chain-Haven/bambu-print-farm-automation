@@ -1,3 +1,5 @@
+import AdmZip from 'adm-zip';
+
 export const MAX_JSON_FILE_BYTES = 25 * 1024 * 1024;
 export const READY_EXTENSIONS = ['.gcode.3mf', '.3mf', '.gcode'];
 export const SOURCE_EXTENSIONS = ['.stl', '.obj', '.step', '.stp'];
@@ -58,6 +60,38 @@ export function classifyFileName(fileName) {
     if (READY_EXTENSIONS.some((extension) => lower.endsWith(extension))) return 'ready_to_print';
     if (SOURCE_EXTENSIONS.some((extension) => lower.endsWith(extension))) return 'source_model';
     throw new Error('file.name must end in .gcode, .3mf, .gcode.3mf, .stl, .obj, .step, or .stp');
+}
+
+// ZIP local-file-header magic.
+function isZipBuffer(buffer) {
+    return Buffer.isBuffer(buffer)
+        && buffer.length >= 4
+        && buffer[0] === 0x50 && buffer[1] === 0x4b
+        && (buffer[2] === 0x03 || buffer[2] === 0x05 || buffer[2] === 0x07);
+}
+
+/**
+ * Buffer-aware classification. A plain `.3mf` can be either a sliced Bambu
+ * package (contains Metadata/plate_*.gcode — printable as-is) or an unsliced
+ * project (geometry only — must be sliced first). Extension-only
+ * classification called those "ready" and they failed on the node at gcode
+ * extraction; when the buffer is available we look inside the ZIP instead.
+ */
+export function classifyPrintFile(fileName, buffer = null) {
+    const mode = classifyFileName(fileName);
+    const lower = String(fileName || '').toLowerCase();
+    if (mode !== 'ready_to_print' || !lower.endsWith('.3mf') || lower.endsWith('.gcode.3mf') || !Buffer.isBuffer(buffer)) {
+        return mode;
+    }
+    if (!isZipBuffer(buffer)) return mode;
+
+    try {
+        const zip = new AdmZip(buffer);
+        const hasGcode = zip.getEntries().some((entry) => entry.entryName.toLowerCase().endsWith('.gcode'));
+        return hasGcode ? 'ready_to_print' : 'source_model';
+    } catch {
+        return mode;
+    }
 }
 
 export function normalizeRoutingStrategy(value) {

@@ -7,7 +7,7 @@ import {
 } from './merchantAuth.js';
 import { buildAmsMappingForPrinter, routeMerchantPrintJob } from './merchantRouting.js';
 import { reserveFilamentForJob } from './filamentReservations.js';
-import { normalizeRoutingStrategy } from './printIntake.js';
+import { classifyPrintFile, normalizeRoutingStrategy } from './printIntake.js';
 import { augmentOverviewWithInventory, normalizeFarmAutomationSettings } from './farmAutomation.js';
 import { deliverMerchantWebhook } from './webhooks.js';
 import { deliverMerchantWebhookEvent } from './merchantWebhookDelivery.js';
@@ -15,9 +15,6 @@ import { deliverMerchantWebhookEvent } from './merchantWebhookDelivery.js';
 const MAX_JSON_FILE_BYTES = 25 * 1024 * 1024;
 const SIGNED_URL_TTL_SECONDS = 3600;
 const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
-
-const READY_EXTENSIONS = ['.gcode.3mf', '.3mf', '.gcode'];
-const SOURCE_EXTENSIONS = ['.stl', '.obj', '.step', '.stp'];
 
 function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -94,11 +91,10 @@ function safeFileName(name) {
     return baseName.replace(/[^A-Za-z0-9._-]/g, '_');
 }
 
-function classifyFile(fileName) {
-    const lower = fileName.toLowerCase();
-    if (READY_EXTENSIONS.some((extension) => lower.endsWith(extension))) return 'ready_to_print';
-    if (SOURCE_EXTENSIONS.some((extension) => lower.endsWith(extension))) return 'source_model';
-    throw new Error('file.name must end in .gcode, .3mf, .gcode.3mf, .stl, .obj, .step, or .stp');
+// Buffer-aware: an unsliced project .3mf (no embedded plate gcode) is a
+// source model even though the extension looks "ready".
+function classifyFile(fileName, buffer = null) {
+    return classifyPrintFile(fileName, buffer);
 }
 
 function normalizeStorageContentType(value, fileMode) {
@@ -123,12 +119,13 @@ function decodeBase64(value) {
     return buffer;
 }
 
-function normalizeUpload(body) {
+// Shared with the admin drop-in endpoint (adminPrintHandlers.js).
+export function normalizeUpload(body) {
     const source = isPlainObject(body) ? body : {};
     const file = optionalObject(source.file);
     const originalName = safeFileName(file.name || file.filename);
     const buffer = decodeBase64(file.base64 || file.content_base64);
-    const fileMode = classifyFile(originalName);
+    const fileMode = classifyFile(originalName, buffer);
     const rawContentType = typeof file.content_type === 'string' && file.content_type.trim()
         ? file.content_type.trim()
         : (typeof file.contentType === 'string' && file.contentType.trim() ? file.contentType.trim() : 'application/octet-stream');

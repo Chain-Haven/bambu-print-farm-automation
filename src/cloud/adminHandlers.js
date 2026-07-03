@@ -5,17 +5,19 @@ import { AdminAuthError, authenticateCloudAdmin } from './adminAuth.js';
 import { hashNodeToken, parseJsonBody } from './agentProtocol.js';
 import { createRequestId, getRequestId } from './httpServerUtils.js';
 import {
-    buildMerchantApiKeyRecord,
-    buildMerchantSetupTokenRecord,
     generateMerchantApiKey,
     generateMerchantSetupToken,
 } from './merchantAuth.js';
+import {
+    createLiveKeyForMerchant,
+    createSetupTokenForMerchant,
+    redactApiKey as redactMerchantApiKey,
+} from './merchantHandlers.js';
 import { redactPublicValue } from './merchantPublicProjections.js';
 import { redactWebhookConfig } from './webhooks.js';
 import { buildWindowsNodePackage, getNodePackageFileName, PORTABLE_BUNDLE_SUBDIR } from './nodePackage.js';
 import { buildFarmAutomationPlan, normalizeFarmAutomationSettings } from './farmAutomation.js';
 
-const MERCHANT_SETUP_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FARM_AUTOMATION_POLICY_KEY = 'farm_automation_policy';
 const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
 const FARM_INTEGRATIONS_KEY = 'farm_integrations';
@@ -155,61 +157,13 @@ function generateNodeToken() {
     return `pkx_node_${randomBytes(32).toString('base64url')}`;
 }
 
-async function issueMerchantSetupToken({
-    store,
-    merchant,
-    merchantPepper,
-    now,
-    setupTokenFactory,
-}) {
-    if (!merchantPepper) throw new Error('merchant api key pepper is required');
-    if (!merchant || merchant.status !== 'active') {
-        throw new Error('merchant must be active before issuing setup token');
-    }
+// Setup-token / live-key issuance is shared with the public merchant routes
+// (merchantHandlers.js) so both surfaces run the exact same implementation.
+const issueMerchantSetupToken = ({ store, merchant, merchantPepper, now, setupTokenFactory }) =>
+    createSetupTokenForMerchant({ store, merchant, pepper: merchantPepper, now, setupTokenFactory });
 
-    const issuedAt = now();
-    const expiresAt = new Date(issuedAt.getTime() + MERCHANT_SETUP_TOKEN_TTL_MS).toISOString();
-    const rawToken = setupTokenFactory();
-    const setupToken = buildMerchantSetupTokenRecord({
-        merchant,
-        rawToken,
-        pepper: merchantPepper,
-        expiresAt,
-    });
-
-    await store.createMerchantSetupToken(setupToken.record);
-    return {
-        secret: setupToken.secret,
-        expires_at: expiresAt,
-    };
-}
-
-async function issueMerchantApiKey({
-    store,
-    merchant,
-    name,
-    merchantPepper,
-    liveKeyFactory,
-}) {
-    if (!merchantPepper) throw new Error('merchant api key pepper is required');
-    if (!merchant || merchant.status !== 'active') {
-        throw new Error('merchant must be active before issuing live API keys');
-    }
-
-    const rawKey = liveKeyFactory();
-    const apiKey = buildMerchantApiKeyRecord({
-        merchant,
-        name,
-        rawKey,
-        pepper: merchantPepper,
-    });
-    const record = await store.createMerchantApiKey(apiKey.record);
-
-    return {
-        secret: apiKey.secret,
-        record,
-    };
-}
+const issueMerchantApiKey = ({ store, merchant, name, merchantPepper, liveKeyFactory, scopes }) =>
+    createLiveKeyForMerchant({ store, merchant, name, pepper: merchantPepper, liveKeyFactory, scopes });
 
 function normalizeMerchantAction(body) {
     const source = isPlainObject(body) ? body : {};
@@ -236,34 +190,8 @@ function normalizeMerchantKeyRequest(body, query = {}) {
         merchantId: normalizeRequiredString(source.merchant_id || query.merchant_id, 'merchant_id'),
         keyId: normalizeOptionalString(source.key_id || query.key_id),
         name: normalizeOptionalString(source.name) || 'Production',
+        scopes: source.scopes,
     };
-}
-
-function redactMerchantApiKey(apiKey) {
-    if (!apiKey) return null;
-    const {
-        key_id,
-        merchant_id,
-        org_id,
-        name,
-        key_prefix,
-        scopes,
-        last_used_at,
-        revoked_at,
-        created_at,
-    } = apiKey;
-
-    return Object.fromEntries(Object.entries({
-        key_id,
-        merchant_id,
-        org_id,
-        name,
-        key_prefix,
-        scopes: Array.isArray(scopes) && scopes.length > 0 ? scopes : ['*'],
-        last_used_at,
-        revoked_at,
-        created_at,
-    }).filter(([, value]) => value !== undefined));
 }
 
 const MERCHANT_V2_ADMIN_PROJECTIONS = {
@@ -576,8 +504,31 @@ export function createCloudCommandHandler({ store, adminToken = process.env.CLOU
     if (!store) throw new Error('store is required');
 
     return async function cloudCommandHandler(req, res) {
+        // GET ?command_id= — direct command lookup so the console can poll a
+        // specific command result (camera frames, adoption, scans) instead of
+        // scanning the capped overview list, which loses results on busy farms.
+        if (req.method === 'GET') {
+            try {
+                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+                const commandId = normalizeRequiredString((req.query || {}).command_id, 'command_id');
+                const command = typeof store.getNodeCommandById === 'function'
+                    ? await store.getNodeCommandById(commandId)
+                    : null;
+                if (!command) {
+                    return sendJson(res, 404, { ok: false, error: 'command_not_found' });
+                }
+                return sendJson(res, 200, { ok: true, command });
+            } catch (error) {
+                return sendJson(res, 400, {
+                    ok: false,
+                    error: 'get_command_failed',
+                    message: error.message,
+                });
+            }
+        }
+
         if (req.method && req.method !== 'POST') {
-            return methodNotAllowed(res, 'POST');
+            return methodNotAllowed(res, 'GET, POST');
         }
 
         try {
@@ -627,8 +578,54 @@ export function createCloudNodeProvisionHandler({
     if (!store) throw new Error('store is required');
 
     return async function cloudNodeProvisionHandler(req, res) {
+        // DELETE decommissions a node: its bearer token stops authenticating
+        // immediately and the DB cascades remove its mirrored printers and
+        // queued commands (jobs/events keep their rows with node_id nulled).
+        if (req.method === 'DELETE') {
+            try {
+                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+
+                const body = parseJsonBody(req.body);
+                const query = req.query || {};
+                const nodeId = normalizeRequiredString(
+                    (isPlainObject(body) ? body.node_id : null) || query.node_id,
+                    'node_id',
+                );
+                const force = (isPlainObject(body) && body.force === true) || query.force === 'true';
+
+                const summary = typeof store.getNodeWorkSummary === 'function'
+                    ? await store.getNodeWorkSummary(nodeId)
+                    : null;
+                if (typeof store.getNodeWorkSummary === 'function' && !summary) {
+                    return sendJson(res, 404, { ok: false, error: 'node_not_found' });
+                }
+                if (!force && summary && (summary.active_jobs > 0 || summary.pending_commands > 0)) {
+                    return sendJson(res, 409, {
+                        ok: false,
+                        error: 'node_has_active_work',
+                        message: `Node has ${summary.active_jobs} active job(s) and ${summary.pending_commands} pending command(s). Retry with force=true to delete anyway.`,
+                        active_jobs: summary.active_jobs,
+                        pending_commands: summary.pending_commands,
+                    });
+                }
+
+                const deleted = await store.deleteFarmNode(nodeId);
+                if (!deleted) {
+                    return sendJson(res, 404, { ok: false, error: 'node_not_found' });
+                }
+
+                return sendJson(res, 200, { ok: true, node: deleted });
+            } catch (error) {
+                return sendJson(res, 400, {
+                    ok: false,
+                    error: 'delete_node_failed',
+                    message: error.message,
+                });
+            }
+        }
+
         if (req.method && req.method !== 'POST') {
-            return methodNotAllowed(res, 'POST');
+            return methodNotAllowed(res, 'POST, DELETE');
         }
 
         try {
@@ -975,6 +972,7 @@ export function createCloudMerchantApiKeysHandler({
                     name: request.name,
                     merchantPepper,
                     liveKeyFactory,
+                    scopes: request.scopes,
                 });
 
                 return sendJson(res, 201, {

@@ -1,4 +1,4 @@
-// server.js — Antigravity Entry Point
+// server.js — PrintKinetix local farm server entry point
 import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'node:http';
@@ -17,6 +17,7 @@ import TunnelService from './src/services/TunnelService.js';
 import { errorHandler } from './src/api/middleware/errorHandler.js';
 import { createLogger } from './src/utils/logger.js';
 import { resolveAsset } from './src/utils/runtimePaths.js';
+import { LOCAL_APP_NAME } from './src/config/branding.js';
 
 // import.meta.url is empty when this file is compiled into the portable CJS
 // bundle; fall back to the bundle asset root (or cwd) in that case.
@@ -109,7 +110,7 @@ async function init() {
         const port = parseInt(process.env.PORT) || 3000;
         const host = process.env.HOST || '0.0.0.0';
         server.listen(port, host, () => {
-            log.info(`🚀 Antigravity running at http://${host}:${port}`);
+            log.info(`🚀 ${LOCAL_APP_NAME} running at http://${host}:${port}`);
             log.info(`   Mode: ${process.env.MOCK_MODE === 'true' ? 'MOCK (simulators)' : 'LIVE'}`);
         });
 

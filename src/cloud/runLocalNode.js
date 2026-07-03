@@ -22,6 +22,25 @@ function getHostInfo() {
     };
 }
 
+// Whether this node can slice source models (STL/OBJ/STEP): true in
+// MOCK_MODE (mock slicer) or when a slicer CLI backend is configured. Cached
+// after the first check; a config change needs a node restart anyway.
+let _slicerAvailable = null;
+async function detectSlicerAvailable() {
+    if (_slicerAvailable !== null) return _slicerAvailable;
+    if (process.env.MOCK_MODE === 'true') {
+        _slicerAvailable = true;
+        return _slicerAvailable;
+    }
+    try {
+        const { SliceService } = await import('../services/SliceService.js');
+        _slicerAvailable = SliceService.getActiveBackend() !== null;
+    } catch {
+        _slicerAvailable = false;
+    }
+    return _slicerAvailable;
+}
+
 async function sendHeartbeat(client, status = 'online', resultOutbox = null) {
     const networkInterfaces = collectNetworkInterfaces();
 
@@ -46,6 +65,7 @@ async function sendHeartbeat(client, status = 'online', resultOutbox = null) {
             local_controller: true,
             command_polling: true,
             printer_lan_control: true,
+            can_slice: await detectSlicerAvailable(),
             network_interface_count: networkInterfaces.length,
             pending_result_count: resultOutbox?.size?.() || 0,
             printer_count: printers.length,

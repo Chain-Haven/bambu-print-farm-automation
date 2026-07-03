@@ -17,7 +17,7 @@ const log = createLogger('Automator');
 // A) PRINTER MODEL DEFAULTS
 // ============================================================
 
-const MODEL_DEFAULTS = {
+export const MODEL_DEFAULTS = {
     P1S: {
         zMax: 250,
         sweepStartX: 128, sweepStartY: 250,
@@ -57,6 +57,59 @@ const MODEL_DEFAULTS = {
         sweepEndY: 0,
         sweepLanesX: [90, 40, 140], // center-out, L-R, 50mm increments
         parkX: -13, parkY: 185,
+        fTravel: 12000, fSweep: 2000, fZ: 600,
+        hasChamberFan: false,
+        hasAuxFan: false,
+        purgeFamily: 'A1',
+    },
+    // ── Newer-generation models ────────────────────────────────────────────
+    // Geometry below is derived from published build volumes and mirrors the
+    // proven P1S/A1 sweep patterns scaled to each bed. Validate the park/lane
+    // coordinates on real hardware before unattended production loops; every
+    // value can be overridden per-profile via transform overrides.
+    P2S: {
+        // 256mm CoreXY, enclosed — same physical envelope as the P1S.
+        zMax: 250,
+        sweepStartX: 128, sweepStartY: 250,
+        sweepEndY: 0,
+        sweepLanesX: [128, 78, 178, 28, 228],
+        parkX: 65, parkY: 245,
+        fTravel: 12000, fSweep: 2000, fZ: 600,
+        hasChamberFan: true,
+        hasAuxFan: true,
+        purgeFamily: 'P1X1',
+    },
+    X2D: {
+        // 256 x 256 x 260 CoreXY, dual nozzle, enclosed.
+        zMax: 255,
+        sweepStartX: 128, sweepStartY: 250,
+        sweepEndY: 0,
+        sweepLanesX: [128, 78, 178, 28, 228],
+        parkX: 65, parkY: 245,
+        fTravel: 12000, fSweep: 2000, fZ: 600,
+        hasChamberFan: true,
+        hasAuxFan: true,
+        purgeFamily: 'P1X1',
+    },
+    H2D: {
+        // H2 series (H2S / H2D / H2C): 325 x 320 x 325 large-format CoreXY.
+        zMax: 320,
+        sweepStartX: 162, sweepStartY: 315,
+        sweepEndY: 0,
+        sweepLanesX: [162, 112, 212, 62, 262], // center-out, 50mm increments
+        parkX: 82, parkY: 310,
+        fTravel: 12000, fSweep: 2000, fZ: 600,
+        hasChamberFan: true,
+        hasAuxFan: true,
+        purgeFamily: 'P1X1',
+    },
+    A2L: {
+        // 330 x 320 x 325 large-format bedslinger (A-series).
+        zMax: 320,
+        sweepStartX: 165, sweepStartY: 315,
+        sweepEndY: 0,
+        sweepLanesX: [165, 115, 215, 65, 265], // center-out, 50mm increments
+        parkX: -40, parkY: 326,
         fTravel: 12000, fSweep: 2000, fZ: 600,
         hasChamberFan: false,
         hasAuxFan: false,

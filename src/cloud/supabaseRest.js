@@ -1934,6 +1934,39 @@ export function createSupabaseRestClient({
             });
         },
 
+        async getNodeWorkSummary(nodeId) {
+            const encoded = encodeURIComponent(nodeId);
+            const nodeRows = await request(
+                `/rest/v1/farm_nodes?node_id=eq.${encoded}&select=node_id,org_id,name,status&limit=1`,
+            );
+            const node = firstRow(nodeRows);
+            if (!node) return null;
+
+            const [activeJobs, pendingCommands] = await Promise.all([
+                request(`/rest/v1/print_jobs?node_id=eq.${encoded}&status=in.(queued,assigned,transforming,uploading,printing,waiting_for_capacity)&select=job_id&limit=200`),
+                request(`/rest/v1/node_commands?node_id=eq.${encoded}&status=in.(queued,claimed,running)&select=command_id&limit=200`),
+            ]);
+
+            return {
+                ...node,
+                active_jobs: Array.isArray(activeJobs) ? activeJobs.length : 0,
+                pending_commands: Array.isArray(pendingCommands) ? pendingCommands.length : 0,
+            };
+        },
+
+        async deleteFarmNode(nodeId) {
+            // FKs cascade cloud_printers + node_commands; print_jobs/node_events/
+            // routing_decisions keep their rows with node references nulled.
+            const rows = await request(
+                `/rest/v1/farm_nodes?node_id=eq.${encodeURIComponent(nodeId)}&select=node_id,org_id,name,status,agent_version,last_seen_at,created_at,updated_at`,
+                {
+                    method: 'DELETE',
+                    headers: { Prefer: 'return=representation' },
+                },
+            );
+            return firstRow(rows);
+        },
+
         async upsertCloudPrinters(node, printers, lastSeenAt = new Date().toISOString()) {
             const orgId = node.organization_id || node.org_id;
             const rows = (Array.isArray(printers) ? printers : []).map((printer) => ({
@@ -1958,6 +1991,23 @@ export function createSupabaseRestClient({
                     body: rows,
                 },
             );
+        },
+
+        async getNodeCommandById(commandId) {
+            const rows = await request(
+                `/rest/v1/node_commands?command_id=eq.${encodeURIComponent(commandId)}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async listNodeCommands({ nodeId, commandType = null, limit = 50 } = {}) {
+            const params = new URLSearchParams();
+            params.set('node_id', `eq.${nodeId}`);
+            if (commandType) params.set('command_type', `eq.${commandType}`);
+            params.set('order', 'created_at.desc');
+            params.set('limit', String(Math.max(1, Math.min(limit, 100))));
+            const rows = await request(`/rest/v1/node_commands?${params.toString()}`);
+            return Array.isArray(rows) ? rows : [];
         },
 
         async claimNodeCommands(nodeId, limit = 10) {

@@ -266,7 +266,52 @@ const elements = {
   adminUserEmail: $('#admin-user-email'),
   adminUserRole: $('#admin-user-role'),
   adminUsersOutput: $('#admin-users-output'),
+  // Tabbed console
+  consoleTabs: $('#console-tabs'),
+  setupBanner: $('#setup-banner'),
+  setupBannerLink: $('#setup-banner-link'),
+  // Drop-in printing
+  dropZone: $('#drop-zone'),
+  dropFileInput: $('#drop-file-input'),
+  dropStatus: $('#drop-status'),
 };
+
+// ===== Tabbed console =====
+const TAB_NAMES = ['fleet', 'merchants', 'nodes', 'automation'];
+
+function activeTab() {
+  const fromHash = (window.location.hash.match(/tab=([a-z]+)/) || [])[1];
+  return TAB_NAMES.includes(fromHash) ? fromHash : 'fleet';
+}
+
+function showTab(name) {
+  const tab = TAB_NAMES.includes(name) ? name : 'fleet';
+  document.querySelectorAll('[data-tab-panel]').forEach((panel) => {
+    panel.hidden = panel.dataset.tabPanel !== tab;
+  });
+  document.querySelectorAll('#console-tabs .tab-btn').forEach((button) => {
+    button.classList.toggle('active', button.dataset.tab === tab);
+  });
+  const nextHash = `#tab=${tab}`;
+  if (window.location.hash !== nextHash) {
+    window.history.replaceState(null, '', nextHash);
+  }
+}
+
+function bindTabs() {
+  if (!elements.consoleTabs) return;
+  elements.consoleTabs.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-tab]');
+    if (button) showTab(button.dataset.tab);
+  });
+  if (elements.setupBannerLink) {
+    elements.setupBannerLink.addEventListener('click', () => {
+      showTab('nodes');
+      elements.setupStatus?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+  showTab(activeTab());
+}
 
 function setApiState(label, mode = '') {
   elements.apiState.textContent = label;
@@ -500,6 +545,9 @@ function makeSetupItem(label, ok, detail) {
 
 function renderSetupStatus(setup) {
   state.setup = setup;
+  if (elements.setupBanner) {
+    elements.setupBanner.hidden = !setup || setup.ready === true;
+  }
   if (!setup) {
     elements.setupStatus.hidden = true;
     return;
@@ -1081,10 +1129,15 @@ function renderOverview() {
     { label: 'Status', value: (row) => makeStatus(row.status) },
     { label: 'Version', value: (row) => row.agent_version || '-' },
     { label: 'Host', value: (row) => row.host_info?.hostname || '-' },
-    { label: 'NICs', value: (row) => row.capabilities?.network_interface_count ?? '-' },
-    { label: 'Pending Results', value: (row) => row.capabilities?.pending_result_count ?? '-' },
+    { label: 'Slicer', value: (row) => (row.capabilities?.can_slice === true ? 'yes' : '-') },
     { label: 'Last seen', value: (row) => formatDate(row.last_seen_at) },
     { label: 'Detail', value: (row) => makeDetailButton('Open', `Node ${shortId(row.node_id)}`, row) },
+    {
+      label: 'Actions',
+      value: (row) => makeButton('Delete', () => {
+        handleDeleteNode(row).catch((error) => showToast(error.message));
+      }, 'ghost-button small-button danger-button'),
+    },
   ], overview.nodes, 'No nodes found.');
 
   renderTable('#printers-table', [
@@ -1133,6 +1186,133 @@ function renderOverview() {
   renderFarmAutomation();
   updateCounts();
   renderMetrics();
+}
+
+async function handleDeleteNode(node) {
+  const label = node.name || shortId(node.node_id);
+  if (!window.confirm(`Delete node "${label}"? Its token stops working immediately and its mirrored printers leave the fleet.`)) {
+    return;
+  }
+
+  async function requestDelete(force) {
+    const params = new URLSearchParams({ node_id: node.node_id });
+    if (force) params.set('force', 'true');
+    const response = await fetch(`/api/cloud/nodes?${params.toString()}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${getAdminToken()}` },
+    });
+    const text = await response.text();
+    const payload = text ? JSON.parse(text) : {};
+    return { status: response.status, payload };
+  }
+
+  let result = await requestDelete(false);
+  if (result.status === 409 && result.payload.error === 'node_has_active_work') {
+    const detail = `${result.payload.active_jobs || 0} active job(s), ${result.payload.pending_commands || 0} pending command(s)`;
+    if (!window.confirm(`"${label}" still has ${detail}. Delete anyway?`)) return;
+    result = await requestDelete(true);
+  }
+
+  if (result.status >= 400 || result.payload.ok === false) {
+    throw new Error(result.payload.message || result.payload.error || `Delete failed with ${result.status}`);
+  }
+
+  showToast(`Node "${label}" deleted`);
+  await refreshOverview();
+}
+
+// ===== Drop-in printing =====
+function addDropStatusRow(fileName) {
+  const row = document.createElement('div');
+  row.className = 'drop-status-row';
+  const name = document.createElement('strong');
+  name.textContent = fileName;
+  const status = document.createElement('span');
+  status.textContent = 'Uploading…';
+  row.append(name, status);
+  elements.dropStatus.prepend(row);
+  return {
+    set(text, mode = '') {
+      status.textContent = text;
+      row.className = `drop-status-row ${mode}`.trim();
+    },
+  };
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1]);
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function submitDroppedFile(file) {
+  const row = addDropStatusRow(file.name);
+  try {
+    if (file.size > 24 * 1024 * 1024) {
+      throw new Error('File is larger than the 24MB upload limit');
+    }
+    const base64 = await fileToBase64(file);
+    row.set('Routing to an available printer…');
+    const payload = await apiRequest('/api/cloud/print-files', {
+      method: 'POST',
+      body: {
+        name: file.name.replace(/\.[^.]+$/, ''),
+        file: { name: file.name, base64 },
+      },
+    });
+
+    if (payload.routing?.status === 'routed') {
+      const target = payload.routing.selected_local_printer_id || shortId(payload.routing.selected_printer_id);
+      row.set(payload.will_slice_on_node
+        ? `Routed to ${target} — slicing on the farm node, then printing`
+        : `Routed to ${target} — printing`, 'ok');
+    } else {
+      row.set('Queued — waiting for an available printer', 'warn');
+    }
+    await refreshOverview();
+  } catch (error) {
+    row.set(`Failed: ${error.message}`, 'error');
+  }
+}
+
+function handleDroppedFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (files.length === 0) return;
+  files.forEach((file) => { submitDroppedFile(file); });
+}
+
+function bindDropZone() {
+  const zone = elements.dropZone;
+  if (!zone) return;
+  zone.addEventListener('click', () => elements.dropFileInput.click());
+  zone.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      elements.dropFileInput.click();
+    }
+  });
+  elements.dropFileInput.addEventListener('change', () => {
+    handleDroppedFiles(elements.dropFileInput.files);
+    elements.dropFileInput.value = '';
+  });
+  ['dragenter', 'dragover'].forEach((type) => {
+    zone.addEventListener(type, (event) => {
+      event.preventDefault();
+      zone.classList.add('dragging');
+    });
+  });
+  ['dragleave', 'drop'].forEach((type) => {
+    zone.addEventListener(type, (event) => {
+      event.preventDefault();
+      zone.classList.remove('dragging');
+    });
+  });
+  zone.addEventListener('drop', (event) => {
+    handleDroppedFiles(event.dataTransfer?.files);
+  });
 }
 
 async function refreshOverview() {
@@ -1984,6 +2164,8 @@ const fleetView = createFleetView({
 
 function bindEvents() {
   bindFarmAutomationEditorGuards();
+  bindTabs();
+  bindDropZone();
   fleetView.bind();
 
   if (elements.amsPrinter) {

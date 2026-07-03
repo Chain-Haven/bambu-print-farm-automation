@@ -6,6 +6,7 @@ import { PrinterModel } from '../models/Printer.js';
 import { EventModel } from '../models/Event.js';
 import { CommandBus } from './CommandBus.js';
 import { automate } from '../gcode/Automator.js';
+import { automatorModelKey } from '../models/PrinterModels.js';
 import { extractGcodeFrom3mf, repack3mf } from '../gcode/AutomatorZip.js';
 import { executeEjectionSequence } from './EjectionService.js';
 import { createLogger } from '../utils/logger.js';
@@ -109,8 +110,17 @@ export class JobOrchestrator {
                 // INDEPENDENT mechanisms. loopsN must NOT fall back to repeat_total, or the
                 // two would multiply (loopsN × repeat_total copies). Loop count comes only
                 // from an explicit override or the profile, defaulting to 1.
+                // Resolve the model through the canonical registry so DB names
+                // like "Bambu X1C" map to their real Automator geometry key
+                // ("X1") instead of silently falling back to P1S. A wildcard
+                // profile ('*') defers to the assigned printer's model.
+                const printerRow = printer_id ? PrinterModel.findById(printer_id) : null;
+                const rawModel = transform_overrides?.printer_model
+                    || (profile.printer_model && profile.printer_model !== '*' ? profile.printer_model : null)
+                    || printerRow?.model
+                    || 'P1S';
                 const automatorConfig = {
-                    printerModel: transform_overrides?.printer_model || profile.printer_model || 'P1S',
+                    printerModel: automatorModelKey(rawModel),
                     loopsN: transform_overrides?.n_loops || profile.n_loops || 1,
                     // Cooldown mode: 'temperature' (cool-to-temp) or 'time' (fixed dwell).
                     // Exactly one runs — never both.

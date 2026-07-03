@@ -1,3 +1,5 @@
+import { normalizeModel } from '../models/PrinterModels.js';
+
 const INTEGRATION_MODES = [
     {
         mode: 'fleet_hub',
@@ -53,6 +55,14 @@ const MODEL_PROFILES = {
         local_mode: 'lan_developer_mode',
         fallback_mode: 'bambu_connect',
         capabilities: ['lan_mode', 'developer_mode', 'multi_ams', 'native_skip_object'],
+    },
+    x2_series: {
+        model_family: 'x2_series',
+        label: 'X2 series (dual nozzle)',
+        default_mode: 'bambu_connect',
+        local_mode: 'lan_developer_mode',
+        fallback_mode: 'bambu_connect',
+        capabilities: ['lan_mode', 'developer_mode', 'multi_ams', 'dual_nozzle', 'native_skip_object'],
     },
     h2_series: {
         model_family: 'h2_series',
@@ -112,14 +122,22 @@ function hasCapability(capabilities, ...keys) {
 }
 
 export function detectBambuModelFamily(model) {
+    // Canonical registry first (handles every known model + alias), then the
+    // legacy regex heuristics for free-text strings the registry can't place.
+    const registered = normalizeModel(model);
+    if (registered) return registered.strategyFamily;
+
     const normalized = String(model || '').toLowerCase();
     if (/\bh2[cds]?\b/.test(normalized) || normalized.includes('h2d') || normalized.includes('h2 pro')) {
         return 'h2_series';
     }
+    if (/\bx2[cd]?\b/.test(normalized)) {
+        return 'x2_series';
+    }
     if (/\bp2[sc]?\b/.test(normalized) || normalized.includes('p2s')) {
         return 'p2_series';
     }
-    if (/\ba1\b/.test(normalized) || normalized.includes('a1 mini') || normalized.includes('a1 combo')) {
+    if (/\ba1\b/.test(normalized) || normalized.includes('a1 mini') || normalized.includes('a1 combo') || /\ba2l?\b/.test(normalized)) {
         return 'a1_series';
     }
     if (/\bp1[ps]?\b/.test(normalized) || normalized.includes('p1s') || normalized.includes('x1c')) {

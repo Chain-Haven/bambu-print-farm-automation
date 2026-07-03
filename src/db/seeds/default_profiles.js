@@ -47,6 +47,38 @@ const PROFILES = [
         is_system: 1
     },
     {
+        name: 'P2S',
+        description: 'Default profile for Bambu P2S',
+        printer_model: 'Bambu P2S',
+        park_y_mm: 251,
+        eject_params: DEFAULT_EJECT_PARAMS,
+        is_system: 1
+    },
+    {
+        name: 'X2D',
+        description: 'Default profile for Bambu X2D (dual nozzle)',
+        printer_model: 'Bambu X2D',
+        park_y_mm: 251,
+        eject_params: DEFAULT_EJECT_PARAMS,
+        is_system: 1
+    },
+    {
+        name: 'H2 Series',
+        description: 'Default profile for Bambu H2S / H2D / H2C (325mm large format)',
+        printer_model: 'Bambu H2D',
+        park_y_mm: 315,
+        eject_params: DEFAULT_EJECT_PARAMS,
+        is_system: 1
+    },
+    {
+        name: 'A2L',
+        description: 'Default profile for Bambu A2L (large-format bedslinger)',
+        printer_model: 'Bambu A2L',
+        park_y_mm: 320,
+        eject_params: DEFAULT_EJECT_PARAMS,
+        is_system: 1
+    },
+    {
         name: 'Universal',
         description: 'Universal fallback profile (any printer model)',
         printer_model: '*',

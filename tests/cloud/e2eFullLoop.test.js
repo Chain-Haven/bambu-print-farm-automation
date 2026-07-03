@@ -399,8 +399,8 @@ describe('full farm loop end to end (local cloud, real handlers over HTTP)', () 
         const summary = await agent.runOnce();
         expect(summary).toMatchObject({ claimed: 1, succeeded: 1, failed: 0 });
 
-        const { overview } = await adminJson('/api/cloud/overview');
-        const finished = overview.commands.find((row) => row.command_id === command.command_id);
+        // The console polls the direct command lookup (not the overview scan).
+        const { command: finished } = await adminJson(`/api/cloud/commands?command_id=${command.command_id}`);
         expect(finished.status).toBe('succeeded');
         expect(finished.result.content_type).toBe('image/jpeg');
         expect(Buffer.from(finished.result.image_base64, 'base64').toString()).toBe('frame-for-printer-a1-01');
@@ -463,6 +463,105 @@ describe('full farm loop end to end (local cloud, real handlers over HTTP)', () 
         const adoptedCommand = overview.commands.find((row) => row.command_id === command.command_id);
         expect(adoptedCommand.status).toBe('succeeded');
         expect(adoptedCommand.result.printer.name).toBe('P1S Bay 2');
+    });
+
+    it('operator drops an STL: cloud routes it, the node slices and prints it', async () => {
+        // Clear the bed so the routed printer is available again.
+        await nodeClient.sendHeartbeat({ status: 'online', printers: [PRINTER_HEARTBEAT] });
+
+        const dropResponse = await adminFetch('/api/cloud/print-files', {
+            method: 'POST',
+            body: {
+                name: 'Dropped bracket',
+                file: {
+                    name: 'bracket.stl',
+                    base64: Buffer.from('solid bracket\nendsolid bracket\n').toString('base64'),
+                },
+                requirements: { materials: ['PLA'] },
+            },
+        });
+        const drop = await dropResponse.json();
+        expect(dropResponse.status).toBe(201);
+        expect(drop.routing.status).toBe('routed');
+        expect(drop.will_slice_on_node).toBe(true);
+        expect(drop.job.merchant_id ?? null).toBeNull();
+
+        // The node claims cloud.print.source, "slices" (injected), and submits
+        // the sliced .gcode.3mf through the orchestrated pipeline.
+        const submitted = [];
+        const agent = createLocalNodeAgent({
+            client: nodeClient,
+            executeCommand: (cmd) => executeCloudCommand(cmd, {
+                getWorker: async () => ({
+                    state: 'idle',
+                    connected: true,
+                    latestStatus: {},
+                    getPreflightStatus: () => ({ ok: true, errors: [] }),
+                }),
+                sliceSourceModel: async ({ originalName }) => ({
+                    ok: true,
+                    gcode3mf: Buffer.from('fake-sliced-3mf'),
+                    outputName: originalName.replace(/\.stl$/i, '.gcode.3mf'),
+                    report: { backend: 'test' },
+                }),
+                submitJob: async (params) => {
+                    submitted.push(params);
+                    return {
+                        job_id: 'local-sliced-job',
+                        status: 'printing',
+                        transformed_file_name: params.fileName,
+                        transform_report: { skipped: true },
+                        diff_summary: {},
+                    };
+                },
+            }),
+        });
+        const summary = await agent.runOnce();
+        expect(summary).toMatchObject({ claimed: 1, succeeded: 1, failed: 0 });
+
+        expect(submitted).toHaveLength(1);
+        expect(submitted[0].fileName).toBe('bracket.gcode.3mf');
+        expect(submitted[0].metadata.cloud_job_id).toBe(drop.job.job_id);
+
+        const { command: finished } = await adminJson(`/api/cloud/commands?command_id=${drop.command_id}`);
+        expect(finished.status).toBe('succeeded');
+        expect(finished.result.sliced).toBe(true);
+        expect(finished.result.started).toBe(true);
+    });
+
+    it('deletes a node: bearer token stops working and mirrored printers disappear', async () => {
+        // Provision a disposable node with one mirrored printer.
+        const provisioned = await adminJson('/api/cloud/nodes', {
+            method: 'POST',
+            body: { org_id: orgId, name: 'E2E Disposable Node' },
+        });
+        const disposableId = provisioned.node.node_id;
+        const disposableClient = createLocalNodeClient({
+            cloudApiUrl: cloud.baseUrl,
+            token: provisioned.local_node_token,
+        });
+        await disposableClient.sendHeartbeat({
+            status: 'online',
+            printers: [{ ...PRINTER_HEARTBEAT, local_printer_id: 'printer-temp-01', name: 'Temp Bay' }],
+        });
+
+        let { overview } = await adminJson('/api/cloud/overview');
+        expect(overview.printers.some((printer) => printer.node_id === disposableId)).toBe(true);
+
+        const deleted = await adminJson(`/api/cloud/nodes?node_id=${disposableId}`, { method: 'DELETE' });
+        expect(deleted.node.node_id).toBe(disposableId);
+
+        // The node's token is dead immediately.
+        await expect(disposableClient.sendHeartbeat({ status: 'online', printers: [] })).rejects.toThrow();
+
+        // Its mirrored printers are gone from the fleet.
+        ({ overview } = await adminJson('/api/cloud/overview'));
+        expect(overview.nodes.some((node) => node.node_id === disposableId)).toBe(false);
+        expect(overview.printers.some((printer) => printer.node_id === disposableId)).toBe(false);
+
+        // Deleting again 404s.
+        const again = await adminFetch(`/api/cloud/nodes?node_id=${disposableId}`, { method: 'DELETE' });
+        expect(again.status).toBe(404);
     });
 });
 

@@ -46,6 +46,7 @@ import {
     createMerchantPrintJobStatusHandler,
     createMerchantPrintJobsHandler,
 } from './merchantPrintHandlers.js';
+import { createCloudPrintFilesHandler } from './adminPrintHandlers.js';
 
 // A self-contained cloud control plane: the SAME handler code the Vercel
 // functions run, wired to an Express app against any store implementation
@@ -96,6 +97,7 @@ export function createLocalCloudApp({
     app.all('/api/cloud/nodes', wire(createCloudNodeProvisionHandler({ store, adminToken, pepper })));
     app.all('/api/cloud/node-package', wire(createCloudNodePackageHandler({ store, adminToken, rootDir })));
     app.all('/api/cloud/commands', wire(createCloudCommandHandler({ store, adminToken })));
+    app.all('/api/cloud/print-files', wire(createCloudPrintFilesHandler({ store, adminToken, now })));
     app.all('/api/cloud/overview', wire(createCloudOverviewHandler({ store, adminToken })));
     app.all('/api/cloud/farm-automation', wire(createCloudFarmAutomationHandler({ store, adminToken })));
     app.all('/api/cloud/merchants', wire(createCloudMerchantsHandler({ store, adminToken, merchantPepper: pepper })));

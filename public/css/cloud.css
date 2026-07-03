@@ -281,6 +281,146 @@ h2 {
   gap: 12px;
 }
 
+/* ===== Tabbed console ===== */
+.console-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tab-btn {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tab-btn:hover {
+  border-color: var(--accent);
+  background: var(--panel-soft);
+  color: var(--accent-strong);
+}
+
+.tab-btn.active,
+.tab-btn.active:hover {
+  background: var(--accent, #146c5a);
+  border-color: var(--accent, #146c5a);
+  color: #fff;
+}
+
+.tab-panel {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* display:grid/flex on a class outranks the UA's [hidden] rule — restate it
+   explicitly (same fix as .login-view / .modal-backdrop). */
+.tab-panel[hidden],
+.setup-banner[hidden] {
+  display: none;
+}
+
+.tab-panel > * {
+  min-width: 0;
+}
+
+.setup-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border: 1px solid #b3261e55;
+  border-radius: 8px;
+  background: #b3261e14;
+  font-weight: 600;
+}
+
+.node-setup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.node-setup-grid > * {
+  min-width: 0;
+}
+
+.collapsible-section {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.collapsible-section > summary {
+  cursor: pointer;
+  padding: 14px 16px;
+  font-weight: 600;
+  list-style: revert;
+}
+
+.collapsible-section[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.collapsible-section > *:not(summary) {
+  margin: 14px;
+}
+
+/* ===== Drop-in printing ===== */
+.drop-zone {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  text-align: center;
+  padding: 28px 16px;
+  border: 2px dashed var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.drop-zone:hover,
+.drop-zone:focus-visible,
+.drop-zone.dragging {
+  border-color: var(--accent, #146c5a);
+  background: #146c5a12;
+  outline: none;
+}
+
+.drop-zone span {
+  color: var(--muted, #6b7671);
+  font-size: 0.9rem;
+}
+
+.drop-status {
+  display: grid;
+  gap: 6px;
+}
+
+.drop-status:empty {
+  display: none;
+}
+
+.drop-status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.drop-status-row.ok { border-color: #2f9e6f77; }
+.drop-status-row.warn { border-color: #d9a13c77; }
+.drop-status-row.error { border-color: #b3261e77; }
+
 .automation-grid {
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) repeat(2, minmax(0, 1fr));
@@ -754,7 +894,14 @@ th {
   color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: underline;
 }
 .linklike:hover, .linklike:focus { background: none; color: var(--accent-strong); }
-.console-toolbar { display: flex; justify-content: flex-end; margin: 12px 0 4px; }
+.console-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0 16px;
+}
 
 /* AMS Filament Mapping panel */
 .field-hint {

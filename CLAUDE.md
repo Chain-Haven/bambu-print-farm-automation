@@ -45,6 +45,69 @@ swapped since, re-run `proof_test.js` before concluding anything.
 
 Full write-up is in `DIAGNOSIS.md`.
 
+## Changes already made (July 2026 session — console overhaul + models + drop-in printing)
+
+1. **Unified API key management** — `/api/public/api-keys` is the canonical
+ surface (GET list / POST create / **DELETE revoke**; POST `/revoke` kept as a
+ back-compat alias). The admin route (`/api/cloud/merchant-api-keys`) now
+ delegates to the same shared implementations (`createLiveKeyForMerchant`,
+ `createSetupTokenForMerchant` in `merchantHandlers.js`) and supports scopes.
+ One merchant auth resolver: `resolveMerchantAuth` (live key | portal session).
+ Dead v1 webhook *config* handler retired (v2 `/api/public/webhooks/*` is the
+ real one; outbound v1 deliveries still honor stored `metadata.webhook`).
+ Pepper story documented in `.env.example`; cross-pepper isolation tested
+ (`tests/cloud/pepperIsolation.test.js`).
+2. **Node deletion** — `DELETE /api/cloud/nodes?node_id=` (admin): refuses when
+ the node has active jobs/pending commands unless `force=true`; FK cascades
+ remove mirrored printers + commands; the node token dies immediately. Store
+ methods `getNodeWorkSummary`/`deleteFarmNode` in both stores. Delete button
+ in the console's Nodes table.
+3. **Canonical printer model registry** — `src/models/PrinterModels.js`: one
+ record per model (aliases, chassis family, camera transport, bed size,
+ Automator geometry key). Added the 2026 lineup: **X2D, P2S, H2S, H2D, H2C,
+ A2L** ("X2C" doesn't exist — it aliases to X2D). Every model list now
+ resolves through the registry (CameraProxy, PrinterRegistry capabilities,
+ adopt normalization, platformStrategy families, fleet chassis art, SPA
+ dropdowns, seeds, Orca presets). **Fixed the silent-P1S bug**:
+ `JobOrchestrator` maps `profile.printer_model` ("Bambu X1C") through
+ `automatorModelKey()` so real geometry applies; wildcard profiles defer to
+ the assigned printer's model.
+4. **Camera fixed** — `GET /api/cloud/commands?command_id=` direct lookup
+ (`getNodeCommandById`) replaces the lossy overview scan in the fleet board's
+ poll; camera family from the registry; longer poll window; actionable error
+ messages (missing access code, LAN/dev mode, ffmpeg); CameraProxy falls back
+ to system ffmpeg/`FFMPEG_PATH` for RTSPS models on portable nodes.
+5. **Auto-eject wired end-to-end** — heartbeats now turn the farm-automation
+ `auto_eject` policy into durable `printer.eject` node commands
+ (`maybeQueueAutoEjectCommands` in `agentHandlers.js`; deduped against
+ pending/recent ejects, 30-min cooldown). New node command `printer.eject`
+ runs `EjectionService` (skips instantly without an ejector accessory, so it
+ never double-ejects in-gcode sweeps). Per-model sweep geometry for all new
+ models in `Automator.MODEL_DEFAULTS` (validate on hardware before unattended
+ loops). Transform round-trip tests per model.
+6. **Drop-in printing** — `POST /api/cloud/print-files` (admin): drop a
+ `.gcode.3mf`/`.3mf`/`.gcode`/`.stl` → uploads to storage → routes via
+ `routeMerchantPrintJob` → ready files ride `cloud.print.ready`; source models
+ ride new **`cloud.print.source`** (the TARGET node downloads, slices via
+ `SliceService`/OrcaSlicer CLI — mock gcode in MOCK_MODE — then submits
+ through `JobOrchestrator`). Unsliced project `.3mf` is now detected by ZIP
+ inspection (`classifyPrintFile` in `printIntake.js`) instead of being
+ misclassified as ready. Nodes advertise `can_slice` in heartbeats; source
+ models prefer slicer-capable nodes. Drag-drop UI on the Fleet tab.
+7. **Console rebuilt as tabs** — `/cloud` is now Fleet / Merchants / Nodes &
+ Setup / Automation (hash-routed, `showTab` in `cloud-dashboard.js`).
+ **Backend Setup moved to the bottom of Nodes & Setup** with a warning banner
+ up top when not ready. Merchant workspace merged to ONE visible merchant-ID
+ field (the other three are hidden, synced inputs); v2 commerce tables live
+ in a collapsed `<details>`; command console collapsed on Automation.
+ Browser-verified via Playwright (screenshots in `output/playwright/`).
+ NOTE: `.tab-panel`/`.setup-banner` needed explicit `[hidden]{display:none}`
+ (same UA-stylesheet footgun as `.login-view`).
+8. **Branding** — user-facing name unified on **PrintKinetix**
+ (`src/config/branding.js`); "3DFLOW" removed from the SPA, server log line
+ updated. Internal identifiers (package name, DB paths, `AG_` gcode markers)
+ intentionally unchanged.
+
 ## Changes already made (July 2026 session — admin + merchant sign-in overhaul)
 
 1. **Admin sign-in is a normal email/password flow** (`src/cloud/adminAuthHandlers.js`):
@@ -192,10 +255,11 @@ In `src/api/routes/printers.js`, `src/runtime/PrinterWorker.js`, `src/mqtt/Bambu
 ## Known issues / good next steps
 
 - **Run `proof_test.js` against the real printer** to confirm whether the SD card is still the blocker. (Requires being on the same network as the printer — Claude Code can do this; the Cowork sandbox could not.)
-- **No automated tests** despite `vitest` being configured. Worth adding: transform round-trip, error decoder, auth. `npm test` currently has nothing to run.
+- ~~No automated tests~~ — stale: `npm test` now runs 560+ vitest tests (auth, stores, routing, transform round-trips per model, offline e2e full loop). On a loaded machine cap concurrency: `npx vitest run --maxWorkers=2`.
 - **Start-print URL is inconsistent** across code/scripts (`ftp://`, `ftp:///cache/`, `ftp:///sdcard/cache/`). Pin down the correct form once the printer can start prints.
-- **Repo is heavy** — `uploads/` holds ~1.2 GB of artifacts (incl. 100 MB debug `.gcode`). Archive when convenient.
-- Branding is split between "Antigravity" (logs/package.json) and "3DFLOW" (UI title).
+- **Repo is heavy** — `uploads/` holds ~1.2 GB of artifacts (incl. 100 MB debug `.gcode`). It is gitignored; archive/delete the local folder when convenient.
+- New-model eject geometry (P2S / X2D / H2 / A2L in `Automator.MODEL_DEFAULTS`) is derived from published bed sizes — validate sweep lanes + park coordinates on real hardware before unattended loops.
+- Orca preset names for the new models (`SliceService.ORCA_PRESETS`) assume a current OrcaSlicer install; a missing preset returns a clear `preset_missing` error with the path.
 
 ## Conventions
 

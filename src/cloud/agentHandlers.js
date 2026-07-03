@@ -14,10 +14,17 @@ import {
     sendClientError,
 } from './httpServerUtils.js';
 import { releaseFilamentReservation } from './filamentReservations.js';
+import { planAutoEjectCommands } from './farmAutomation.js';
 import { deliverMerchantWebhook } from './webhooks.js';
 import { deliverMerchantWebhookEvent } from './merchantWebhookDelivery.js';
 
 const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
+const FARM_AUTOMATION_POLICY_KEY = 'farm_automation_policy';
+const PENDING_COMMAND_STATUSES = new Set(['queued', 'claimed', 'running']);
+// After an eject command finishes, do not re-enqueue another one for the same
+// printer within this window (the printer usually stays in FINISH state until
+// the next print starts, so without this every heartbeat would re-eject).
+const AUTO_EJECT_COOLDOWN_MS = 30 * 60 * 1000;
 
 // Node-reported job lifecycle → cloud print_jobs status. Terminal statuses are
 // never overwritten (duplicate/out-of-order event delivery is expected).
@@ -110,6 +117,69 @@ async function processJobLifecycleEvents({ store, node, events, now, fetchImpl }
     return { processed };
 }
 
+/**
+ * Turn the farm-automation auto-eject policy into durable `printer.eject`
+ * node commands. Runs on every heartbeat (the cloud's only periodic entry
+ * point) and is strictly best-effort: any failure here must never fail the
+ * heartbeat. Deduped against pending and recently-finished eject commands so
+ * a printer sitting in FINISH state is not re-ejected every 30 seconds.
+ */
+async function maybeQueueAutoEjectCommands({ store, node, printers, now }) {
+    if (typeof store.createNodeCommand !== 'function'
+        || typeof store.listNodeCommands !== 'function'
+        || typeof store.getPlatformSetting !== 'function') {
+        return { queued: 0 };
+    }
+
+    const policy = await store.getPlatformSetting(FARM_AUTOMATION_POLICY_KEY, null);
+    if (!policy || policy.auto_eject_enabled !== true) return { queued: 0 };
+
+    const plan = planAutoEjectCommands({ printers, settings: { policy } });
+    if (plan.length === 0) return { queued: 0 };
+
+    const recent = await store.listNodeCommands({
+        nodeId: node.node_id,
+        commandType: 'printer.eject',
+        limit: 50,
+    });
+    const nowMs = now().getTime();
+    const blockedPrinters = new Set();
+    for (const command of recent) {
+        const localPrinterId = command.payload?.local_printer_id;
+        if (!localPrinterId) continue;
+        if (PENDING_COMMAND_STATUSES.has(String(command.status || '').toLowerCase())) {
+            blockedPrinters.add(localPrinterId);
+            continue;
+        }
+        const finishedAt = command.finished_at ? new Date(command.finished_at).getTime() : null;
+        if (finishedAt && nowMs - finishedAt < AUTO_EJECT_COOLDOWN_MS) {
+            blockedPrinters.add(localPrinterId);
+        }
+    }
+
+    let queued = 0;
+    for (const item of plan) {
+        if (blockedPrinters.has(item.local_printer_id)) continue;
+        try {
+            await store.createNodeCommand({
+                org_id: node.organization_id || node.org_id,
+                node_id: node.node_id,
+                command_type: 'printer.eject',
+                payload: {
+                    local_printer_id: item.local_printer_id,
+                    release_temperature_c: item.release_temperature_c,
+                    max_eject_attempts: item.max_eject_attempts,
+                    verification: item.verification,
+                    source: 'auto_eject_policy',
+                },
+            });
+            queued += 1;
+        } catch { /* best-effort */ }
+    }
+
+    return { queued };
+}
+
 async function authenticateNode(req, res, { store, pepper, requestId }) {
     const token = getBearerToken(req.headers || {});
     if (!token) {
@@ -162,6 +232,19 @@ export function createHeartbeatHandler({ store, pepper, now = () => new Date() }
                 printersSynced = heartbeat.printers.length;
             }
 
+            // Auto-eject policy → durable printer.eject commands (best-effort).
+            let autoEject = { queued: 0 };
+            if (heartbeat.printers.length > 0) {
+                try {
+                    autoEject = await maybeQueueAutoEjectCommands({
+                        store,
+                        node,
+                        printers: heartbeat.printers,
+                        now,
+                    });
+                } catch { /* never fail a heartbeat over eject planning */ }
+            }
+
             return sendJson(res, 200, {
                 ok: true,
                 request_id: requestId,
@@ -169,6 +252,7 @@ export function createHeartbeatHandler({ store, pepper, now = () => new Date() }
                 organization_id: node.organization_id || node.org_id,
                 status: heartbeat.status,
                 printers_synced: printersSynced,
+                ...(autoEject.queued > 0 ? { auto_eject_commands_queued: autoEject.queued } : {}),
             });
         } catch (error) {
             return sendHandlerError(res, error, requestId, { fallbackCode: 'heartbeat_failed' });

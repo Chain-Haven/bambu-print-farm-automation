@@ -177,6 +177,57 @@ describe('cloud dashboard assets', () => {
         expect(js).toContain('handleDownloadExe');
     });
 
+    it('ships the tabbed console: fleet/merchants/nodes/automation with setup at the bottom', () => {
+        const html = fs.readFileSync('public/cloud.html', 'utf8');
+        const js = fs.readFileSync('public/js/cloud-dashboard.js', 'utf8');
+        const css = fs.readFileSync('public/css/cloud.css', 'utf8');
+
+        for (const id of ['console-tabs', 'tab-fleet', 'tab-merchants', 'tab-nodes', 'tab-automation', 'setup-banner']) {
+            expect(html).toContain(`id="${id}"`);
+        }
+
+        // Backend Setup lives at the BOTTOM of the Nodes & Setup tab — after
+        // node provisioning and admin accounts, not at the top of the page.
+        const setupIndex = html.indexOf('id="setup-status"');
+        expect(setupIndex).toBeGreaterThan(html.indexOf('id="nodes-table"'));
+        expect(setupIndex).toBeGreaterThan(html.indexOf('id="admin-users-section"'));
+        expect(setupIndex).toBeGreaterThan(html.indexOf('id="node-quickstart-form"'));
+
+        // One visible merchant ID input; the other three are hidden and synced.
+        expect(html).toContain('<input id="merchant-action-id" type="hidden">');
+        expect(html).toContain('<input id="merchant-key-merchant-id" type="hidden">');
+        expect(html).toContain('<input id="merchant-lookup-id" type="hidden">');
+
+        for (const marker of ['showTab', 'bindTabs', 'data-tab-panel', 'setupBanner']) {
+            expect(js).toContain(marker);
+        }
+        expect(css).toContain('.console-tabs');
+        expect(css).toContain('.tab-panel');
+        expect(css).toContain('.setup-banner');
+    });
+
+    it('ships drop-in printing and node deletion on the console', () => {
+        const html = fs.readFileSync('public/cloud.html', 'utf8');
+        const js = fs.readFileSync('public/js/cloud-dashboard.js', 'utf8');
+        const css = fs.readFileSync('public/css/cloud.css', 'utf8');
+
+        for (const id of ['drop-print-section', 'drop-zone', 'drop-file-input', 'drop-status']) {
+            expect(html).toContain(`id="${id}"`);
+        }
+        for (const marker of [
+            '/api/cloud/print-files',
+            'submitDroppedFile',
+            'handleDroppedFiles',
+            'bindDropZone',
+            'handleDeleteNode',
+            'node_has_active_work',
+        ]) {
+            expect(js).toContain(marker);
+        }
+        expect(css).toContain('.drop-zone');
+        expect(css).toContain('.drop-status-row');
+    });
+
     it('keeps browser controller scripts parseable', () => {
         for (const file of ['public/js/api.js', 'public/js/ws.js', 'public/js/app.js']) {
             execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' });
