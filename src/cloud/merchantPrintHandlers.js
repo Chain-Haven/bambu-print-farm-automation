@@ -5,15 +5,17 @@ import {
     MerchantAuthError,
     authenticateMerchantRequest,
 } from './merchantAuth.js';
-import { buildAmsMappingForPrinter, routeMerchantPrintJob } from './merchantRouting.js';
 import { reserveFilamentForJob } from './filamentReservations.js';
 import { classifyPrintFile, normalizeRoutingStrategy } from './printIntake.js';
-import { augmentOverviewWithInventory, normalizeFarmAutomationSettings } from './farmAutomation.js';
+import {
+    loadRoutableOverview as loadDispatchOverview,
+    queuePrintDispatchCommand,
+    routeJobFile,
+} from './printDispatch.js';
 import { deliverMerchantWebhook } from './webhooks.js';
 import { deliverMerchantWebhookEvent } from './merchantWebhookDelivery.js';
 
 const MAX_JSON_FILE_BYTES = 25 * 1024 * 1024;
-const SIGNED_URL_TTL_SECONDS = 3600;
 const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
 
 function isPlainObject(value) {
@@ -190,10 +192,6 @@ async function recordUsage({ store, merchant, file, job }) {
     });
 }
 
-function findSelectedPrinter(overview, route) {
-    return (overview.printers || []).find((printer) => printer.printer_id === route.selected_printer_id) || null;
-}
-
 async function reserveFilamentIfPossible({ store, job, upload }) {
     if (
         typeof store.getPlatformSetting !== 'function'
@@ -226,30 +224,23 @@ async function reserveFilamentIfPossible({ store, job, upload }) {
     };
 }
 
-async function loadRoutableOverview({ store, merchant }) {
-    const overview = await store.getCloudOverview({ orgId: merchant.org_id, limit: 100 });
-    if (typeof store.getPlatformSetting !== 'function') return overview;
-
-    // Merge operator-entered spool inventory into printer capabilities so a
-    // material/color that lives only in the filament inventory (not in the
-    // printer's synced AMS data) still routes instead of "missing_material".
-    try {
-        const inventory = await store.getPlatformSetting(FARM_FILAMENT_INVENTORY_KEY, { spools: [] });
-        const settings = normalizeFarmAutomationSettings({ inventory });
-        return augmentOverviewWithInventory(overview, settings.inventory);
-    } catch {
-        return overview;
-    }
-}
-
-async function createReadyPrintJob({ store, merchant, upload, file, now }) {
-    const overview = await loadRoutableOverview({ store, merchant });
+// One routed path for BOTH ready artifacts and source models. Ready files
+// dispatch cloud.print.ready; source models (STL/OBJ/STEP, unsliced 3MF)
+// dispatch cloud.print.source — the TARGET node downloads, slices (OrcaSlicer
+// CLI), and submits through the same orchestrated pipeline, so merchant
+// uploads of any accepted format print fully automatically. Jobs that can't
+// place right now park as waiting_for_capacity and are re-dispatched from the
+// heartbeat path (printDispatch.redispatchWaitingJobs) when capacity frees.
+async function createRoutedPrintJob({ store, merchant, upload, file, now }) {
+    const overview = await loadDispatchOverview({ store, orgId: merchant.org_id });
     const strategy = normalizeRoutingStrategy(upload.options.routing_strategy || upload.requirements.routing_strategy);
-    const route = routeMerchantPrintJob({
+    const { route, routingOverview } = routeJobFile({
         overview,
+        file,
         requirements: upload.requirements,
         strategy,
     });
+
     const jobStatus = route.status === 'routed' ? 'queued' : 'waiting_for_capacity';
     let job = await store.createPrintJob({
         org_id: merchant.org_id,
@@ -280,55 +271,20 @@ async function createReadyPrintJob({ store, merchant, upload, file, now }) {
     });
 
     if (route.status === 'routed') {
-        const selectedPrinter = findSelectedPrinter(overview, route);
-        const downloadUrl = await store.createSignedPrintArtifactUrl(file.storage_path, SIGNED_URL_TTL_SECONDS);
-        // Map the job's required material/color onto the selected printer's AMS
-        // trays so the print pulls from the right slot(s), not the default.
-        const amsMapping = buildAmsMappingForPrinter(selectedPrinter, upload.requirements);
-        await store.createNodeCommand({
-            org_id: merchant.org_id,
-            node_id: route.selected_node_id,
-            printer_id: route.selected_printer_id,
-            job_id: job.job_id,
-            command_type: 'cloud.print.ready',
-            payload: {
-                print_job_id: job.job_id,
-                name: upload.name,
-                local_printer_id: selectedPrinter?.local_printer_id || selectedPrinter?.printer_id || route.selected_printer_id,
-                download_url: downloadUrl,
-                storage_path: file.storage_path,
-                original_name: file.original_name,
-                content_type: file.content_type,
-                file_mode: file.file_mode,
-                requirements: upload.requirements,
-                options: upload.options,
-                ams_mapping: amsMapping,
-                use_ams: amsMapping.length > 0,
-                issued_at: now().toISOString(),
-            },
+        await queuePrintDispatchCommand({
+            store,
+            orgId: merchant.org_id,
+            job,
+            file,
+            route,
+            overview: routingOverview,
+            requirements: upload.requirements,
+            options: upload.options,
+            now,
         });
     }
 
     return { job, routing: route, reservation };
-}
-
-async function createSourceModelJob({ store, merchant, upload, file }) {
-    const job = await store.createPrintJob({
-        org_id: merchant.org_id,
-        merchant_id: merchant.merchant_id,
-        node_id: null,
-        printer_id: null,
-        file_id: file.file_id,
-        name: upload.name,
-        status: 'needs_slicing',
-        options: upload.options,
-        routing_summary: {
-            status: 'needs_slicing',
-            strategy: 'source_model_slicing_required',
-        },
-    });
-
-    return { job, routing: null, reservation: null };
 }
 
 async function createPrintJob({ store, merchant, upload, now }) {
@@ -347,9 +303,7 @@ async function createPrintJob({ store, merchant, upload, now }) {
         requirements: upload.requirements,
     });
 
-    const result = upload.file.fileMode === 'source_model'
-        ? await createSourceModelJob({ store, merchant, upload, file })
-        : await createReadyPrintJob({ store, merchant, upload, file, now });
+    const result = await createRoutedPrintJob({ store, merchant, upload, file, now });
 
     await recordUsage({ store, merchant, file, job: result.job });
     return { file, ...result };

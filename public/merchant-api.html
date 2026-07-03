@@ -198,8 +198,9 @@
           <tr><th>File type</th><th>Behavior</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>.gcode</code>, <code>.3mf</code>, <code>.gcode.3mf</code></td><td>Stored privately, routed with <code>fastest_fulfillment</code>, and queued for the selected local node when capacity matches.</td></tr>
-          <tr><td><code>.stl</code>, <code>.obj</code>, <code>.step</code>, <code>.stp</code></td><td>Stored and tracked as <code>needs_slicing</code> until slicer automation is attached.</td></tr>
+          <tr><td><code>.gcode</code>, <code>.3mf</code> (sliced), <code>.gcode.3mf</code></td><td>Stored privately, routed with <code>fastest_fulfillment</code> (or your <code>routing_strategy</code>), and queued for the selected farm node.</td></tr>
+          <tr><td><code>.stl</code>, <code>.obj</code>, <code>.step</code>, <code>.stp</code>, unsliced <code>.3mf</code></td><td>Routed to a slicer-capable farm node and <strong>sliced automatically</strong> on that node (OrcaSlicer defaults, or pass <code>options.slice_settings</code>), then printed through the same pipeline.</td></tr>
+          <tr><td colspan="2">When no printer can take the job right now it parks as <code>waiting_for_capacity</code> and dispatches automatically as soon as a matching printer frees up.</td></tr>
         </tbody>
       </table>
     </section>

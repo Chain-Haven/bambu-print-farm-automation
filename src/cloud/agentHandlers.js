@@ -15,6 +15,7 @@ import {
 } from './httpServerUtils.js';
 import { releaseFilamentReservation } from './filamentReservations.js';
 import { planAutoEjectCommands } from './farmAutomation.js';
+import { redispatchWaitingJobs } from './printDispatch.js';
 import { deliverMerchantWebhook } from './webhooks.js';
 import { deliverMerchantWebhookEvent } from './merchantWebhookDelivery.js';
 
@@ -245,6 +246,19 @@ export function createHeartbeatHandler({ store, pepper, now = () => new Date() }
                 } catch { /* never fail a heartbeat over eject planning */ }
             }
 
+            // Waiting jobs get another routing pass now that this node's fresh
+            // printer states are mirrored — a print finishing or a printer
+            // coming online pulls the waiting_for_capacity backlog
+            // automatically (best-effort, claim-guarded against races).
+            let redispatch = { dispatched: 0 };
+            try {
+                redispatch = await redispatchWaitingJobs({
+                    store,
+                    orgId: node.organization_id || node.org_id || null,
+                    now,
+                });
+            } catch { /* never fail a heartbeat over re-dispatch */ }
+
             return sendJson(res, 200, {
                 ok: true,
                 request_id: requestId,
@@ -253,6 +267,7 @@ export function createHeartbeatHandler({ store, pepper, now = () => new Date() }
                 status: heartbeat.status,
                 printers_synced: printersSynced,
                 ...(autoEject.queued > 0 ? { auto_eject_commands_queued: autoEject.queued } : {}),
+                ...(redispatch.dispatched > 0 ? { waiting_jobs_dispatched: redispatch.dispatched } : {}),
             });
         } catch (error) {
             return sendHandlerError(res, error, requestId, { fallbackCode: 'heartbeat_failed' });

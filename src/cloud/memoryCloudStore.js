@@ -583,6 +583,9 @@ export function createMemoryCloudStore({ now = () => new Date() } = {}) {
             db.jobFiles.push(row);
             return clone(row);
         },
+        async getJobFileById(fileId) {
+            return clone(db.jobFiles.find((file) => file.file_id === fileId) || null);
+        },
         async createPrintJob(job) {
             const row = {
                 job_id: randomUUID(),
@@ -601,6 +604,23 @@ export function createMemoryCloudStore({ now = () => new Date() } = {}) {
         },
         async getPrintJobById(jobId) {
             return clone(db.printJobs.find((job) => job.job_id === jobId) || null);
+        },
+        async listPrintJobsByStatus({ orgId = null, statuses = [], limit = 50 } = {}) {
+            const wanted = new Set(statuses.map((status) => String(status).toLowerCase()));
+            const rows = db.printJobs.filter((job) => (
+                (!orgId || job.org_id === orgId)
+                && wanted.has(String(job.status || '').toLowerCase())
+            ));
+            // Oldest first: the job that has waited longest dispatches first.
+            return clone(rows.slice(0, Math.max(1, Math.min(limit, 100))));
+        },
+        // Conditional transition out of waiting_for_capacity: returns null when
+        // the job was already claimed (concurrent heartbeat re-dispatchers).
+        async claimWaitingPrintJob(jobId, fields) {
+            const row = db.printJobs.find((job) => job.job_id === jobId);
+            if (!row || String(row.status || '').toLowerCase() !== 'waiting_for_capacity') return null;
+            Object.assign(row, clone(fields), { updated_at: ts() });
+            return clone(row);
         },
         async getMerchantPrintJob({ merchantId, jobId }) {
             return clone(db.printJobs.find((job) => (

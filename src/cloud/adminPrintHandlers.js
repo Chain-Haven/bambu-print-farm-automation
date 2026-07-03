@@ -2,19 +2,20 @@ import { AdminAuthError, authenticateCloudAdmin } from './adminAuth.js';
 import { parseJsonBody } from './agentProtocol.js';
 import { createRequestId } from './httpServerUtils.js';
 import { normalizeUpload } from './merchantPrintHandlers.js';
-import { buildAmsMappingForPrinter, routeMerchantPrintJob } from './merchantRouting.js';
 import { normalizeRoutingStrategy } from './printIntake.js';
-import { augmentOverviewWithInventory, normalizeFarmAutomationSettings } from './farmAutomation.js';
+import {
+    loadRoutableOverview,
+    queuePrintDispatchCommand,
+    routeJobFile,
+} from './printDispatch.js';
 
 // Operator drop-in printing: POST a 3MF / STL / gcode file to the cloud
 // console and it auto-routes to an available printer on one of the farm
 // nodes. Ready files ride the existing cloud.print.ready pipeline; source
 // models (STL/OBJ/STEP, unsliced 3MF) are routed to a printer and sliced ON
-// the target node via the new cloud.print.source command (OrcaSlicer CLI),
-// so no artifact round-trip to the cloud is needed.
-
-const SIGNED_URL_TTL_SECONDS = 3600;
-const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
+// the target node via the cloud.print.source command (OrcaSlicer CLI), so no
+// artifact round-trip to the cloud is needed. Shares src/cloud/printDispatch.js
+// with the merchant print API.
 
 function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -60,22 +61,6 @@ async function authenticateAdmin(req, res, adminToken, store) {
         }
         throw error;
     }
-}
-
-async function loadRoutableOverview({ store, orgId }) {
-    const overview = await store.getCloudOverview({ orgId, limit: 100 });
-    if (typeof store.getPlatformSetting !== 'function') return overview;
-    try {
-        const inventory = await store.getPlatformSetting(FARM_FILAMENT_INVENTORY_KEY, { spools: [] });
-        const settings = normalizeFarmAutomationSettings({ inventory });
-        return augmentOverviewWithInventory(overview, settings.inventory);
-    } catch {
-        return overview;
-    }
-}
-
-function findSelectedPrinter(overview, route) {
-    return (overview.printers || []).find((printer) => printer.printer_id === route.selected_printer_id) || null;
 }
 
 export function createCloudPrintFilesHandler({
@@ -136,25 +121,15 @@ export function createCloudPrintFilesHandler({
             });
 
             const isSource = upload.file.fileMode === 'source_model';
-
-            // Route. Source models prefer nodes that advertise a slicer.
-            let routingOverview = overview;
-            if (isSource) {
-                const slicerNodeIds = new Set(
-                    (overview.nodes || [])
-                        .filter((node) => node.capabilities?.can_slice === true)
-                        .map((node) => node.node_id),
-                );
-                if (slicerNodeIds.size > 0) {
-                    routingOverview = {
-                        ...overview,
-                        printers: (overview.printers || []).filter((printer) => slicerNodeIds.has(printer.node_id)),
-                    };
-                }
+            if (isSource && isPlainObject(body.slice_settings)) {
+                upload.options = { ...upload.options, slice_settings: body.slice_settings };
             }
 
-            const route = routeMerchantPrintJob({
-                overview: routingOverview,
+            // Route (source models prefer slicer-capable nodes) — same shared
+            // dispatch the merchant API uses.
+            const { route, routingOverview } = routeJobFile({
+                overview,
+                file,
                 requirements: upload.requirements,
                 strategy: upload.options.routing_strategy,
             });
@@ -186,34 +161,16 @@ export function createCloudPrintFilesHandler({
 
             let command = null;
             if (route.status === 'routed') {
-                const selectedPrinter = findSelectedPrinter(routingOverview, route);
-                const downloadUrl = await store.createSignedPrintArtifactUrl(storagePath, SIGNED_URL_TTL_SECONDS);
-                const amsMapping = buildAmsMappingForPrinter(selectedPrinter, upload.requirements);
-                command = await store.createNodeCommand({
-                    org_id: orgId,
-                    node_id: route.selected_node_id,
-                    printer_id: route.selected_printer_id,
-                    job_id: job.job_id,
-                    command_type: isSource ? 'cloud.print.source' : 'cloud.print.ready',
-                    payload: {
-                        print_job_id: job.job_id,
-                        name: upload.name,
-                        local_printer_id: selectedPrinter?.local_printer_id || selectedPrinter?.printer_id || route.selected_printer_id,
-                        download_url: downloadUrl,
-                        storage_path: storagePath,
-                        original_name: file.original_name,
-                        content_type: file.content_type,
-                        file_mode: file.file_mode,
-                        requirements: upload.requirements,
-                        options: upload.options,
-                        ams_mapping: amsMapping,
-                        use_ams: amsMapping.length > 0,
-                        ...(isSource ? {
-                            printer_model: selectedPrinter?.model || null,
-                            slice_settings: isPlainObject(body.slice_settings) ? body.slice_settings : null,
-                        } : {}),
-                        issued_at: now().toISOString(),
-                    },
+                command = await queuePrintDispatchCommand({
+                    store,
+                    orgId,
+                    job,
+                    file,
+                    route,
+                    overview: routingOverview,
+                    requirements: upload.requirements,
+                    options: upload.options,
+                    now,
                 });
             }
 

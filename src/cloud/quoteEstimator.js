@@ -86,7 +86,7 @@ export function buildPrintPreflight({
         warnings.push({
             code: 'source_model_requires_slicing',
             severity: 'review',
-            message: 'Source models are accepted but require slicing before automatic routing.',
+            message: 'Source models are sliced automatically on the assigned farm node before printing (OrcaSlicer defaults unless slice_settings are provided).',
         });
     }
     if (maxBuildVolume && !dimensionsFit(requiredDimensions, maxBuildVolume)) {

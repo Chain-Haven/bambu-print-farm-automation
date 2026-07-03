@@ -1067,6 +1067,13 @@ export function createSupabaseRestClient({
             return firstRow(rows);
         },
 
+        async getJobFileById(fileId) {
+            const rows = await request(
+                `/rest/v1/job_files?file_id=eq.${encodeURIComponent(fileId)}&select=${JOB_FILE_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
         async createPrintJob(job) {
             const rows = await request(
                 `/rest/v1/print_jobs?select=${PRINT_JOB_SELECT}`,
@@ -1108,6 +1115,33 @@ export function createSupabaseRestClient({
         async getPrintJobById(jobId) {
             const rows = await request(
                 `/rest/v1/print_jobs?job_id=eq.${encodeURIComponent(jobId)}&select=${PRINT_JOB_SELECT}&limit=1`,
+            );
+            return firstRow(rows);
+        },
+
+        async listPrintJobsByStatus({ orgId = null, statuses = [], limit = 50 } = {}) {
+            const params = new URLSearchParams();
+            if (orgId) params.set('org_id', `eq.${orgId}`);
+            params.set('status', `in.(${statuses.join(',')})`);
+            params.set('select', PRINT_JOB_SELECT);
+            // Oldest first: the job that has waited longest dispatches first.
+            params.set('order', 'created_at.asc');
+            params.set('limit', String(Math.max(1, Math.min(limit, 100))));
+            const rows = await request(`/rest/v1/print_jobs?${params.toString()}`);
+            return Array.isArray(rows) ? rows : [];
+        },
+
+        // Conditional transition out of waiting_for_capacity: the status filter
+        // makes the PATCH a no-op (null) when a concurrent heartbeat already
+        // claimed the job, so one waiting job can never dispatch twice.
+        async claimWaitingPrintJob(jobId, fields) {
+            const rows = await request(
+                `/rest/v1/print_jobs?job_id=eq.${encodeURIComponent(jobId)}&status=eq.waiting_for_capacity&select=${PRINT_JOB_SELECT}`,
+                {
+                    method: 'PATCH',
+                    headers: { Prefer: 'return=representation' },
+                    body: fields,
+                },
             );
             return firstRow(rows);
         },

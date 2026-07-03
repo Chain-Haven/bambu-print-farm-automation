@@ -141,7 +141,8 @@
         }
       },
       "post": {
-        "summary": "Submit a print file",
+        "summary": "Submit a print file (fully automatic routing + slicing)",
+        "description": "Accepts .gcode, .gcode.3mf, sliced .3mf, .stl, .obj, .step, and .stp. Sliced artifacts route straight to an available printer. Source models (STL/OBJ/STEP and unsliced project .3mf, detected by inspecting the archive) route to a slicer-capable farm node and are sliced automatically on that node (OrcaSlicer defaults, or pass options.slice_settings) before printing through the same pipeline. If no matching printer is free the job is stored as waiting_for_capacity and dispatches automatically as soon as capacity frees — no further API calls needed. Track progress with GET /api/public/print-jobs/status.",
         "requestBody": {
           "required": true,
           "content": {
@@ -154,7 +155,7 @@
         },
         "responses": {
           "201": {
-            "description": "Print job accepted"
+            "description": "Print job accepted. routing.status is \"routed\" when a printer was assigned (job status \"queued\"), otherwise the job is \"waiting_for_capacity\" and auto-dispatches later."
           }
         }
       }
@@ -497,7 +498,7 @@
     "/api/public/farm/capabilities": {
       "get": {
         "summary": "Read public aggregate farm capabilities",
-        "description": "Unauthenticated public capabilities: accepted file types, routing strategies, max build volume, feature readiness, and safe filament availability.",
+        "description": "Unauthenticated public capabilities: accepted file types (file_types.auto_slice reports whether a slicer-capable node is online for STL/OBJ/STEP/unsliced-3MF uploads), routing strategies, max build volume, feature readiness, and safe filament availability.",
         "security": [],
         "responses": {
           "200": {
@@ -740,8 +741,10 @@
             "properties": {
               "name": {
                 "type": "string",
+                "description": "File name including extension. Ready to print: .gcode, .gcode.3mf, sliced .3mf. Auto-sliced on the farm node: .stl, .obj, .step, .stp, unsliced project .3mf.",
                 "examples": [
-                  "part.gcode.3mf"
+                  "part.gcode.3mf",
+                  "bracket.stl"
                 ]
               },
               "content_type": {
@@ -750,7 +753,8 @@
               },
               "base64": {
                 "type": "string",
-                "contentEncoding": "base64"
+                "contentEncoding": "base64",
+                "description": "Base64-encoded file content (max 25 MB decoded)."
               }
             }
           },
@@ -788,6 +792,26 @@
           },
           "options": {
             "type": "object",
+            "properties": {
+              "routing_strategy": {
+                "type": "string",
+                "description": "How the farm picks a printer (default fastest_fulfillment).",
+                "enum": [
+                  "fastest_fulfillment",
+                  "cheapest",
+                  "exact_material_match",
+                  "batch_by_material",
+                  "least_printer_wear",
+                  "ship_cutoff",
+                  "smart_material_queue"
+                ]
+              },
+              "slice_settings": {
+                "type": "object",
+                "description": "Optional slicer overrides applied when the file is a source model auto-sliced on the farm node (e.g. layer_height, infill_density, wall_loops, supports, brim, nozzle_temp). Omit to use the node's OrcaSlicer defaults.",
+                "additionalProperties": true
+              }
+            },
             "additionalProperties": true
           }
         }
@@ -1030,9 +1054,12 @@
                 "type": "string",
                 "enum": [
                   "fastest_fulfillment",
+                  "cheapest",
+                  "exact_material_match",
                   "batch_by_material",
                   "least_printer_wear",
-                  "ship_cutoff"
+                  "ship_cutoff",
+                  "smart_material_queue"
                 ]
               }
             }

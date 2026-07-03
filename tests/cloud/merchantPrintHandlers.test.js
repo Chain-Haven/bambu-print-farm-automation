@@ -285,16 +285,42 @@ describe('merchant print jobs handler', () => {
         });
     });
 
-    it('accepts source models but marks them as needing slicing before routing or commands', async () => {
+    it('routes source models to a slicer-capable node and queues cloud.print.source', async () => {
         const fileBytes = Buffer.from('solid model');
         const store = createAuthStore({
             uploadPrintArtifact: vi.fn().mockResolvedValue({ Key: 'print-artifacts/path' }),
             createJobFile: vi.fn().mockImplementation(async (file) => ({ file_id: 'file-1', ...file })),
             createPrintJob: vi.fn().mockImplementation(async (job) => ({ job_id: 'job-1', ...job })),
-            getCloudOverview: vi.fn(),
-            createRoutingDecision: vi.fn(),
-            createSignedPrintArtifactUrl: vi.fn(),
-            createNodeCommand: vi.fn(),
+            getCloudOverview: vi.fn().mockResolvedValue({
+                nodes: [
+                    // Only node-2 advertises a slicer — routing must prefer it.
+                    { node_id: 'node-1', status: 'online', capabilities: {} },
+                    { node_id: 'node-2', status: 'online', capabilities: { can_slice: true } },
+                ],
+                printers: [
+                    {
+                        printer_id: 'printer-1',
+                        node_id: 'node-1',
+                        local_printer_id: 'local-printer-1',
+                        status: 'online',
+                        status_snapshot: { print: { gcode_state: 'IDLE' } },
+                        capabilities: { max_x: 256, max_y: 256, max_z: 256 },
+                    },
+                    {
+                        printer_id: 'printer-2',
+                        node_id: 'node-2',
+                        local_printer_id: 'local-printer-2',
+                        model: 'Bambu A1',
+                        status: 'online',
+                        status_snapshot: { print: { gcode_state: 'IDLE' } },
+                        capabilities: { max_x: 256, max_y: 256, max_z: 256 },
+                    },
+                ],
+                jobs: [],
+            }),
+            createRoutingDecision: vi.fn().mockResolvedValue({ decision_id: 'decision-1' }),
+            createSignedPrintArtifactUrl: vi.fn().mockResolvedValue('https://signed.example/bracket.stl'),
+            createNodeCommand: vi.fn().mockResolvedValue({ command_id: 'command-1' }),
             createMerchantUsageEvent: vi.fn().mockResolvedValue({ usage_event_id: 'usage-1' }),
         });
         const handler = createMerchantPrintJobsHandler({ store, pepper: 'pepper', now });
@@ -312,29 +338,33 @@ describe('merchant print jobs handler', () => {
             },
         }, res);
 
-        expect(store.uploadPrintArtifact).toHaveBeenCalledWith(
-            expect.stringMatching(/^org-1\/merchant-1\/20260701T120000000Z-[a-f0-9]{12}-bracket\.stl$/),
-            fileBytes,
-            'application/octet-stream',
-        );
         expect(store.createJobFile).toHaveBeenCalledWith(expect.objectContaining({
             original_name: 'bracket.stl',
             content_type: 'application/octet-stream',
             file_mode: 'source_model',
         }));
+        // Routed and queued like any other print — the node slices it.
         expect(store.createPrintJob).toHaveBeenCalledWith(expect.objectContaining({
             name: 'bracket.stl',
-            status: 'needs_slicing',
-            node_id: null,
-            printer_id: null,
+            status: 'queued',
+            node_id: 'node-2',
+            printer_id: 'printer-2',
         }));
-        expect(store.getCloudOverview).not.toHaveBeenCalled();
-        expect(store.createNodeCommand).not.toHaveBeenCalled();
+        expect(store.createNodeCommand).toHaveBeenCalledWith(expect.objectContaining({
+            command_type: 'cloud.print.source',
+            node_id: 'node-2',
+            payload: expect.objectContaining({
+                local_printer_id: 'local-printer-2',
+                file_mode: 'source_model',
+                printer_model: 'Bambu A1',
+                download_url: 'https://signed.example/bracket.stl',
+            }),
+        }));
         expect(res.statusCode).toBe(201);
         expect(res.body).toMatchObject({
             ok: true,
-            job: { status: 'needs_slicing' },
-            routing: null,
+            job: { status: 'queued' },
+            routing: { status: 'routed', selected_printer_id: 'printer-2' },
         });
     });
 

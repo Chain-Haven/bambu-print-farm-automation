@@ -465,6 +465,87 @@ describe('full farm loop end to end (local cloud, real handlers over HTTP)', () 
         expect(adoptedCommand.result.printer.name).toBe('P1S Bay 2');
     });
 
+    it('merchant uploads an STL via the public API: routed, sliced on the node, printed to completion', async () => {
+        // Clear the bed so the printer is available.
+        await nodeClient.sendHeartbeat({ status: 'online', printers: [PRINTER_HEARTBEAT] });
+
+        const response = await fetch(`${cloud.baseUrl}/api/public/print-jobs`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${merchantApiKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                name: 'Merchant STL widget',
+                file: {
+                    name: 'widget.stl',
+                    base64: Buffer.from('solid widget\nendsolid widget\n').toString('base64'),
+                },
+                requirements: { materials: ['PLA'] },
+            }),
+        });
+        const payload = await response.json();
+        expect(response.status).toBe(201);
+        // Source model routed like any other job — no needs_slicing dead end.
+        expect(payload.routing.status).toBe('routed');
+        expect(payload.job.status).toBe('queued');
+        const merchantStlJobId = payload.job.job_id;
+
+        const sourceCommands = store._db.commands.filter((cmd) => cmd.command_type === 'cloud.print.source');
+        expect(sourceCommands.length).toBeGreaterThan(0);
+
+        // The node claims the command, slices, and submits the print.
+        const submitted = [];
+        const agent = createLocalNodeAgent({
+            client: nodeClient,
+            executeCommand: (cmd) => executeCloudCommand(cmd, {
+                getWorker: async () => ({
+                    state: 'idle',
+                    connected: true,
+                    latestStatus: {},
+                    getPreflightStatus: () => ({ ok: true, errors: [] }),
+                }),
+                sliceSourceModel: async ({ originalName }) => ({
+                    ok: true,
+                    gcode3mf: Buffer.from('sliced-3mf-bytes'),
+                    outputName: originalName.replace(/\.stl$/i, '.gcode.3mf'),
+                    report: { backend: 'test' },
+                }),
+                submitJob: async (params) => {
+                    submitted.push(params);
+                    return {
+                        job_id: 'local-merchant-stl-job',
+                        status: 'printing',
+                        transformed_file_name: params.fileName,
+                        transform_report: { skipped: true },
+                        diff_summary: {},
+                    };
+                },
+            }),
+        });
+        const summary = await agent.runOnce();
+        expect(summary.failed).toBe(0);
+        expect(submitted.some((job) => job.fileName === 'widget.gcode.3mf')).toBe(true);
+
+        // Lifecycle events drive the merchant job to completed.
+        await nodeClient.sendEvents([{
+            event_type: 'print_job.started',
+            payload: { print_job_id: merchantStlJobId, local_job_id: 'local-merchant-stl-job', local_printer_id: 'printer-a1-01' },
+        }]);
+        await nodeClient.sendEvents([{
+            event_type: 'print_job.completed',
+            payload: { print_job_id: merchantStlJobId, local_job_id: 'local-merchant-stl-job', local_printer_id: 'printer-a1-01' },
+        }]);
+
+        const statusResponse = await fetch(
+            `${cloud.baseUrl}/api/public/print-jobs/status?job_id=${merchantStlJobId}`,
+            { headers: { Authorization: `Bearer ${merchantApiKey}` } },
+        );
+        const status = await statusResponse.json();
+        expect(statusResponse.status).toBe(200);
+        expect(status.job.status).toBe('completed');
+    });
+
     it('operator drops an STL: cloud routes it, the node slices and prints it', async () => {
         // Clear the bed so the routed printer is available again.
         await nodeClient.sendHeartbeat({ status: 'online', printers: [PRINTER_HEARTBEAT] });

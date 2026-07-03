@@ -57,12 +57,17 @@ export function buildPublicFarmCapabilities({
         const capabilities = printer.capabilities || {};
         return capabilities.failure_detection === true || capabilities.vision?.failure_detection === true;
     });
+    const nodes = Array.isArray(overview.nodes) ? overview.nodes : [];
+    const autoSliceCapable = nodes.some((node) => node.capabilities?.can_slice === true);
 
     return {
         accepting_jobs: onlinePrinters.length > 0,
         file_types: {
             ready_to_print: READY_EXTENSIONS,
+            // Source models are sliced automatically on the assigned farm node
+            // (cloud.print.source) when a slicer-capable node is online.
             source_model: SOURCE_EXTENSIONS,
+            auto_slice: autoSliceCapable,
             max_json_file_mb: 25,
         },
         routing_strategies: ROUTING_STRATEGIES,

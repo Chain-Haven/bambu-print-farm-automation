@@ -85,6 +85,19 @@ Full write-up is in `DIAGNOSIS.md`.
  never double-ejects in-gcode sweeps). Per-model sweep geometry for all new
  models in `Automator.MODEL_DEFAULTS` (validate on hardware before unattended
  loops). Transform round-trip tests per model.
+5b. **Merchant API prints any format fully automatically** — `POST
+ /api/public/print-jobs` now routes source models (STL/OBJ/STEP, unsliced
+ 3MF) exactly like ready files: they dispatch **`cloud.print.source`** to a
+ slicer-capable node (nodes advertise `can_slice`; `preferSlicerNodes`),
+ which slices with OrcaSlicer and submits through `JobOrchestrator`. The old
+ `needs_slicing` dead end is gone from the print-jobs path. Shared dispatch
+ plumbing lives in `src/cloud/printDispatch.js` (used by merchant + admin
+ endpoints). Jobs that can't place park as `waiting_for_capacity` and are
+ **re-dispatched automatically from the heartbeat path**
+ (`redispatchWaitingJobs`, claim-guarded via `claimWaitingPrintJob` so
+ concurrent heartbeats can't double-dispatch; oldest job first; one job per
+ freed printer per pass). `/api/public/farm/capabilities` advertises
+ `file_types.auto_slice`.
 6. **Drop-in printing** — `POST /api/cloud/print-files` (admin): drop a
  `.gcode.3mf`/`.3mf`/`.gcode`/`.stl` → uploads to storage → routes via
  `routeMerchantPrintJob` → ready files ride `cloud.print.ready`; source models
