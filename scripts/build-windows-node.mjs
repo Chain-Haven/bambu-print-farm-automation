@@ -66,7 +66,7 @@ function copyDir(srcDir, destDir, { exclude = new Set(), baseDir = srcDir } = {}
 async function bundle() {
     fs.mkdirSync(OUT_DIR, { recursive: true });
     const result = await esbuild.build({
-        entryPoints: [path.join(ROOT, 'src', 'cloud', 'runLocalNode.js')],
+        entryPoints: [path.join(ROOT, 'src', 'cloud', 'farmNodeEntry.js')],
         bundle: true,
         platform: 'node',
         format: 'cjs',
@@ -79,6 +79,7 @@ async function bundle() {
         external: ['@ffmpeg-installer/ffmpeg'],
         banner: {
             // Resolve colocated assets relative to the bundle wherever it lands.
+            // (The SEA exe overrides this with the executable's own directory.)
             js: "process.env.PKX_ASSET_ROOT = process.env.PKX_ASSET_ROOT || __dirname;",
         },
         logLevel: 'silent',
@@ -121,6 +122,29 @@ function writeReadme() {
     fs.writeFileSync(path.join(OUT_DIR, 'README-FIRST.txt'), createPortableReadme({ nodeName: 'Windows NUC' }));
 }
 
+function buildSeaAssetsZip() {
+    // Everything the exe must self-extract on first run so it works as a single
+    // downloaded file: dashboard, SQL migrations, and the sql.js wasm engine.
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    const addDir = (dir, prefix) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const abs = path.join(dir, entry.name);
+            const rel = `${prefix}/${entry.name}`;
+            if (entry.isDirectory()) addDir(abs, rel);
+            else if (entry.isFile()) zip.addFile(rel, fs.readFileSync(abs));
+        }
+    };
+    addDir(path.join(OUT_DIR, 'public'), 'public');
+    addDir(path.join(OUT_DIR, 'migrations'), 'migrations');
+    zip.addFile('sql-wasm.wasm', fs.readFileSync(path.join(OUT_DIR, 'sql-wasm.wasm')));
+
+    const zipPath = path.join(OUT_DIR, 'sea-assets.zip');
+    fs.writeFileSync(zipPath, zip.toBuffer());
+    log(`packed SEA assets.zip (${Math.round(fs.statSync(zipPath).size / 1024)} KB)`);
+    return zipPath;
+}
+
 function buildSeaExe() {
     // Node Single Executable Application. Produces a native binary from the bundle.
     const isWin = process.platform === 'win32';
@@ -128,10 +152,14 @@ function buildSeaExe() {
     const exePath = path.join(OUT_DIR, exeName);
     const blobPath = path.join(OUT_DIR, 'farm-node.blob');
     const seaConfig = path.join(OUT_DIR, 'sea-config.json');
+    const assetsZip = buildSeaAssetsZip();
     fs.writeFileSync(seaConfig, JSON.stringify({
         main: path.join(OUT_DIR, 'farm-node.cjs'),
         output: blobPath,
         disableExperimentalSEAWarning: true,
+        // Embedded so the exe is truly single-file: extracted next to the exe on
+        // first run by src/cloud/farmNodeEntry.js.
+        assets: { 'assets.zip': assetsZip },
     }, null, 2));
 
     log('generating SEA blob...');

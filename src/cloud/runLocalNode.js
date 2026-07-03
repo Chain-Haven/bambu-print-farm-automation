@@ -146,7 +146,17 @@ async function main() {
     process.once('SIGTERM', shutdown);
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
     log.error(`Cloud node failed to start: ${error.message}`);
+    // When launched by double-click (farm-node.exe / Start Farm Node.bat), keep
+    // the console window open so the error is actually readable.
+    if (process.env.PKX_HOLD_CONSOLE === '1' && process.stdin.isTTY) {
+        console.error(error.stack || '');
+        process.stdout.write('\nPress Enter to close this window...');
+        await new Promise((resolve) => {
+            process.stdin.resume();
+            process.stdin.once('data', resolve);
+        });
+    }
     process.exit(1);
 });

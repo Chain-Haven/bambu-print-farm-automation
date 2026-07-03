@@ -41,425 +41,6 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/dotenv/package.json
-var require_package = __commonJS({
-  "node_modules/dotenv/package.json"(exports2, module2) {
-    module2.exports = {
-      name: "dotenv",
-      version: "16.6.1",
-      description: "Loads environment variables from .env file",
-      main: "lib/main.js",
-      types: "lib/main.d.ts",
-      exports: {
-        ".": {
-          types: "./lib/main.d.ts",
-          require: "./lib/main.js",
-          default: "./lib/main.js"
-        },
-        "./config": "./config.js",
-        "./config.js": "./config.js",
-        "./lib/env-options": "./lib/env-options.js",
-        "./lib/env-options.js": "./lib/env-options.js",
-        "./lib/cli-options": "./lib/cli-options.js",
-        "./lib/cli-options.js": "./lib/cli-options.js",
-        "./package.json": "./package.json"
-      },
-      scripts: {
-        "dts-check": "tsc --project tests/types/tsconfig.json",
-        lint: "standard",
-        pretest: "npm run lint && npm run dts-check",
-        test: "tap run --allow-empty-coverage --disable-coverage --timeout=60000",
-        "test:coverage": "tap run --show-full-coverage --timeout=60000 --coverage-report=text --coverage-report=lcov",
-        prerelease: "npm test",
-        release: "standard-version"
-      },
-      repository: {
-        type: "git",
-        url: "git://github.com/motdotla/dotenv.git"
-      },
-      homepage: "https://github.com/motdotla/dotenv#readme",
-      funding: "https://dotenvx.com",
-      keywords: [
-        "dotenv",
-        "env",
-        ".env",
-        "environment",
-        "variables",
-        "config",
-        "settings"
-      ],
-      readmeFilename: "README.md",
-      license: "BSD-2-Clause",
-      devDependencies: {
-        "@types/node": "^18.11.3",
-        decache: "^4.6.2",
-        sinon: "^14.0.1",
-        standard: "^17.0.0",
-        "standard-version": "^9.5.0",
-        tap: "^19.2.0",
-        typescript: "^4.8.4"
-      },
-      engines: {
-        node: ">=12"
-      },
-      browser: {
-        fs: false
-      }
-    };
-  }
-});
-
-// node_modules/dotenv/lib/main.js
-var require_main = __commonJS({
-  "node_modules/dotenv/lib/main.js"(exports2, module2) {
-    var fs10 = require("fs");
-    var path13 = require("path");
-    var os7 = require("os");
-    var crypto5 = require("crypto");
-    var packageJson = require_package();
-    var version = packageJson.version;
-    var LINE = /(?:^|^)\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?(?:$|$)/mg;
-    function parse(src) {
-      const obj = {};
-      let lines = src.toString();
-      lines = lines.replace(/\r\n?/mg, "\n");
-      let match;
-      while ((match = LINE.exec(lines)) != null) {
-        const key = match[1];
-        let value = match[2] || "";
-        value = value.trim();
-        const maybeQuote = value[0];
-        value = value.replace(/^(['"`])([\s\S]*)\1$/mg, "$2");
-        if (maybeQuote === '"') {
-          value = value.replace(/\\n/g, "\n");
-          value = value.replace(/\\r/g, "\r");
-        }
-        obj[key] = value;
-      }
-      return obj;
-    }
-    function _parseVault(options) {
-      options = options || {};
-      const vaultPath = _vaultPath(options);
-      options.path = vaultPath;
-      const result = DotenvModule.configDotenv(options);
-      if (!result.parsed) {
-        const err = new Error(`MISSING_DATA: Cannot parse ${vaultPath} for an unknown reason`);
-        err.code = "MISSING_DATA";
-        throw err;
-      }
-      const keys = _dotenvKey(options).split(",");
-      const length = keys.length;
-      let decrypted;
-      for (let i = 0; i < length; i++) {
-        try {
-          const key = keys[i].trim();
-          const attrs = _instructions(result, key);
-          decrypted = DotenvModule.decrypt(attrs.ciphertext, attrs.key);
-          break;
-        } catch (error) {
-          if (i + 1 >= length) {
-            throw error;
-          }
-        }
-      }
-      return DotenvModule.parse(decrypted);
-    }
-    function _warn(message) {
-      console.log(`[dotenv@${version}][WARN] ${message}`);
-    }
-    function _debug(message) {
-      console.log(`[dotenv@${version}][DEBUG] ${message}`);
-    }
-    function _log(message) {
-      console.log(`[dotenv@${version}] ${message}`);
-    }
-    function _dotenvKey(options) {
-      if (options && options.DOTENV_KEY && options.DOTENV_KEY.length > 0) {
-        return options.DOTENV_KEY;
-      }
-      if (process.env.DOTENV_KEY && process.env.DOTENV_KEY.length > 0) {
-        return process.env.DOTENV_KEY;
-      }
-      return "";
-    }
-    function _instructions(result, dotenvKey) {
-      let uri;
-      try {
-        uri = new URL(dotenvKey);
-      } catch (error) {
-        if (error.code === "ERR_INVALID_URL") {
-          const err = new Error("INVALID_DOTENV_KEY: Wrong format. Must be in valid uri format like dotenv://:key_1234@dotenvx.com/vault/.env.vault?environment=development");
-          err.code = "INVALID_DOTENV_KEY";
-          throw err;
-        }
-        throw error;
-      }
-      const key = uri.password;
-      if (!key) {
-        const err = new Error("INVALID_DOTENV_KEY: Missing key part");
-        err.code = "INVALID_DOTENV_KEY";
-        throw err;
-      }
-      const environment = uri.searchParams.get("environment");
-      if (!environment) {
-        const err = new Error("INVALID_DOTENV_KEY: Missing environment part");
-        err.code = "INVALID_DOTENV_KEY";
-        throw err;
-      }
-      const environmentKey = `DOTENV_VAULT_${environment.toUpperCase()}`;
-      const ciphertext = result.parsed[environmentKey];
-      if (!ciphertext) {
-        const err = new Error(`NOT_FOUND_DOTENV_ENVIRONMENT: Cannot locate environment ${environmentKey} in your .env.vault file.`);
-        err.code = "NOT_FOUND_DOTENV_ENVIRONMENT";
-        throw err;
-      }
-      return { ciphertext, key };
-    }
-    function _vaultPath(options) {
-      let possibleVaultPath = null;
-      if (options && options.path && options.path.length > 0) {
-        if (Array.isArray(options.path)) {
-          for (const filepath of options.path) {
-            if (fs10.existsSync(filepath)) {
-              possibleVaultPath = filepath.endsWith(".vault") ? filepath : `${filepath}.vault`;
-            }
-          }
-        } else {
-          possibleVaultPath = options.path.endsWith(".vault") ? options.path : `${options.path}.vault`;
-        }
-      } else {
-        possibleVaultPath = path13.resolve(process.cwd(), ".env.vault");
-      }
-      if (fs10.existsSync(possibleVaultPath)) {
-        return possibleVaultPath;
-      }
-      return null;
-    }
-    function _resolveHome(envPath) {
-      return envPath[0] === "~" ? path13.join(os7.homedir(), envPath.slice(1)) : envPath;
-    }
-    function _configVault(options) {
-      const debug = Boolean(options && options.debug);
-      const quiet = options && "quiet" in options ? options.quiet : true;
-      if (debug || !quiet) {
-        _log("Loading env from encrypted .env.vault");
-      }
-      const parsed = DotenvModule._parseVault(options);
-      let processEnv = process.env;
-      if (options && options.processEnv != null) {
-        processEnv = options.processEnv;
-      }
-      DotenvModule.populate(processEnv, parsed, options);
-      return { parsed };
-    }
-    function configDotenv(options) {
-      const dotenvPath = path13.resolve(process.cwd(), ".env");
-      let encoding = "utf8";
-      const debug = Boolean(options && options.debug);
-      const quiet = options && "quiet" in options ? options.quiet : true;
-      if (options && options.encoding) {
-        encoding = options.encoding;
-      } else {
-        if (debug) {
-          _debug("No encoding is specified. UTF-8 is used by default");
-        }
-      }
-      let optionPaths = [dotenvPath];
-      if (options && options.path) {
-        if (!Array.isArray(options.path)) {
-          optionPaths = [_resolveHome(options.path)];
-        } else {
-          optionPaths = [];
-          for (const filepath of options.path) {
-            optionPaths.push(_resolveHome(filepath));
-          }
-        }
-      }
-      let lastError;
-      const parsedAll = {};
-      for (const path14 of optionPaths) {
-        try {
-          const parsed = DotenvModule.parse(fs10.readFileSync(path14, { encoding }));
-          DotenvModule.populate(parsedAll, parsed, options);
-        } catch (e) {
-          if (debug) {
-            _debug(`Failed to load ${path14} ${e.message}`);
-          }
-          lastError = e;
-        }
-      }
-      let processEnv = process.env;
-      if (options && options.processEnv != null) {
-        processEnv = options.processEnv;
-      }
-      DotenvModule.populate(processEnv, parsedAll, options);
-      if (debug || !quiet) {
-        const keysCount = Object.keys(parsedAll).length;
-        const shortPaths = [];
-        for (const filePath of optionPaths) {
-          try {
-            const relative = path13.relative(process.cwd(), filePath);
-            shortPaths.push(relative);
-          } catch (e) {
-            if (debug) {
-              _debug(`Failed to load ${filePath} ${e.message}`);
-            }
-            lastError = e;
-          }
-        }
-        _log(`injecting env (${keysCount}) from ${shortPaths.join(",")}`);
-      }
-      if (lastError) {
-        return { parsed: parsedAll, error: lastError };
-      } else {
-        return { parsed: parsedAll };
-      }
-    }
-    function config(options) {
-      if (_dotenvKey(options).length === 0) {
-        return DotenvModule.configDotenv(options);
-      }
-      const vaultPath = _vaultPath(options);
-      if (!vaultPath) {
-        _warn(`You set DOTENV_KEY but you are missing a .env.vault file at ${vaultPath}. Did you forget to build it?`);
-        return DotenvModule.configDotenv(options);
-      }
-      return DotenvModule._configVault(options);
-    }
-    function decrypt2(encrypted, keyStr) {
-      const key = Buffer.from(keyStr.slice(-64), "hex");
-      let ciphertext = Buffer.from(encrypted, "base64");
-      const nonce = ciphertext.subarray(0, 12);
-      const authTag = ciphertext.subarray(-16);
-      ciphertext = ciphertext.subarray(12, -16);
-      try {
-        const aesgcm = crypto5.createDecipheriv("aes-256-gcm", key, nonce);
-        aesgcm.setAuthTag(authTag);
-        return `${aesgcm.update(ciphertext)}${aesgcm.final()}`;
-      } catch (error) {
-        const isRange = error instanceof RangeError;
-        const invalidKeyLength = error.message === "Invalid key length";
-        const decryptionFailed = error.message === "Unsupported state or unable to authenticate data";
-        if (isRange || invalidKeyLength) {
-          const err = new Error("INVALID_DOTENV_KEY: It must be 64 characters long (or more)");
-          err.code = "INVALID_DOTENV_KEY";
-          throw err;
-        } else if (decryptionFailed) {
-          const err = new Error("DECRYPTION_FAILED: Please check your DOTENV_KEY");
-          err.code = "DECRYPTION_FAILED";
-          throw err;
-        } else {
-          throw error;
-        }
-      }
-    }
-    function populate(processEnv, parsed, options = {}) {
-      const debug = Boolean(options && options.debug);
-      const override = Boolean(options && options.override);
-      if (typeof parsed !== "object") {
-        const err = new Error("OBJECT_REQUIRED: Please check the processEnv argument being passed to populate");
-        err.code = "OBJECT_REQUIRED";
-        throw err;
-      }
-      for (const key of Object.keys(parsed)) {
-        if (Object.prototype.hasOwnProperty.call(processEnv, key)) {
-          if (override === true) {
-            processEnv[key] = parsed[key];
-          }
-          if (debug) {
-            if (override === true) {
-              _debug(`"${key}" is already defined and WAS overwritten`);
-            } else {
-              _debug(`"${key}" is already defined and was NOT overwritten`);
-            }
-          }
-        } else {
-          processEnv[key] = parsed[key];
-        }
-      }
-    }
-    var DotenvModule = {
-      configDotenv,
-      _configVault,
-      _parseVault,
-      config,
-      decrypt: decrypt2,
-      parse,
-      populate
-    };
-    module2.exports.configDotenv = DotenvModule.configDotenv;
-    module2.exports._configVault = DotenvModule._configVault;
-    module2.exports._parseVault = DotenvModule._parseVault;
-    module2.exports.config = DotenvModule.config;
-    module2.exports.decrypt = DotenvModule.decrypt;
-    module2.exports.parse = DotenvModule.parse;
-    module2.exports.populate = DotenvModule.populate;
-    module2.exports = DotenvModule;
-  }
-});
-
-// node_modules/dotenv/lib/env-options.js
-var require_env_options = __commonJS({
-  "node_modules/dotenv/lib/env-options.js"(exports2, module2) {
-    var options = {};
-    if (process.env.DOTENV_CONFIG_ENCODING != null) {
-      options.encoding = process.env.DOTENV_CONFIG_ENCODING;
-    }
-    if (process.env.DOTENV_CONFIG_PATH != null) {
-      options.path = process.env.DOTENV_CONFIG_PATH;
-    }
-    if (process.env.DOTENV_CONFIG_QUIET != null) {
-      options.quiet = process.env.DOTENV_CONFIG_QUIET;
-    }
-    if (process.env.DOTENV_CONFIG_DEBUG != null) {
-      options.debug = process.env.DOTENV_CONFIG_DEBUG;
-    }
-    if (process.env.DOTENV_CONFIG_OVERRIDE != null) {
-      options.override = process.env.DOTENV_CONFIG_OVERRIDE;
-    }
-    if (process.env.DOTENV_CONFIG_DOTENV_KEY != null) {
-      options.DOTENV_KEY = process.env.DOTENV_CONFIG_DOTENV_KEY;
-    }
-    module2.exports = options;
-  }
-});
-
-// node_modules/dotenv/lib/cli-options.js
-var require_cli_options = __commonJS({
-  "node_modules/dotenv/lib/cli-options.js"(exports2, module2) {
-    var re = /^dotenv_config_(encoding|path|quiet|debug|override|DOTENV_KEY)=(.+)$/;
-    module2.exports = function optionMatcher(args) {
-      const options = args.reduce(function(acc, cur) {
-        const matches = cur.match(re);
-        if (matches) {
-          acc[matches[1]] = matches[2];
-        }
-        return acc;
-      }, {});
-      if (!("quiet" in options)) {
-        options.quiet = "true";
-      }
-      return options;
-    };
-  }
-});
-
-// node_modules/dotenv/config.js
-var init_config = __esm({
-  "node_modules/dotenv/config.js"() {
-    (function() {
-      require_main().config(
-        Object.assign(
-          {},
-          require_env_options(),
-          require_cli_options()(process.argv)
-        )
-      );
-    })();
-  }
-});
-
 // node_modules/adm-zip/util/constants.js
 var require_constants = __commonJS({
   "node_modules/adm-zip/util/constants.js"(exports2, module2) {
@@ -786,25 +367,25 @@ var require_utils = __commonJS({
       }
       mkdirSync(folder);
     };
-    Utils.prototype.writeFileTo = function(path13, content, overwrite, attr) {
+    Utils.prototype.writeFileTo = function(path15, content, overwrite, attr) {
       const self2 = this;
-      if (self2.fs.existsSync(path13)) {
+      if (self2.fs.existsSync(path15)) {
         if (!overwrite) return false;
-        var stat = self2.fs.statSync(path13);
+        var stat = self2.fs.statSync(path15);
         if (stat.isDirectory()) {
           return false;
         }
       }
-      var folder = pth.dirname(path13);
+      var folder = pth.dirname(path15);
       if (!self2.fs.existsSync(folder)) {
         self2.makeDir(folder);
       }
       var fd;
       try {
-        fd = self2.fs.openSync(path13, "w", 438);
+        fd = self2.fs.openSync(path15, "w", 438);
       } catch (e) {
-        self2.fs.chmodSync(path13, 438);
-        fd = self2.fs.openSync(path13, "w", 438);
+        self2.fs.chmodSync(path15, 438);
+        fd = self2.fs.openSync(path15, "w", 438);
       }
       if (fd) {
         try {
@@ -813,31 +394,31 @@ var require_utils = __commonJS({
           self2.fs.closeSync(fd);
         }
       }
-      self2.fs.chmodSync(path13, attr || 438);
+      self2.fs.chmodSync(path15, attr || 438);
       return true;
     };
-    Utils.prototype.writeFileToAsync = function(path13, content, overwrite, attr, callback) {
+    Utils.prototype.writeFileToAsync = function(path15, content, overwrite, attr, callback) {
       if (typeof attr === "function") {
         callback = attr;
         attr = void 0;
       }
       const self2 = this;
-      self2.fs.exists(path13, function(exist) {
+      self2.fs.exists(path15, function(exist) {
         if (exist && !overwrite) return callback(false);
-        self2.fs.stat(path13, function(err, stat) {
+        self2.fs.stat(path15, function(err, stat) {
           if (exist && stat.isDirectory()) {
             return callback(false);
           }
-          var folder = pth.dirname(path13);
+          var folder = pth.dirname(path15);
           self2.fs.exists(folder, function(exists) {
             if (!exists) self2.makeDir(folder);
-            self2.fs.open(path13, "w", 438, function(err2, fd) {
+            self2.fs.open(path15, "w", 438, function(err2, fd) {
               if (err2) {
-                self2.fs.chmod(path13, 438, function() {
-                  self2.fs.open(path13, "w", 438, function(err3, fd2) {
+                self2.fs.chmod(path15, 438, function() {
+                  self2.fs.open(path15, "w", 438, function(err3, fd2) {
                     self2.fs.write(fd2, content, 0, content.length, 0, function() {
                       self2.fs.close(fd2, function() {
-                        self2.fs.chmod(path13, attr || 438, function() {
+                        self2.fs.chmod(path15, attr || 438, function() {
                           callback(true);
                         });
                       });
@@ -847,13 +428,13 @@ var require_utils = __commonJS({
               } else if (fd) {
                 self2.fs.write(fd, content, 0, content.length, 0, function() {
                   self2.fs.close(fd, function() {
-                    self2.fs.chmod(path13, attr || 438, function() {
+                    self2.fs.chmod(path15, attr || 438, function() {
                       callback(true);
                     });
                   });
                 });
               } else {
-                self2.fs.chmod(path13, attr || 438, function() {
+                self2.fs.chmod(path15, attr || 438, function() {
                   callback(true);
                 });
               }
@@ -862,7 +443,7 @@ var require_utils = __commonJS({
         });
       });
     };
-    Utils.prototype.findFiles = function(path13) {
+    Utils.prototype.findFiles = function(path15) {
       const self2 = this;
       function findSync(dir, pattern, recursive) {
         if (typeof pattern === "boolean") {
@@ -871,16 +452,16 @@ var require_utils = __commonJS({
         }
         let files = [];
         self2.fs.readdirSync(dir).forEach(function(file) {
-          const path14 = pth.join(dir, file);
-          const stat = self2.fs.statSync(path14);
-          if (!pattern || pattern.test(path14)) {
-            files.push(pth.normalize(path14) + (stat.isDirectory() ? self2.sep : ""));
+          const path16 = pth.join(dir, file);
+          const stat = self2.fs.statSync(path16);
+          if (!pattern || pattern.test(path16)) {
+            files.push(pth.normalize(path16) + (stat.isDirectory() ? self2.sep : ""));
           }
-          if (stat.isDirectory() && recursive) files = files.concat(findSync(path14, pattern, recursive));
+          if (stat.isDirectory() && recursive) files = files.concat(findSync(path16, pattern, recursive));
         });
         return files;
       }
-      return findSync(path13, void 0, true);
+      return findSync(path15, void 0, true);
     };
     Utils.prototype.findFilesAsync = function(dir, cb) {
       const self2 = this;
@@ -935,14 +516,14 @@ var require_utils = __commonJS({
           return "UNSUPPORTED (" + method + ")";
       }
     };
-    Utils.canonical = function(path13) {
-      if (!path13) return "";
-      const safeSuffix = pth.posix.normalize("/" + path13.split("\\").join("/"));
+    Utils.canonical = function(path15) {
+      if (!path15) return "";
+      const safeSuffix = pth.posix.normalize("/" + path15.split("\\").join("/"));
       return pth.join(".", safeSuffix);
     };
-    Utils.zipnamefix = function(path13) {
-      if (!path13) return "";
-      const safeSuffix = pth.posix.normalize("/" + path13.split("\\").join("/"));
+    Utils.zipnamefix = function(path15) {
+      if (!path15) return "";
+      const safeSuffix = pth.posix.normalize("/" + path15.split("\\").join("/"));
       return pth.posix.join(".", safeSuffix);
     };
     Utils.findLast = function(arr, callback) {
@@ -959,9 +540,9 @@ var require_utils = __commonJS({
       prefix = pth.resolve(pth.normalize(prefix));
       var parts = name.split("/");
       for (var i = 0, l = parts.length; i < l; i++) {
-        var path13 = pth.normalize(pth.join(prefix, parts.slice(i, l).join(pth.sep)));
-        if (path13.indexOf(prefix) === 0) {
-          return path13;
+        var path15 = pth.normalize(pth.join(prefix, parts.slice(i, l).join(pth.sep)));
+        if (path15.indexOf(prefix) === 0) {
+          return path15;
         }
       }
       return pth.normalize(pth.join(prefix, pth.basename(name)));
@@ -1001,8 +582,8 @@ var require_utils = __commonJS({
 var require_fattr = __commonJS({
   "node_modules/adm-zip/util/fattr.js"(exports2, module2) {
     var pth = require("path");
-    module2.exports = function(path13, { fs: fs10 }) {
-      var _path = path13 || "", _obj = newAttr(), _stat = null;
+    module2.exports = function(path15, { fs: fs12 }) {
+      var _path = path15 || "", _obj = newAttr(), _stat = null;
       function newAttr() {
         return {
           directory: false,
@@ -1013,8 +594,8 @@ var require_fattr = __commonJS({
           atime: 0
         };
       }
-      if (_path && fs10.existsSync(_path)) {
-        _stat = fs10.statSync(_path);
+      if (_path && fs12.existsSync(_path)) {
+        _stat = fs12.statSync(_path);
         _obj.directory = _stat.isDirectory();
         _obj.mtime = _stat.mtime;
         _obj.atime = _stat.atime;
@@ -3116,6 +2697,957 @@ var require_adm_zip = __commonJS({
   }
 });
 
+// src/cloud/nodePackage.js
+var nodePackage_exports = {};
+__export(nodePackage_exports, {
+  PORTABLE_BUNDLE_SUBDIR: () => PORTABLE_BUNDLE_SUBDIR,
+  buildNodePackageManifest: () => buildNodePackageManifest,
+  buildPortableNodePackage: () => buildPortableNodePackage,
+  buildWindowsNodePackage: () => buildWindowsNodePackage,
+  collectNodePackageFiles: () => collectNodePackageFiles,
+  collectPortablePublicFiles: () => collectPortablePublicFiles,
+  createFarmNodeLauncherBat: () => createFarmNodeLauncherBat,
+  createGetNodePs1: () => createGetNodePs1,
+  createGetNodeSh: () => createGetNodeSh,
+  createInstallServiceSh: () => createInstallServiceSh,
+  createNodeEnv: () => createNodeEnv,
+  createNodePackageReadme: () => createNodePackageReadme,
+  createPortableReadme: () => createPortableReadme,
+  createStartFarmNodeSh: () => createStartFarmNodeSh,
+  getNodePackageFileName: () => getNodePackageFileName,
+  hasPortableBundle: () => hasPortableBundle
+});
+function normalizeRequiredString(value, name) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`${name} is required`);
+  }
+  return value.trim();
+}
+function normalizePath(relativePath) {
+  return relativePath.split(import_node_path.default.sep).join("/");
+}
+function shouldIncludeFile(relativePath) {
+  const normalized = normalizePath(relativePath);
+  const segments = normalized.split("/");
+  if (EXCLUDED_PATHS.has(normalized)) return false;
+  if (segments.some((segment) => NESTED_EXCLUDED_DIRS.has(segment))) return false;
+  if (ROOT_EXCLUDED_DIRS.has(segments[0])) return false;
+  if (EXCLUDED_FILES.has(segments.at(-1))) return false;
+  if (segments.length === 1) return ROOT_FILES.has(normalized);
+  return ROOT_DIRS.has(segments[0]);
+}
+function walkFiles(rootDir, currentDir = rootDir, files = []) {
+  for (const entry of import_node_fs.default.readdirSync(currentDir, { withFileTypes: true })) {
+    const absolutePath = import_node_path.default.join(currentDir, entry.name);
+    const relativePath = import_node_path.default.relative(rootDir, absolutePath);
+    if (entry.isDirectory()) {
+      if (NESTED_EXCLUDED_DIRS.has(entry.name)) continue;
+      if (currentDir === rootDir && !ROOT_DIRS.has(entry.name)) continue;
+      walkFiles(rootDir, absolutePath, files);
+    } else if (entry.isFile() && shouldIncludeFile(relativePath)) {
+      files.push(normalizePath(relativePath));
+    }
+  }
+  return files;
+}
+function sanitizeFileName(value) {
+  return String(value || "printkinetix-node").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "printkinetix-node";
+}
+function collectNodePackageFiles(rootDir) {
+  return walkFiles(rootDir).sort((a, b) => a.localeCompare(b));
+}
+function createNodeEnv({
+  cloudApiUrl,
+  localNodeToken,
+  pollIntervalMs = 2e3,
+  maxPollIntervalMs = 3e4,
+  heartbeatIntervalMs = 3e4,
+  requestTimeoutMs = 15e3,
+  retryMaxAttempts = 4,
+  retryBaseDelayMs = 500,
+  retryMaxDelayMs = 1e4,
+  resultOutboxPath = "./data/cloud-result-outbox.json",
+  resultOutboxFlushLimit = 25,
+  resultOutboxMaxEntries = 1e3,
+  mockMode = false
+} = {}) {
+  const normalizedCloudApiUrl = normalizeRequiredString(cloudApiUrl, "cloud_api_url").replace(/\/+$/, "");
+  const normalizedToken = normalizeRequiredString(localNodeToken, "local_node_token");
+  return [
+    "# PrintKinetix Windows node configuration",
+    "PORT=3000",
+    "HOST=0.0.0.0",
+    "JWT_SECRET=change-me",
+    "ADMIN_USERNAME=admin",
+    "ADMIN_PASSWORD=antigravity",
+    "DB_PATH=./data/antigravity.db",
+    "ENCRYPTION_KEY=0123456789abcdef0123456789abcdef",
+    "LOG_LEVEL=info",
+    "",
+    `CLOUD_API_URL=${normalizedCloudApiUrl}`,
+    `LOCAL_NODE_TOKEN=${normalizedToken}`,
+    `CLOUD_COMMAND_POLL_INTERVAL_MS=${pollIntervalMs}`,
+    `CLOUD_COMMAND_MAX_POLL_INTERVAL_MS=${maxPollIntervalMs}`,
+    `CLOUD_HEARTBEAT_INTERVAL_MS=${heartbeatIntervalMs}`,
+    `CLOUD_REQUEST_TIMEOUT_MS=${requestTimeoutMs}`,
+    `CLOUD_RETRY_MAX_ATTEMPTS=${retryMaxAttempts}`,
+    `CLOUD_RETRY_BASE_DELAY_MS=${retryBaseDelayMs}`,
+    `CLOUD_RETRY_MAX_DELAY_MS=${retryMaxDelayMs}`,
+    `CLOUD_RESULT_OUTBOX_PATH=${resultOutboxPath}`,
+    `CLOUD_RESULT_OUTBOX_FLUSH_LIMIT=${resultOutboxFlushLimit}`,
+    `CLOUD_RESULT_OUTBOX_MAX_ENTRIES=${resultOutboxMaxEntries}`,
+    "",
+    "MQTT_RECONNECT_INTERVAL_MS=5000",
+    "HEALTH_CHECK_INTERVAL_MS=30000",
+    "COMMAND_POLL_INTERVAL_MS=1000",
+    `MOCK_MODE=${mockMode ? "true" : "false"}`,
+    ""
+  ].join("\n");
+}
+function createNodePackageReadme({ nodeName = "Windows NUC", cloudApiUrl } = {}) {
+  return [
+    "PrintKinetix Cloud Node",
+    "=======================",
+    "",
+    `Node: ${nodeName || "Windows NUC"}`,
+    `Cloud: ${cloudApiUrl || "configured in .env"}`,
+    "",
+    "Security model",
+    "--------------",
+    "- This node uses HTTPS outbound to reach the Vercel cloud API.",
+    "- Do not open inbound firewall ports from the public internet to this computer.",
+    "- Keep LOCAL_NODE_TOKEN private; it is the only cloud credential needed here.",
+    "- This package must not contain SUPABASE_SERVICE_ROLE_KEY, CLOUD_ADMIN_TOKEN, NODE_TOKEN_PEPPER, or merchant API key pepper values.",
+    "- Printer control stays on the local network through Bambu MQTT and FTPS.",
+    "- Cloud command results are spooled to ./data/cloud-result-outbox.json if Vercel or Supabase is temporarily unreachable.",
+    "",
+    "Cloud setup quickstart",
+    "----------------------",
+    "1. Install Node.js 24 LTS or newer on the Windows computer.",
+    "2. Extract this ZIP to a stable folder such as C:\\PrintKinetix.",
+    "3. Confirm .env contains CLOUD_API_URL and LOCAL_NODE_TOKEN.",
+    "4. Double-click Start Cloud Node.bat.",
+    "5. Open http://localhost:3000 on this computer to configure LAN printers.",
+    "6. Enable LAN/Developer mode on each Bambu printer and add its IP, serial, and access code.",
+    "7. Return to /cloud, open Local Printer Sync, and queue Discover LAN Printers.",
+    "8. Queue Sync Printer Inventory after printers are saved locally so the cloud command result includes printer, AMS, and filament snapshots.",
+    "9. Verify the node heartbeat is online and check network interfaces if printers live on multiple VLANs or NICs.",
+    "",
+    "Cloud sync commands",
+    "-------------------",
+    "- Discover LAN Printers queues cloud.printers.discover. The node returns Bambu SSDP discoveries visible from this Windows machine.",
+    "- Sync Printer Inventory queues cloud.printers.sync. The node returns registered local printers, live worker status, AMS tray counts, and saved filament snapshots when available.",
+    "",
+    "Merchant print flow",
+    "-------------------",
+    "When Vercel queues cloud.print.ready, this node downloads the signed private print artifact, wraps raw .gcode into .gcode.3mf when needed, uploads to the selected Bambu printer over LAN FTPS, starts the print through MQTT, and reports the result back to Vercel.",
+    ""
+  ].join("\r\n");
+}
+function buildNodePackageManifest({ files, generatedAt, nodeName, cloudApiUrl }) {
+  return {
+    package: "printkinetix-cloud-node",
+    generated_at: generatedAt,
+    node_name: nodeName || "Windows NUC",
+    cloud_api_url: cloudApiUrl,
+    files
+  };
+}
+function buildSourceNodePackage({
+  rootDir = process.cwd(),
+  cloudApiUrl,
+  localNodeToken,
+  nodeName = "Windows NUC",
+  now = () => /* @__PURE__ */ new Date()
+} = {}) {
+  const normalizedCloudApiUrl = normalizeRequiredString(cloudApiUrl, "cloud_api_url").replace(/\/+$/, "");
+  const normalizedToken = normalizeRequiredString(localNodeToken, "local_node_token");
+  const files = collectNodePackageFiles(rootDir);
+  const generatedAt = now().toISOString();
+  const zip = new import_adm_zip.default();
+  for (const relativePath of files) {
+    zip.addFile(relativePath, import_node_fs.default.readFileSync(import_node_path.default.join(rootDir, relativePath)));
+  }
+  zip.addFile(".env", Buffer.from(createNodeEnv({
+    cloudApiUrl: normalizedCloudApiUrl,
+    localNodeToken: normalizedToken
+  })));
+  zip.addFile("README-FIRST.txt", Buffer.from(createNodePackageReadme({
+    nodeName,
+    cloudApiUrl: normalizedCloudApiUrl
+  })));
+  zip.addFile("node-package-manifest.json", Buffer.from(JSON.stringify(buildNodePackageManifest({
+    files,
+    generatedAt,
+    nodeName,
+    cloudApiUrl: normalizedCloudApiUrl
+  }), null, 2)));
+  return zip.toBuffer();
+}
+function hasPortableBundle(bundleDir) {
+  try {
+    return import_node_fs.default.existsSync(import_node_path.default.join(bundleDir, "farm-node.cjs")) && import_node_fs.default.existsSync(import_node_path.default.join(bundleDir, "sql-wasm.wasm"));
+  } catch {
+    return false;
+  }
+}
+function collectPortablePublicFiles(rootDir) {
+  const publicDir2 = import_node_path.default.join(rootDir, "public");
+  if (!import_node_fs.default.existsSync(publicDir2)) return [];
+  const out = [];
+  const walk = (currentDir) => {
+    for (const entry of import_node_fs.default.readdirSync(currentDir, { withFileTypes: true })) {
+      const absolutePath = import_node_path.default.join(currentDir, entry.name);
+      const relativePath = normalizePath(import_node_path.default.relative(rootDir, absolutePath));
+      if (entry.isDirectory()) {
+        if (NESTED_EXCLUDED_DIRS.has(entry.name)) continue;
+        walk(absolutePath);
+      } else if (entry.isFile() && !PORTABLE_PUBLIC_EXCLUDES.has(relativePath) && !EXCLUDED_FILES.has(entry.name)) {
+        out.push(relativePath);
+      }
+    }
+  };
+  walk(publicDir2);
+  return out.sort((a, b) => a.localeCompare(b));
+}
+function createFarmNodeLauncherBat() {
+  return [
+    "@echo off",
+    "setlocal",
+    'cd /d "%~dp0"',
+    "",
+    "title PrintKinetix Farm Node",
+    "echo Starting PrintKinetix farm node...",
+    "echo.",
+    "",
+    'if not exist ".env" (',
+    "  echo Missing .env file next to this launcher.",
+    "  echo It should contain CLOUD_API_URL and LOCAL_NODE_TOKEN ^(shipped in this package^).",
+    "  pause",
+    "  exit /b 1",
+    ")",
+    "",
+    "rem 1) Prefer a Node runtime bundled next to this launcher.",
+    'set "NODE_EXE=%~dp0node\\node.exe"',
+    'if exist "%NODE_EXE%" goto run',
+    "",
+    "rem 2) Fall back to a Node already installed on this PC.",
+    "where node >nul 2>nul",
+    "if %errorlevel%==0 (",
+    '  set "NODE_EXE=node"',
+    "  goto run",
+    ")",
+    "",
+    "rem 3) No Node found: fetch a portable Node runtime automatically (no admin install, no npm).",
+    "echo Node.js was not found. Downloading a portable copy ^(one time^)...",
+    'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0get-node.ps1"',
+    'if exist "%NODE_EXE%" goto run',
+    "echo.",
+    "echo Could not obtain Node.js automatically. Install Node 20+ from https://nodejs.org and re-run.",
+    "pause",
+    "exit /b 1",
+    "",
+    ":run",
+    "echo Using Node: %NODE_EXE%",
+    '"%NODE_EXE%" "%~dp0farm-node.cjs"',
+    "echo.",
+    "echo Farm node stopped.",
+    "pause"
+  ].join("\r\n");
+}
+function createGetNodePs1() {
+  return [
+    '$ErrorActionPreference = "Stop"',
+    "$dir = Split-Path -Parent $MyInvocation.MyCommand.Path",
+    '$ver = "v22.11.0"',
+    '$zip = "node-$ver-win-x64.zip"',
+    '$url = "https://nodejs.org/dist/$ver/$zip"',
+    "$tmp = Join-Path $env:TEMP $zip",
+    'Write-Host "Downloading $url"',
+    "Invoke-WebRequest -Uri $url -OutFile $tmp",
+    '$extract = Join-Path $env:TEMP "pkx-node-$ver"',
+    "if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }",
+    "Expand-Archive -Path $tmp -DestinationPath $extract -Force",
+    '$nodeDir = Join-Path $dir "node"',
+    "if (Test-Path $nodeDir) { Remove-Item -Recurse -Force $nodeDir }",
+    'Move-Item -Path (Join-Path $extract "node-$ver-win-x64") -Destination $nodeDir',
+    'Write-Host "Portable Node installed to $nodeDir"'
+  ].join("\r\n");
+}
+function createStartFarmNodeSh() {
+  return [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    'cd "$(dirname "$0")"',
+    "",
+    'echo "Starting PrintKinetix farm node..."',
+    "",
+    'if [ ! -f ".env" ]; then',
+    '  echo "Missing .env file next to this launcher (needs CLOUD_API_URL and LOCAL_NODE_TOKEN)."',
+    "  exit 1",
+    "fi",
+    "",
+    "# 1) Prefer a Node runtime bundled next to this launcher.",
+    'if [ -x "./node/bin/node" ]; then',
+    '  NODE_BIN="./node/bin/node"',
+    "# 2) Fall back to a Node already installed on this machine.",
+    "elif command -v node >/dev/null 2>&1; then",
+    '  NODE_BIN="node"',
+    "else",
+    "  # 3) No Node found: fetch a portable Node runtime automatically (no apt, no npm).",
+    '  echo "Node.js was not found. Downloading a portable copy (one time)..."',
+    "  bash ./get-node.sh",
+    '  NODE_BIN="./node/bin/node"',
+    "fi",
+    "",
+    'echo "Using Node: $NODE_BIN"',
+    'exec "$NODE_BIN" ./farm-node.cjs',
+    ""
+  ].join("\n");
+}
+function createGetNodeSh() {
+  return [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    'cd "$(dirname "$0")"',
+    "",
+    'VER="v22.11.0"',
+    'ARCH="$(uname -m)"',
+    'case "$ARCH" in',
+    '  aarch64|arm64) NODE_ARCH="linux-arm64" ;;',
+    '  x86_64|amd64)  NODE_ARCH="linux-x64" ;;',
+    '  armv7l|armv6l) NODE_ARCH="linux-armv7l" ;;',
+    '  *) echo "Unsupported architecture: $ARCH. Install Node 20+ manually."; exit 1 ;;',
+    "esac",
+    "",
+    'TARBALL="node-$VER-$NODE_ARCH.tar.xz"',
+    'URL="https://nodejs.org/dist/$VER/$TARBALL"',
+    'echo "Downloading $URL"',
+    'curl -fsSL "$URL" -o "/tmp/$TARBALL"',
+    "rm -rf ./node && mkdir -p ./node",
+    'tar -xJf "/tmp/$TARBALL" -C ./node --strip-components=1',
+    'rm -f "/tmp/$TARBALL"',
+    'echo "Portable Node installed to ./node"',
+    ""
+  ].join("\n");
+}
+function createInstallServiceSh() {
+  return [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    'DIR="$(cd "$(dirname "$0")" && pwd)"',
+    'SERVICE="/etc/systemd/system/printkinetix-node.service"',
+    "",
+    'echo "Installing systemd service at $SERVICE"',
+    'sudo tee "$SERVICE" >/dev/null <<EOF',
+    "[Unit]",
+    "Description=PrintKinetix Farm Node",
+    "After=network-online.target",
+    "Wants=network-online.target",
+    "",
+    "[Service]",
+    "Type=simple",
+    "WorkingDirectory=$DIR",
+    'ExecStart=/usr/bin/env bash "$DIR/start-farm-node.sh"',
+    "Restart=always",
+    "RestartSec=5",
+    "User=$(whoami)",
+    "",
+    "[Install]",
+    "WantedBy=multi-user.target",
+    "EOF",
+    "",
+    "sudo systemctl daemon-reload",
+    "sudo systemctl enable --now printkinetix-node",
+    'echo "Service installed. Status: sudo systemctl status printkinetix-node"',
+    ""
+  ].join("\n");
+}
+function createPortableReadme({ nodeName = "Windows NUC", cloudApiUrl } = {}) {
+  return [
+    "PrintKinetix Farm Node (portable)",
+    "=================================",
+    "",
+    `Node: ${nodeName || "Windows NUC"}`,
+    `Cloud: ${cloudApiUrl || "configured in .env"}`,
+    "",
+    "This is a self-contained build. It does NOT need `npm install` and has no",
+    "source tree \u2014 every dependency is compiled into farm-node.cjs. The same",
+    "package runs on Windows, on a Raspberry Pi 5 (arm64), and on Linux x64.",
+    "",
+    "To run on Windows",
+    "-----------------",
+    "1. Keep every file in this folder together.",
+    "2. Confirm .env is present (it carries CLOUD_API_URL and LOCAL_NODE_TOKEN).",
+    '3. Double-click "Start Farm Node.bat".',
+    "   - It uses a bundled Node runtime (\\node), Node already on the PC, or",
+    "     downloads a portable Node the first time. No manual install, no keys to type.",
+    "",
+    "To run on a Raspberry Pi 5 / Linux",
+    "----------------------------------",
+    "1. Copy this folder to the Pi (keep every file together).",
+    "2. Confirm .env is present.",
+    "3. Run:  bash start-farm-node.sh",
+    "   - It uses a bundled Node, Node already installed, or downloads a portable",
+    "     Node matching the Pi (arm64) automatically. No apt, no npm, no keys to type.",
+    "4. Optional \u2014 start on boot + auto-restart (self-healing):  bash install-service.sh",
+    "",
+    "Then, on either platform",
+    "------------------------",
+    "- Open http://localhost:3000 on that machine to add LAN printers.",
+    "- Enable LAN/Developer mode on each Bambu printer and add its IP, serial, and access code.",
+    "- Return to /cloud, open Local Printer Sync, and queue Discover LAN Printers, then Sync Printer Inventory.",
+    "",
+    "Security model",
+    "--------------",
+    "- HTTPS outbound only to the cloud API; keep LOCAL_NODE_TOKEN private.",
+    "- No inbound public ports. Printer control stays on the LAN via MQTT + FTPS.",
+    "- Contains no SUPABASE_SERVICE_ROLE_KEY, CLOUD_ADMIN_TOKEN, or NODE_TOKEN_PEPPER.",
+    "- Cloud command results spool to ./data/cloud-result-outbox.json when the cloud is unreachable.",
+    "",
+    "Files",
+    "-----",
+    "  farm-node.cjs        the entire node, bundled (no npm install)",
+    "  public/              local dashboard served at http://localhost:3000",
+    "  migrations/          applied to the local SQLite database on first run",
+    "  sql-wasm.wasm        SQLite engine (WebAssembly)",
+    "  Start Farm Node.bat  Windows double-click launcher",
+    "  start-farm-node.sh   Raspberry Pi / Linux launcher",
+    "  install-service.sh   optional systemd auto-start on Pi / Linux",
+    "  .env                 your cloud credentials (do not share)",
+    ""
+  ].join("\r\n");
+}
+function buildPortableNodePackage({
+  rootDir = process.cwd(),
+  bundleDir = import_node_path.default.join(process.cwd(), PORTABLE_BUNDLE_SUBDIR),
+  cloudApiUrl,
+  localNodeToken,
+  nodeName = "Windows NUC",
+  now = () => /* @__PURE__ */ new Date()
+} = {}) {
+  const normalizedCloudApiUrl = normalizeRequiredString(cloudApiUrl, "cloud_api_url").replace(/\/+$/, "");
+  const normalizedToken = normalizeRequiredString(localNodeToken, "local_node_token");
+  const generatedAt = now().toISOString();
+  const zip = new import_adm_zip.default();
+  const files = [];
+  const addFile = (entryName, buffer) => {
+    zip.addFile(entryName, buffer);
+    files.push(entryName);
+  };
+  addFile("farm-node.cjs", import_node_fs.default.readFileSync(import_node_path.default.join(bundleDir, "farm-node.cjs")));
+  addFile("sql-wasm.wasm", import_node_fs.default.readFileSync(import_node_path.default.join(bundleDir, "sql-wasm.wasm")));
+  for (const relativePath of collectPortablePublicFiles(rootDir)) {
+    addFile(relativePath, import_node_fs.default.readFileSync(import_node_path.default.join(rootDir, relativePath)));
+  }
+  const migrationsDir = import_node_path.default.join(rootDir, "src", "db", "migrations");
+  if (import_node_fs.default.existsSync(migrationsDir)) {
+    for (const file of import_node_fs.default.readdirSync(migrationsDir).sort()) {
+      if (file.endsWith(".sql")) {
+        addFile(`migrations/${file}`, import_node_fs.default.readFileSync(import_node_path.default.join(migrationsDir, file)));
+      }
+    }
+  }
+  addFile("Start Farm Node.bat", Buffer.from(createFarmNodeLauncherBat(), "utf-8"));
+  addFile("get-node.ps1", Buffer.from(createGetNodePs1(), "utf-8"));
+  addFile("start-farm-node.sh", Buffer.from(createStartFarmNodeSh(), "utf-8"));
+  addFile("get-node.sh", Buffer.from(createGetNodeSh(), "utf-8"));
+  addFile("install-service.sh", Buffer.from(createInstallServiceSh(), "utf-8"));
+  addFile("README-FIRST.txt", Buffer.from(createPortableReadme({
+    nodeName,
+    cloudApiUrl: normalizedCloudApiUrl
+  })));
+  zip.addFile(".env", Buffer.from(createNodeEnv({
+    cloudApiUrl: normalizedCloudApiUrl,
+    localNodeToken: normalizedToken
+  })));
+  zip.addFile("node-package-manifest.json", Buffer.from(JSON.stringify(buildNodePackageManifest({
+    files,
+    generatedAt,
+    nodeName,
+    cloudApiUrl: normalizedCloudApiUrl
+  }), null, 2)));
+  return zip.toBuffer();
+}
+function buildWindowsNodePackage(options = {}) {
+  const rootDir = options.rootDir || process.cwd();
+  const bundleDir = options.bundleDir || import_node_path.default.join(rootDir, PORTABLE_BUNDLE_SUBDIR);
+  if (hasPortableBundle(bundleDir)) {
+    return buildPortableNodePackage({ ...options, rootDir, bundleDir });
+  }
+  return buildSourceNodePackage({ ...options, rootDir });
+}
+function getNodePackageFileName(nodeName) {
+  return `${sanitizeFileName(nodeName || "printkinetix-node")}-cloud-node.zip`;
+}
+var import_adm_zip, import_node_fs, import_node_path, ROOT_FILES, ROOT_DIRS, NESTED_EXCLUDED_DIRS, ROOT_EXCLUDED_DIRS, EXCLUDED_FILES, PORTABLE_PUBLIC_EXCLUDES, EXCLUDED_PATHS, PORTABLE_BUNDLE_SUBDIR;
+var init_nodePackage = __esm({
+  "src/cloud/nodePackage.js"() {
+    import_adm_zip = __toESM(require_adm_zip(), 1);
+    import_node_fs = __toESM(require("node:fs"), 1);
+    import_node_path = __toESM(require("node:path"), 1);
+    ROOT_FILES = /* @__PURE__ */ new Set([
+      "package.json",
+      "package-lock.json",
+      "server.js",
+      "Start Cloud Node.bat",
+      "fix_network_access.bat",
+      "allow_remote_access.bat"
+    ]);
+    ROOT_DIRS = /* @__PURE__ */ new Set(["src", "public"]);
+    NESTED_EXCLUDED_DIRS = /* @__PURE__ */ new Set([
+      ".git",
+      ".playwright-cli",
+      "node_modules"
+    ]);
+    ROOT_EXCLUDED_DIRS = /* @__PURE__ */ new Set([
+      "api",
+      "data",
+      "docs",
+      "output",
+      "supabase",
+      "tests",
+      "uploads"
+    ]);
+    EXCLUDED_FILES = /* @__PURE__ */ new Set([".env", ".env.local"]);
+    PORTABLE_PUBLIC_EXCLUDES = /* @__PURE__ */ new Set([
+      "public/cloud.html",
+      "public/css/cloud.css",
+      "public/js/cloud-dashboard.js",
+      "public/js/fleet-view.js"
+    ]);
+    EXCLUDED_PATHS = /* @__PURE__ */ new Set([
+      "public/cloud.html",
+      "public/css/cloud.css",
+      "public/js/cloud-dashboard.js",
+      "public/js/fleet-view.js",
+      "src/cloud/adminHandlers.js",
+      "src/cloud/nodePackage.js",
+      "src/cloud/supabaseRest.js"
+    ]);
+    PORTABLE_BUNDLE_SUBDIR = import_node_path.default.join("dist", "windows-node");
+  }
+});
+
+// node_modules/dotenv/package.json
+var require_package = __commonJS({
+  "node_modules/dotenv/package.json"(exports2, module2) {
+    module2.exports = {
+      name: "dotenv",
+      version: "16.6.1",
+      description: "Loads environment variables from .env file",
+      main: "lib/main.js",
+      types: "lib/main.d.ts",
+      exports: {
+        ".": {
+          types: "./lib/main.d.ts",
+          require: "./lib/main.js",
+          default: "./lib/main.js"
+        },
+        "./config": "./config.js",
+        "./config.js": "./config.js",
+        "./lib/env-options": "./lib/env-options.js",
+        "./lib/env-options.js": "./lib/env-options.js",
+        "./lib/cli-options": "./lib/cli-options.js",
+        "./lib/cli-options.js": "./lib/cli-options.js",
+        "./package.json": "./package.json"
+      },
+      scripts: {
+        "dts-check": "tsc --project tests/types/tsconfig.json",
+        lint: "standard",
+        pretest: "npm run lint && npm run dts-check",
+        test: "tap run --allow-empty-coverage --disable-coverage --timeout=60000",
+        "test:coverage": "tap run --show-full-coverage --timeout=60000 --coverage-report=text --coverage-report=lcov",
+        prerelease: "npm test",
+        release: "standard-version"
+      },
+      repository: {
+        type: "git",
+        url: "git://github.com/motdotla/dotenv.git"
+      },
+      homepage: "https://github.com/motdotla/dotenv#readme",
+      funding: "https://dotenvx.com",
+      keywords: [
+        "dotenv",
+        "env",
+        ".env",
+        "environment",
+        "variables",
+        "config",
+        "settings"
+      ],
+      readmeFilename: "README.md",
+      license: "BSD-2-Clause",
+      devDependencies: {
+        "@types/node": "^18.11.3",
+        decache: "^4.6.2",
+        sinon: "^14.0.1",
+        standard: "^17.0.0",
+        "standard-version": "^9.5.0",
+        tap: "^19.2.0",
+        typescript: "^4.8.4"
+      },
+      engines: {
+        node: ">=12"
+      },
+      browser: {
+        fs: false
+      }
+    };
+  }
+});
+
+// node_modules/dotenv/lib/main.js
+var require_main = __commonJS({
+  "node_modules/dotenv/lib/main.js"(exports2, module2) {
+    var fs12 = require("fs");
+    var path15 = require("path");
+    var os7 = require("os");
+    var crypto5 = require("crypto");
+    var packageJson = require_package();
+    var version = packageJson.version;
+    var LINE = /(?:^|^)\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?(?:$|$)/mg;
+    function parse(src) {
+      const obj = {};
+      let lines = src.toString();
+      lines = lines.replace(/\r\n?/mg, "\n");
+      let match;
+      while ((match = LINE.exec(lines)) != null) {
+        const key = match[1];
+        let value = match[2] || "";
+        value = value.trim();
+        const maybeQuote = value[0];
+        value = value.replace(/^(['"`])([\s\S]*)\1$/mg, "$2");
+        if (maybeQuote === '"') {
+          value = value.replace(/\\n/g, "\n");
+          value = value.replace(/\\r/g, "\r");
+        }
+        obj[key] = value;
+      }
+      return obj;
+    }
+    function _parseVault(options) {
+      options = options || {};
+      const vaultPath = _vaultPath(options);
+      options.path = vaultPath;
+      const result = DotenvModule.configDotenv(options);
+      if (!result.parsed) {
+        const err = new Error(`MISSING_DATA: Cannot parse ${vaultPath} for an unknown reason`);
+        err.code = "MISSING_DATA";
+        throw err;
+      }
+      const keys = _dotenvKey(options).split(",");
+      const length = keys.length;
+      let decrypted;
+      for (let i = 0; i < length; i++) {
+        try {
+          const key = keys[i].trim();
+          const attrs = _instructions(result, key);
+          decrypted = DotenvModule.decrypt(attrs.ciphertext, attrs.key);
+          break;
+        } catch (error) {
+          if (i + 1 >= length) {
+            throw error;
+          }
+        }
+      }
+      return DotenvModule.parse(decrypted);
+    }
+    function _warn(message) {
+      console.log(`[dotenv@${version}][WARN] ${message}`);
+    }
+    function _debug(message) {
+      console.log(`[dotenv@${version}][DEBUG] ${message}`);
+    }
+    function _log(message) {
+      console.log(`[dotenv@${version}] ${message}`);
+    }
+    function _dotenvKey(options) {
+      if (options && options.DOTENV_KEY && options.DOTENV_KEY.length > 0) {
+        return options.DOTENV_KEY;
+      }
+      if (process.env.DOTENV_KEY && process.env.DOTENV_KEY.length > 0) {
+        return process.env.DOTENV_KEY;
+      }
+      return "";
+    }
+    function _instructions(result, dotenvKey) {
+      let uri;
+      try {
+        uri = new URL(dotenvKey);
+      } catch (error) {
+        if (error.code === "ERR_INVALID_URL") {
+          const err = new Error("INVALID_DOTENV_KEY: Wrong format. Must be in valid uri format like dotenv://:key_1234@dotenvx.com/vault/.env.vault?environment=development");
+          err.code = "INVALID_DOTENV_KEY";
+          throw err;
+        }
+        throw error;
+      }
+      const key = uri.password;
+      if (!key) {
+        const err = new Error("INVALID_DOTENV_KEY: Missing key part");
+        err.code = "INVALID_DOTENV_KEY";
+        throw err;
+      }
+      const environment = uri.searchParams.get("environment");
+      if (!environment) {
+        const err = new Error("INVALID_DOTENV_KEY: Missing environment part");
+        err.code = "INVALID_DOTENV_KEY";
+        throw err;
+      }
+      const environmentKey = `DOTENV_VAULT_${environment.toUpperCase()}`;
+      const ciphertext = result.parsed[environmentKey];
+      if (!ciphertext) {
+        const err = new Error(`NOT_FOUND_DOTENV_ENVIRONMENT: Cannot locate environment ${environmentKey} in your .env.vault file.`);
+        err.code = "NOT_FOUND_DOTENV_ENVIRONMENT";
+        throw err;
+      }
+      return { ciphertext, key };
+    }
+    function _vaultPath(options) {
+      let possibleVaultPath = null;
+      if (options && options.path && options.path.length > 0) {
+        if (Array.isArray(options.path)) {
+          for (const filepath of options.path) {
+            if (fs12.existsSync(filepath)) {
+              possibleVaultPath = filepath.endsWith(".vault") ? filepath : `${filepath}.vault`;
+            }
+          }
+        } else {
+          possibleVaultPath = options.path.endsWith(".vault") ? options.path : `${options.path}.vault`;
+        }
+      } else {
+        possibleVaultPath = path15.resolve(process.cwd(), ".env.vault");
+      }
+      if (fs12.existsSync(possibleVaultPath)) {
+        return possibleVaultPath;
+      }
+      return null;
+    }
+    function _resolveHome(envPath) {
+      return envPath[0] === "~" ? path15.join(os7.homedir(), envPath.slice(1)) : envPath;
+    }
+    function _configVault(options) {
+      const debug = Boolean(options && options.debug);
+      const quiet = options && "quiet" in options ? options.quiet : true;
+      if (debug || !quiet) {
+        _log("Loading env from encrypted .env.vault");
+      }
+      const parsed = DotenvModule._parseVault(options);
+      let processEnv = process.env;
+      if (options && options.processEnv != null) {
+        processEnv = options.processEnv;
+      }
+      DotenvModule.populate(processEnv, parsed, options);
+      return { parsed };
+    }
+    function configDotenv(options) {
+      const dotenvPath = path15.resolve(process.cwd(), ".env");
+      let encoding = "utf8";
+      const debug = Boolean(options && options.debug);
+      const quiet = options && "quiet" in options ? options.quiet : true;
+      if (options && options.encoding) {
+        encoding = options.encoding;
+      } else {
+        if (debug) {
+          _debug("No encoding is specified. UTF-8 is used by default");
+        }
+      }
+      let optionPaths = [dotenvPath];
+      if (options && options.path) {
+        if (!Array.isArray(options.path)) {
+          optionPaths = [_resolveHome(options.path)];
+        } else {
+          optionPaths = [];
+          for (const filepath of options.path) {
+            optionPaths.push(_resolveHome(filepath));
+          }
+        }
+      }
+      let lastError;
+      const parsedAll = {};
+      for (const path16 of optionPaths) {
+        try {
+          const parsed = DotenvModule.parse(fs12.readFileSync(path16, { encoding }));
+          DotenvModule.populate(parsedAll, parsed, options);
+        } catch (e) {
+          if (debug) {
+            _debug(`Failed to load ${path16} ${e.message}`);
+          }
+          lastError = e;
+        }
+      }
+      let processEnv = process.env;
+      if (options && options.processEnv != null) {
+        processEnv = options.processEnv;
+      }
+      DotenvModule.populate(processEnv, parsedAll, options);
+      if (debug || !quiet) {
+        const keysCount = Object.keys(parsedAll).length;
+        const shortPaths = [];
+        for (const filePath of optionPaths) {
+          try {
+            const relative = path15.relative(process.cwd(), filePath);
+            shortPaths.push(relative);
+          } catch (e) {
+            if (debug) {
+              _debug(`Failed to load ${filePath} ${e.message}`);
+            }
+            lastError = e;
+          }
+        }
+        _log(`injecting env (${keysCount}) from ${shortPaths.join(",")}`);
+      }
+      if (lastError) {
+        return { parsed: parsedAll, error: lastError };
+      } else {
+        return { parsed: parsedAll };
+      }
+    }
+    function config(options) {
+      if (_dotenvKey(options).length === 0) {
+        return DotenvModule.configDotenv(options);
+      }
+      const vaultPath = _vaultPath(options);
+      if (!vaultPath) {
+        _warn(`You set DOTENV_KEY but you are missing a .env.vault file at ${vaultPath}. Did you forget to build it?`);
+        return DotenvModule.configDotenv(options);
+      }
+      return DotenvModule._configVault(options);
+    }
+    function decrypt2(encrypted, keyStr) {
+      const key = Buffer.from(keyStr.slice(-64), "hex");
+      let ciphertext = Buffer.from(encrypted, "base64");
+      const nonce = ciphertext.subarray(0, 12);
+      const authTag = ciphertext.subarray(-16);
+      ciphertext = ciphertext.subarray(12, -16);
+      try {
+        const aesgcm = crypto5.createDecipheriv("aes-256-gcm", key, nonce);
+        aesgcm.setAuthTag(authTag);
+        return `${aesgcm.update(ciphertext)}${aesgcm.final()}`;
+      } catch (error) {
+        const isRange = error instanceof RangeError;
+        const invalidKeyLength = error.message === "Invalid key length";
+        const decryptionFailed = error.message === "Unsupported state or unable to authenticate data";
+        if (isRange || invalidKeyLength) {
+          const err = new Error("INVALID_DOTENV_KEY: It must be 64 characters long (or more)");
+          err.code = "INVALID_DOTENV_KEY";
+          throw err;
+        } else if (decryptionFailed) {
+          const err = new Error("DECRYPTION_FAILED: Please check your DOTENV_KEY");
+          err.code = "DECRYPTION_FAILED";
+          throw err;
+        } else {
+          throw error;
+        }
+      }
+    }
+    function populate(processEnv, parsed, options = {}) {
+      const debug = Boolean(options && options.debug);
+      const override = Boolean(options && options.override);
+      if (typeof parsed !== "object") {
+        const err = new Error("OBJECT_REQUIRED: Please check the processEnv argument being passed to populate");
+        err.code = "OBJECT_REQUIRED";
+        throw err;
+      }
+      for (const key of Object.keys(parsed)) {
+        if (Object.prototype.hasOwnProperty.call(processEnv, key)) {
+          if (override === true) {
+            processEnv[key] = parsed[key];
+          }
+          if (debug) {
+            if (override === true) {
+              _debug(`"${key}" is already defined and WAS overwritten`);
+            } else {
+              _debug(`"${key}" is already defined and was NOT overwritten`);
+            }
+          }
+        } else {
+          processEnv[key] = parsed[key];
+        }
+      }
+    }
+    var DotenvModule = {
+      configDotenv,
+      _configVault,
+      _parseVault,
+      config,
+      decrypt: decrypt2,
+      parse,
+      populate
+    };
+    module2.exports.configDotenv = DotenvModule.configDotenv;
+    module2.exports._configVault = DotenvModule._configVault;
+    module2.exports._parseVault = DotenvModule._parseVault;
+    module2.exports.config = DotenvModule.config;
+    module2.exports.decrypt = DotenvModule.decrypt;
+    module2.exports.parse = DotenvModule.parse;
+    module2.exports.populate = DotenvModule.populate;
+    module2.exports = DotenvModule;
+  }
+});
+
+// node_modules/dotenv/lib/env-options.js
+var require_env_options = __commonJS({
+  "node_modules/dotenv/lib/env-options.js"(exports2, module2) {
+    var options = {};
+    if (process.env.DOTENV_CONFIG_ENCODING != null) {
+      options.encoding = process.env.DOTENV_CONFIG_ENCODING;
+    }
+    if (process.env.DOTENV_CONFIG_PATH != null) {
+      options.path = process.env.DOTENV_CONFIG_PATH;
+    }
+    if (process.env.DOTENV_CONFIG_QUIET != null) {
+      options.quiet = process.env.DOTENV_CONFIG_QUIET;
+    }
+    if (process.env.DOTENV_CONFIG_DEBUG != null) {
+      options.debug = process.env.DOTENV_CONFIG_DEBUG;
+    }
+    if (process.env.DOTENV_CONFIG_OVERRIDE != null) {
+      options.override = process.env.DOTENV_CONFIG_OVERRIDE;
+    }
+    if (process.env.DOTENV_CONFIG_DOTENV_KEY != null) {
+      options.DOTENV_KEY = process.env.DOTENV_CONFIG_DOTENV_KEY;
+    }
+    module2.exports = options;
+  }
+});
+
+// node_modules/dotenv/lib/cli-options.js
+var require_cli_options = __commonJS({
+  "node_modules/dotenv/lib/cli-options.js"(exports2, module2) {
+    var re = /^dotenv_config_(encoding|path|quiet|debug|override|DOTENV_KEY)=(.+)$/;
+    module2.exports = function optionMatcher(args) {
+      const options = args.reduce(function(acc, cur) {
+        const matches = cur.match(re);
+        if (matches) {
+          acc[matches[1]] = matches[2];
+        }
+        return acc;
+      }, {});
+      if (!("quiet" in options)) {
+        options.quiet = "true";
+      }
+      return options;
+    };
+  }
+});
+
+// node_modules/dotenv/config.js
+var init_config = __esm({
+  "node_modules/dotenv/config.js"() {
+    (function() {
+      require_main().config(
+        Object.assign(
+          {},
+          require_env_options(),
+          require_cli_options()(process.argv)
+        )
+      );
+    })();
+  }
+});
+
 // src/services/FilamentCatalog.js
 var FilamentCatalog_exports = {};
 __export(FilamentCatalog_exports, {
@@ -3745,15 +4277,15 @@ var require_sql_wasm = __commonJS({
         "undefined" != typeof __filename ? ya = __filename : ba && (ya = self.location.href);
         var za = "", Aa, Ba;
         if (ca) {
-          var fs10 = require("node:fs");
+          var fs12 = require("node:fs");
           za = __dirname + "/";
           Ba = (a) => {
             a = Ca(a) ? new URL(a) : a;
-            return fs10.readFileSync(a);
+            return fs12.readFileSync(a);
           };
           Aa = async (a) => {
             a = Ca(a) ? new URL(a) : a;
-            return fs10.readFileSync(a, void 0);
+            return fs12.readFileSync(a, void 0);
           };
           1 < process.argv.length && (wa = process.argv[1].replace(/\\/g, "/"));
           process.argv.slice(2);
@@ -4035,7 +4567,7 @@ var require_sql_wasm = __commonJS({
               if (ca) {
                 var b = Buffer.alloc(256), c = 0, d = process.stdin.fd;
                 try {
-                  c = fs10.readSync(d, b, 0, 256);
+                  c = fs12.readSync(d, b, 0, 256);
                 } catch (e) {
                   if (e.toString().includes("EOF")) c = 0;
                   else throw e;
@@ -5408,12 +5940,12 @@ function assetRoot() {
 }
 function resolveAsset(subpath, sourceDefault) {
   const root = assetRoot();
-  return root ? import_node_path.default.join(root, subpath) : sourceDefault;
+  return root ? import_node_path2.default.join(root, subpath) : sourceDefault;
 }
-var import_node_path;
+var import_node_path2;
 var init_runtimePaths = __esm({
   "src/utils/runtimePaths.js"() {
-    import_node_path = __toESM(require("node:path"), 1);
+    import_node_path2 = __toESM(require("node:path"), 1);
   }
 });
 
@@ -5433,22 +5965,22 @@ __export(database_exports, {
 });
 function getDefaultDbPath() {
   if (process.env.VERCEL === "1" || process.env.VERCEL === "true") {
-    return import_node_path2.default.join(import_node_os.default.tmpdir(), "printkinetix-data", "antigravity.db");
+    return import_node_path3.default.join(import_node_os.default.tmpdir(), "printkinetix-data", "antigravity.db");
   }
   return "./data/antigravity.db";
 }
 async function initDb() {
   if (_db) return _db;
   _dbPath = process.env.DB_PATH || getDefaultDbPath();
-  const dir = import_node_path2.default.dirname(_dbPath);
-  if (!import_node_fs.default.existsSync(dir)) {
-    import_node_fs.default.mkdirSync(dir, { recursive: true });
+  const dir = import_node_path3.default.dirname(_dbPath);
+  if (!import_node_fs2.default.existsSync(dir)) {
+    import_node_fs2.default.mkdirSync(dir, { recursive: true });
     log.info(`Created data directory: ${dir}`);
   }
   const root = assetRoot();
-  const SQL = await (0, import_sql.default)(root ? { locateFile: (file) => import_node_path2.default.join(root, file) } : void 0);
-  if (import_node_fs.default.existsSync(_dbPath)) {
-    const buffer = import_node_fs.default.readFileSync(_dbPath);
+  const SQL = await (0, import_sql.default)(root ? { locateFile: (file) => import_node_path3.default.join(root, file) } : void 0);
+  if (import_node_fs2.default.existsSync(_dbPath)) {
+    const buffer = import_node_fs2.default.readFileSync(_dbPath);
     _db = new SQL.Database(buffer);
     log.info(`Database loaded from ${_dbPath}`);
   } else {
@@ -5468,7 +6000,7 @@ function saveDb() {
   if (!_db || !_dbPath) return;
   try {
     const data = _db.export();
-    import_node_fs.default.writeFileSync(_dbPath, Buffer.from(data));
+    import_node_fs2.default.writeFileSync(_dbPath, Buffer.from(data));
   } catch (err) {
     log.error(`Failed to save database: ${err.message}`);
   }
@@ -5518,17 +6050,17 @@ function runMigrations() {
       applied_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
-  const migrationsDir = resolveAsset("migrations", import_node_path2.default.join(__dirname2, "migrations"));
-  if (!import_node_fs.default.existsSync(migrationsDir)) {
+  const migrationsDir = resolveAsset("migrations", import_node_path3.default.join(__dirname2, "migrations"));
+  if (!import_node_fs2.default.existsSync(migrationsDir)) {
     log.warn("No migrations directory found");
     return;
   }
   const appliedRows = dbAll("SELECT filename FROM _migrations");
   const applied = new Set(appliedRows.map((r) => r.filename));
-  const files = import_node_fs.default.readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort();
+  const files = import_node_fs2.default.readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort();
   for (const file of files) {
     if (applied.has(file)) continue;
-    const sql = import_node_fs.default.readFileSync(import_node_path2.default.join(migrationsDir, file), "utf-8");
+    const sql = import_node_fs2.default.readFileSync(import_node_path3.default.join(migrationsDir, file), "utf-8");
     log.info(`Running migration: ${file}`);
     db.run(sql);
     dbRun("INSERT INTO _migrations (filename) VALUES (?)", [file]);
@@ -5548,19 +6080,19 @@ function closeDb() {
     log.info("Database closed");
   }
 }
-var import_sql, import_node_fs, import_node_os, import_node_path2, import_node_url, import_meta, log, __dirname2, _db, _dbPath, _saveTimer, database_default;
+var import_sql, import_node_fs2, import_node_os, import_node_path3, import_node_url, import_meta, log, __dirname2, _db, _dbPath, _saveTimer, database_default;
 var init_database = __esm({
   "src/db/database.js"() {
     import_sql = __toESM(require_sql_wasm(), 1);
-    import_node_fs = __toESM(require("node:fs"), 1);
+    import_node_fs2 = __toESM(require("node:fs"), 1);
     import_node_os = __toESM(require("node:os"), 1);
-    import_node_path2 = __toESM(require("node:path"), 1);
+    import_node_path3 = __toESM(require("node:path"), 1);
     import_node_url = require("node:url");
     init_logger();
     init_runtimePaths();
     import_meta = {};
     log = createLogger("DB");
-    __dirname2 = import_meta.url ? import_node_path2.default.dirname((0, import_node_url.fileURLToPath)(import_meta.url)) : process.env.PKX_ASSET_ROOT || process.cwd();
+    __dirname2 = import_meta.url ? import_node_path3.default.dirname((0, import_node_url.fileURLToPath)(import_meta.url)) : process.env.PKX_ASSET_ROOT || process.cwd();
     _db = null;
     _dbPath = null;
     _saveTimer = null;
@@ -32166,7 +32698,7 @@ var require_socks = __commonJS({
         this.destroy(err);
       };
     };
-    function fatal(e) {
+    function fatal2(e) {
       try {
         if (e.code === void 0)
           e.code = "SOCKS";
@@ -32192,15 +32724,15 @@ var require_socks = __commonJS({
     function parseSocksUrl(url) {
       const parsedUrl = new URL(url);
       if (parsedUrl.pathname || parsedUrl.hash || parsedUrl.search) {
-        throw fatal(new Error("bad SOCKS URL"));
+        throw fatal2(new Error("bad SOCKS URL"));
       }
       const [type, resolveThroughProxy] = typeFromProtocol(parsedUrl.protocol);
       if (!type) {
-        throw fatal(new Error("bad SOCKS URL: invalid protocol"));
+        throw fatal2(new Error("bad SOCKS URL: invalid protocol"));
       }
       const port = parseInt(parsedUrl.port, 10);
       if (Number.isNaN(port)) {
-        throw fatal(new Error("bad SOCKS URL: invalid port"));
+        throw fatal2(new Error("bad SOCKS URL: invalid port"));
       }
       const proxy = {
         host: parsedUrl.hostname,
@@ -32232,7 +32764,7 @@ var require_socks = __commonJS({
       socksClient.on("established", ({ socket }) => stream._start(socket));
       socksClient.on("error", (e) => {
         debug("SOCKS failed: %s", e);
-        stream.destroy(fatal(e));
+        stream.destroy(fatal2(e));
       });
     }
     function openSocks(destinationHost, destinationPort, socksUrl, options) {
@@ -32267,10 +32799,10 @@ var require_tcp = __commonJS({
           timeout: opts.socksTimeout
         });
       }
-      const { port, path: path13 } = opts;
+      const { port, path: path15 } = opts;
       const host = opts.hostname;
       debug("port %d and host %s", port, host);
-      return net_1.default.createConnection({ port, host, path: path13 });
+      return net_1.default.createConnection({ port, host, path: path15 });
     };
     exports2.default = buildStream;
   }
@@ -36647,17 +37179,17 @@ var require_dist12 = __commonJS({
         serialNumber = 0;
       },
       // Create a mock port
-      createPort(path13, options = {}) {
+      createPort(path15, options = {}) {
         serialNumber++;
         const optWithDefaults = Object.assign({ echo: false, record: false, manufacturer: "The J5 Robotics Company", vendorId: void 0, productId: void 0, maxReadSize: 1024 }, options);
-        ports[path13] = {
+        ports[path15] = {
           data: Buffer.alloc(0),
           echo: optWithDefaults.echo,
           record: optWithDefaults.record,
           readyData: optWithDefaults.readyData,
           maxReadSize: optWithDefaults.maxReadSize,
           info: {
-            path: path13,
+            path: path15,
             manufacturer: optWithDefaults.manufacturer,
             serialNumber: `${serialNumber}`,
             pnpId: void 0,
@@ -36666,7 +37198,7 @@ var require_dist12 = __commonJS({
             productId: optWithDefaults.productId
           }
         };
-        debug(serialNumber, "created port", JSON.stringify({ path: path13, opt: options }));
+        debug(serialNumber, "created port", JSON.stringify({ path: path15, opt: options }));
       },
       async list() {
         debug(null, "list");
@@ -36684,19 +37216,19 @@ var require_dist12 = __commonJS({
           throw new TypeError('"baudRate" is not a valid baudRate');
         }
         const openOptions = Object.assign({ dataBits: 8, lock: true, stopBits: 1, parity: "none", rtscts: false, xon: false, xoff: false, xany: false, hupcl: true }, options);
-        const { path: path13 } = openOptions;
-        debug(null, `open: opening path ${path13}`);
-        const port = ports[path13];
+        const { path: path15 } = openOptions;
+        debug(null, `open: opening path ${path15}`);
+        const port = ports[path15];
         await resolveNextTick();
         if (!port) {
-          throw new Error(`Port does not exist - please call MockBinding.createPort('${path13}') first`);
+          throw new Error(`Port does not exist - please call MockBinding.createPort('${path15}') first`);
         }
         const serialNumber2 = port.info.serialNumber;
         if ((_a = port.openOpt) === null || _a === void 0 ? void 0 : _a.lock) {
           debug(serialNumber2, "open: Port is locked cannot open");
           throw new Error("Port is locked cannot open");
         }
-        debug(serialNumber2, `open: opened path ${path13}`);
+        debug(serialNumber2, `open: opened path ${path15}`);
         port.openOpt = Object.assign({}, openOptions);
         return new MockPortBinding(port, openOptions);
       }
@@ -37557,8 +38089,8 @@ var require_src6 = __commonJS({
 // node_modules/node-gyp-build/node-gyp-build.js
 var require_node_gyp_build = __commonJS({
   "node_modules/node-gyp-build/node-gyp-build.js"(exports2, module2) {
-    var fs10 = require("fs");
-    var path13 = require("path");
+    var fs12 = require("fs");
+    var path15 = require("path");
     var os7 = require("os");
     var runtimeRequire = typeof __webpack_require__ === "function" ? __non_webpack_require__ : require;
     var vars = process.config && process.config.variables || {};
@@ -37575,21 +38107,21 @@ var require_node_gyp_build = __commonJS({
       return runtimeRequire(load.resolve(dir));
     }
     load.resolve = load.path = function(dir) {
-      dir = path13.resolve(dir || ".");
+      dir = path15.resolve(dir || ".");
       try {
-        var name = runtimeRequire(path13.join(dir, "package.json")).name.toUpperCase().replace(/-/g, "_");
+        var name = runtimeRequire(path15.join(dir, "package.json")).name.toUpperCase().replace(/-/g, "_");
         if (process.env[name + "_PREBUILD"]) dir = process.env[name + "_PREBUILD"];
       } catch (err) {
       }
       if (!prebuildsOnly) {
-        var release = getFirst(path13.join(dir, "build/Release"), matchBuild);
+        var release = getFirst(path15.join(dir, "build/Release"), matchBuild);
         if (release) return release;
-        var debug = getFirst(path13.join(dir, "build/Debug"), matchBuild);
+        var debug = getFirst(path15.join(dir, "build/Debug"), matchBuild);
         if (debug) return debug;
       }
       var prebuild = resolve(dir);
       if (prebuild) return prebuild;
-      var nearby = resolve(path13.dirname(process.execPath));
+      var nearby = resolve(path15.dirname(process.execPath));
       if (nearby) return nearby;
       var target = [
         "platform=" + platform,
@@ -37606,26 +38138,26 @@ var require_node_gyp_build = __commonJS({
       ].filter(Boolean).join(" ");
       throw new Error("No native build was found for " + target + "\n    loaded from: " + dir + "\n");
       function resolve(dir2) {
-        var tuples = readdirSync(path13.join(dir2, "prebuilds")).map(parseTuple);
+        var tuples = readdirSync(path15.join(dir2, "prebuilds")).map(parseTuple);
         var tuple = tuples.filter(matchTuple(platform, arch)).sort(compareTuples)[0];
         if (!tuple) return;
-        var prebuilds = path13.join(dir2, "prebuilds", tuple.name);
+        var prebuilds = path15.join(dir2, "prebuilds", tuple.name);
         var parsed = readdirSync(prebuilds).map(parseTags);
         var candidates = parsed.filter(matchTags(runtime, abi));
         var winner = candidates.sort(compareTags(runtime))[0];
-        if (winner) return path13.join(prebuilds, winner.file);
+        if (winner) return path15.join(prebuilds, winner.file);
       }
     };
     function readdirSync(dir) {
       try {
-        return fs10.readdirSync(dir);
+        return fs12.readdirSync(dir);
       } catch (err) {
         return [];
       }
     }
     function getFirst(dir, filter) {
       var files = readdirSync(dir).filter(filter);
-      return files[0] && path13.join(dir, files[0]);
+      return files[0] && path15.join(dir, files[0]);
     }
     function matchBuild(name) {
       return /\.node$/.test(name);
@@ -37712,7 +38244,7 @@ var require_node_gyp_build = __commonJS({
       return typeof window !== "undefined" && window.process && window.process.type === "renderer";
     }
     function isAlpine(platform2) {
-      return platform2 === "linux" && fs10.existsSync("/etc/alpine-release");
+      return platform2 === "linux" && fs12.existsSync("/etc/alpine-release");
     }
     load.parseTags = parseTags;
     load.matchTags = matchTags;
@@ -38248,8 +38780,8 @@ var require_linux_list = __commonJS({
     exports2.linuxList = void 0;
     var child_process_1 = require("child_process");
     var parser_readline_1 = require_dist14();
-    function checkPathOfDevice(path13) {
-      return /(tty(S|WCH|ACM|USB|AMA|MFD|O|XRUSB)|rfcomm)/.test(path13) && path13;
+    function checkPathOfDevice(path15) {
+      return /(tty(S|WCH|ACM|USB|AMA|MFD|O|XRUSB)|rfcomm)/.test(path15) && path15;
     }
     function propName(name) {
       return {
@@ -39605,25 +40137,25 @@ function isVercelRuntime(env = process.env) {
 }
 function getUploadRoot(env = process.env) {
   if (typeof env.UPLOADS_DIR === "string" && env.UPLOADS_DIR.trim()) {
-    return import_node_path3.default.resolve(env.UPLOADS_DIR.trim());
+    return import_node_path4.default.resolve(env.UPLOADS_DIR.trim());
   }
   if (isVercelRuntime(env)) {
-    return import_node_path3.default.join(import_node_os3.default.tmpdir(), "printkinetix-uploads");
+    return import_node_path4.default.join(import_node_os3.default.tmpdir(), "printkinetix-uploads");
   }
-  return import_node_path3.default.resolve("./uploads");
+  return import_node_path4.default.resolve("./uploads");
 }
 function getUploadPath(...segments) {
   let env = process.env;
   if (segments.length > 0 && segments[segments.length - 1] && typeof segments[segments.length - 1] === "object" && !Array.isArray(segments[segments.length - 1])) {
     env = segments.pop();
   }
-  return import_node_path3.default.join(getUploadRoot(env), ...segments.filter(Boolean).map(String));
+  return import_node_path4.default.join(getUploadRoot(env), ...segments.filter(Boolean).map(String));
 }
-var import_node_os3, import_node_path3;
+var import_node_os3, import_node_path4;
 var init_uploadPaths = __esm({
   "src/utils/uploadPaths.js"() {
     import_node_os3 = __toESM(require("node:os"), 1);
-    import_node_path3 = __toESM(require("node:path"), 1);
+    import_node_path4 = __toESM(require("node:path"), 1);
   }
 });
 
@@ -39641,13 +40173,13 @@ function _pj4(v, fb) {
     return fb;
   }
 }
-var import_node_fs2, import_node_path4, JobModel, Job_default;
+var import_node_fs3, import_node_path5, JobModel, Job_default;
 var init_Job = __esm({
   "src/models/Job.js"() {
     init_database();
     init_uuid();
-    import_node_fs2 = __toESM(require("node:fs"), 1);
-    import_node_path4 = __toESM(require("node:path"), 1);
+    import_node_fs3 = __toESM(require("node:fs"), 1);
+    import_node_path5 = __toESM(require("node:path"), 1);
     init_uploadPaths();
     JobModel = class {
       static create({ name, printer_id, profile_id, source_file_name, ams_roles, repeat_total, priority, scheduled_for, max_retries, metadata }) {
@@ -39755,9 +40287,9 @@ var init_Job = __esm({
             `${job.job_id}_${job.transformed_file_name}`
           ].filter(Boolean);
           for (const p of patterns) {
-            const fullPath = import_node_path4.default.join(uploadsPath, p);
+            const fullPath = import_node_path5.default.join(uploadsPath, p);
             try {
-              if (import_node_fs2.default.existsSync(fullPath)) import_node_fs2.default.unlinkSync(fullPath);
+              if (import_node_fs3.default.existsSync(fullPath)) import_node_fs3.default.unlinkSync(fullPath);
             } catch {
             }
           }
@@ -40327,7 +40859,7 @@ var init_Automator = __esm({
 // src/gcode/AutomatorZip.js
 function buildGcode3mf(plates, meta = {}) {
   if (!plates?.length) throw new Error("buildGcode3mf: no plates supplied");
-  const zip = new import_adm_zip.default();
+  const zip = new import_adm_zip2.default();
   zip.addFile("[Content_Types].xml", Buffer.from(CONTENT_TYPES_XML, "utf-8"));
   zip.addFile("_rels/.rels", Buffer.from(RELS_XML, "utf-8"));
   zip.addFile("3D/3dmodel.model", Buffer.from(MODEL_XML, "utf-8"));
@@ -40578,12 +41110,12 @@ function crc32(buf) {
   }
   return (crc ^ 4294967295) >>> 0;
 }
-var import_node_crypto2, import_node_zlib, import_adm_zip, log15, CONTENT_TYPES_XML, RELS_XML, MODEL_XML, LOCAL_FILE_HEADER_SIG, CENTRAL_DIR_SIG, EOCD_SIG, CRC32_TABLE;
+var import_node_crypto2, import_node_zlib, import_adm_zip2, log15, CONTENT_TYPES_XML, RELS_XML, MODEL_XML, LOCAL_FILE_HEADER_SIG, CENTRAL_DIR_SIG, EOCD_SIG, CRC32_TABLE;
 var init_AutomatorZip = __esm({
   "src/gcode/AutomatorZip.js"() {
     import_node_crypto2 = require("node:crypto");
     import_node_zlib = require("node:zlib");
-    import_adm_zip = __toESM(require_adm_zip(), 1);
+    import_adm_zip2 = __toESM(require_adm_zip(), 1);
     init_logger();
     log15 = createLogger("AutomatorZip");
     CONTENT_TYPES_XML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -42325,8 +42857,8 @@ var require_Client = __commonJS({
       /**
        * Set the working directory.
        */
-      async cd(path13) {
-        const validPath = await this.protectWhitespace(path13);
+      async cd(path15) {
+        const validPath = await this.protectWhitespace(path15);
         return this.send("CWD " + validPath);
       }
       /**
@@ -42339,8 +42871,8 @@ var require_Client = __commonJS({
        * Get the last modified time of a file. This is not supported by every FTP server, in which case
        * calling this method will throw an exception.
        */
-      async lastMod(path13) {
-        const validPath = await this.protectWhitespace(path13);
+      async lastMod(path15) {
+        const validPath = await this.protectWhitespace(path15);
         const res = await this.send(`MDTM ${validPath}`);
         const date = res.message.slice(4);
         return (0, parseListMLSD_1.parseMLSxDate)(date);
@@ -42348,8 +42880,8 @@ var require_Client = __commonJS({
       /**
        * Get the size of a file.
        */
-      async size(path13) {
-        const validPath = await this.protectWhitespace(path13);
+      async size(path15) {
+        const validPath = await this.protectWhitespace(path15);
         const command = `SIZE ${validPath}`;
         const res = await this.send(command);
         const size = parseInt(res.message.slice(4), 10);
@@ -42376,8 +42908,8 @@ var require_Client = __commonJS({
        * You can ignore FTP error return codes which won't throw an exception if e.g.
        * the file doesn't exist.
        */
-      async remove(path13, ignoreErrorCodes = false) {
-        const validPath = await this.protectWhitespace(path13);
+      async remove(path15, ignoreErrorCodes = false) {
+        const validPath = await this.protectWhitespace(path15);
         if (ignoreErrorCodes) {
           return this.sendIgnoringError(`DELE ${validPath}`);
         }
@@ -42531,8 +43063,8 @@ var require_Client = __commonJS({
        *
        * @param [path]  Path to remote file or directory.
        */
-      async list(path13 = "") {
-        const validPath = await this.protectWhitespace(path13);
+      async list(path15 = "") {
+        const validPath = await this.protectWhitespace(path15);
         let lastError;
         for (const candidate of this.availableListCommands) {
           const command = validPath === "" ? candidate : `${candidate} ${validPath}`;
@@ -42702,21 +43234,21 @@ var require_Client = __commonJS({
       /**
        * Remove an empty directory, will fail if not empty.
        */
-      async removeEmptyDir(path13) {
-        const validPath = await this.protectWhitespace(path13);
+      async removeEmptyDir(path15) {
+        const validPath = await this.protectWhitespace(path15);
         return this.send(`RMD ${validPath}`);
       }
       /**
        * FTP servers can't handle filenames that have leading whitespace. This method transforms
        * a given path to fix that issue for most cases.
        */
-      async protectWhitespace(path13) {
-        if (!path13.startsWith(" ")) {
-          return path13;
+      async protectWhitespace(path15) {
+        if (!path15.startsWith(" ")) {
+          return path15;
         }
         const pwd = await this.pwd();
         const absolutePathPrefix = pwd.endsWith("/") ? pwd : pwd + "/";
-        return absolutePathPrefix + path13;
+        return absolutePathPrefix + path15;
       }
       async _exitAtCurrentDirectory(func) {
         const userDir = await this.pwd();
@@ -42793,11 +43325,11 @@ var require_Client = __commonJS({
       }
     };
     exports2.Client = Client2;
-    async function ensureLocalDirectory(path13) {
+    async function ensureLocalDirectory(path15) {
       try {
-        await fsStat(path13);
+        await fsStat(path15);
       } catch (_a) {
-        await fsMkDir(path13, { recursive: true });
+        await fsMkDir(path15, { recursive: true });
       }
     }
     async function ignoreError(func) {
@@ -43081,7 +43613,7 @@ __export(JobOrchestrator_exports, {
   JobOrchestrator: () => JobOrchestrator,
   default: () => JobOrchestrator_default
 });
-var import_node_fs3, import_node_path5, log18, UPLOADS_DIR, JobOrchestrator, JobOrchestrator_default;
+var import_node_fs4, import_node_path6, log18, UPLOADS_DIR, JobOrchestrator, JobOrchestrator_default;
 var init_JobOrchestrator = __esm({
   "src/services/JobOrchestrator.js"() {
     init_Job();
@@ -43097,8 +43629,8 @@ var init_JobOrchestrator = __esm({
     init_PrinterErrors();
     init_JobRetryService();
     init_SystemEvents();
-    import_node_fs3 = __toESM(require("node:fs"), 1);
-    import_node_path5 = __toESM(require("node:path"), 1);
+    import_node_fs4 = __toESM(require("node:fs"), 1);
+    import_node_path6 = __toESM(require("node:path"), 1);
     init_uploadPaths();
     log18 = createLogger("JobOrchestrator");
     UPLOADS_DIR = getUploadRoot();
@@ -43126,7 +43658,7 @@ var init_JobOrchestrator = __esm({
        * (queued for that printer) instead of starting it immediately.
        */
       static async submit({ name, printer_id, profile_id, repeat_total, ams_roles, fileContent, fileName, skip_transform = false, transform_overrides = null, rawBuffer3mf = null, originalFileName3mf = null, transform_mode = "required", auto_start = true, metadata = null }) {
-        if (!import_node_fs3.default.existsSync(UPLOADS_DIR)) import_node_fs3.default.mkdirSync(UPLOADS_DIR, { recursive: true });
+        if (!import_node_fs4.default.existsSync(UPLOADS_DIR)) import_node_fs4.default.mkdirSync(UPLOADS_DIR, { recursive: true });
         let profile;
         if (profile_id) {
           profile = GcodeProfileModel.findById(profile_id);
@@ -43151,12 +43683,12 @@ var init_JobOrchestrator = __esm({
         });
         log18.info(`Job created: ${job.name} [${job.job_id}]`);
         try {
-          const sourcePath = import_node_path5.default.join(UPLOADS_DIR, `${job.job_id}_${fileName}`);
-          import_node_fs3.default.writeFileSync(sourcePath, fileContent);
+          const sourcePath = import_node_path6.default.join(UPLOADS_DIR, `${job.job_id}_${fileName}`);
+          import_node_fs4.default.writeFileSync(sourcePath, fileContent);
           if (skip_transform) {
             const rawFileName = fileName.replace(/\.gcode$/i, ".AG.gcode");
-            const rawPath = import_node_path5.default.join(UPLOADS_DIR, `${job.job_id}_${rawFileName}`);
-            import_node_fs3.default.writeFileSync(rawPath, fileContent);
+            const rawPath = import_node_path6.default.join(UPLOADS_DIR, `${job.job_id}_${rawFileName}`);
+            import_node_fs4.default.writeFileSync(rawPath, fileContent);
             JobModel.update(job.job_id, {
               transformed_file_name: rawFileName,
               transform_report: { skipped: true, reason: "User requested raw upload" },
@@ -43217,7 +43749,7 @@ var init_JobOrchestrator = __esm({
             if (transformedGcode === null) {
               if (!rawBuffer3mf) throw new Error("transform_mode skip/fallback requires a .gcode.3mf input");
               const passthroughName = originalFileName3mf || fileName;
-              import_node_fs3.default.writeFileSync(import_node_path5.default.join(UPLOADS_DIR, `${job.job_id}_${passthroughName}`), rawBuffer3mf);
+              import_node_fs4.default.writeFileSync(import_node_path6.default.join(UPLOADS_DIR, `${job.job_id}_${passthroughName}`), rawBuffer3mf);
               JobModel.update(job.job_id, {
                 transformed_file_name: passthroughName,
                 transform_report: {
@@ -43244,8 +43776,8 @@ var init_JobOrchestrator = __esm({
             }
             if (doubleLoopWarning) report.warnings.push(doubleLoopWarning);
             const debugGcodeFileName = fileName.replace(/\.gcode(\.3mf)?$/i, ".AG.gcode");
-            const debugGcodePath = import_node_path5.default.join(UPLOADS_DIR, `${job.job_id}_${debugGcodeFileName}`);
-            import_node_fs3.default.writeFileSync(debugGcodePath, transformedGcode, "utf-8");
+            const debugGcodePath = import_node_path6.default.join(UPLOADS_DIR, `${job.job_id}_${debugGcodeFileName}`);
+            import_node_fs4.default.writeFileSync(debugGcodePath, transformedGcode, "utf-8");
             log18.info(`Saved debug .gcode: ${debugGcodeFileName}`);
             const filesWritten = [debugGcodeFileName];
             let primaryFileName = debugGcodeFileName;
@@ -43253,8 +43785,8 @@ var init_JobOrchestrator = __esm({
               try {
                 const repacked = repack3mf(rawBuffer3mf, gcodeEntryName, transformedGcode);
                 const threemfFileName = originalFileName3mf.replace(/\.gcode\.3mf$/i, ".AG.gcode.3mf");
-                const threemfPath = import_node_path5.default.join(UPLOADS_DIR, `${job.job_id}_${threemfFileName}`);
-                import_node_fs3.default.writeFileSync(threemfPath, repacked);
+                const threemfPath = import_node_path6.default.join(UPLOADS_DIR, `${job.job_id}_${threemfFileName}`);
+                import_node_fs4.default.writeFileSync(threemfPath, repacked);
                 primaryFileName = threemfFileName;
                 filesWritten.push(threemfFileName);
                 log18.info(`Saved repacked .3mf: ${threemfFileName}`);
@@ -43369,21 +43901,21 @@ var init_JobOrchestrator = __esm({
             stage("FILE_READ_FAIL", "No access code");
             throw new Error("Upload failed: No access code");
           }
-          const filePath = import_node_path5.default.join(UPLOADS_DIR, `${job.job_id}_${job.transformed_file_name}`);
-          if (!import_node_fs3.default.existsSync(filePath)) {
+          const filePath = import_node_path6.default.join(UPLOADS_DIR, `${job.job_id}_${job.transformed_file_name}`);
+          if (!import_node_fs4.default.existsSync(filePath)) {
             stage("FILE_READ_FAIL", "File not found");
             throw new Error("Upload failed: File not found");
           }
-          const fileBuffer = import_node_fs3.default.readFileSync(filePath);
+          const fileBuffer = import_node_fs4.default.readFileSync(filePath);
           stage("FILE_READ_OK", { bytes: fileBuffer.length, path: filePath });
           const remoteFileName = job.transformed_file_name;
           const is3mfArtifact = remoteFileName.toLowerCase().endsWith(".3mf");
           const gcodeEntry = job.transform_report?.gcode_entry_name;
           if (!is3mfArtifact) {
-            stage("INVALID_PRINT_ARTIFACT_TYPE", { file: remoteFileName, expected: ".gcode.3mf", got: import_node_path5.default.extname(remoteFileName) });
+            stage("INVALID_PRINT_ARTIFACT_TYPE", { file: remoteFileName, expected: ".gcode.3mf", got: import_node_path6.default.extname(remoteFileName) });
             releaseLock();
             broadcastPhase("start", "failed", `Invalid artifact: Bambu requires .gcode.3mf, got ${remoteFileName}`);
-            throw new Error(`Invalid artifact type: Bambu printers require a .gcode.3mf package, not raw ${import_node_path5.default.extname(remoteFileName)}. The file "${remoteFileName}" cannot be started via project_file.`);
+            throw new Error(`Invalid artifact type: Bambu printers require a .gcode.3mf package, not raw ${import_node_path6.default.extname(remoteFileName)}. The file "${remoteFileName}" cannot be started via project_file.`);
           }
           if (!gcodeEntry) {
             stage("GCODE_ENTRY_MISSING", { file: remoteFileName });
@@ -44164,7 +44696,7 @@ function isZipBuffer(buffer) {
 }
 function extractThumbnailFromZip(buffer) {
   try {
-    const zip = new import_adm_zip2.default(buffer);
+    const zip = new import_adm_zip3.default(buffer);
     for (const name of THUMBNAIL_CANDIDATES) {
       const entry = zip.getEntry(name);
       if (!entry) continue;
@@ -44186,7 +44718,7 @@ function extractThumbnailFromZip(buffer) {
 }
 function extractGcodeTextFromZip(buffer) {
   try {
-    const zip = new import_adm_zip2.default(buffer);
+    const zip = new import_adm_zip3.default(buffer);
     const entry = zip.getEntries().find((item) => item.entryName.endsWith(".gcode"));
     if (!entry) return null;
     const data = entry.getData();
@@ -44327,8 +44859,8 @@ function findJobArtifactPath(job) {
     job.source_file_name ? `${job.job_id}_${job.source_file_name}` : null
   ].filter(Boolean);
   for (const name of candidates) {
-    const filePath = import_node_path6.default.join(root, name);
-    if (import_node_fs4.default.existsSync(filePath)) return filePath;
+    const filePath = import_node_path7.default.join(root, name);
+    if (import_node_fs5.default.existsSync(filePath)) return filePath;
   }
   return null;
 }
@@ -44341,7 +44873,7 @@ function getJobPreview(job) {
   try {
     const artifactPath = findJobArtifactPath(job);
     if (artifactPath) {
-      preview = buildPreviewFromArtifact(import_node_fs4.default.readFileSync(artifactPath), artifactPath);
+      preview = buildPreviewFromArtifact(import_node_fs5.default.readFileSync(artifactPath), artifactPath);
     }
   } catch (error) {
     log21.warn(`Preview generation failed for job ${job.job_id}: ${error.message}`);
@@ -44355,12 +44887,12 @@ function getJobPreview(job) {
 function clearPreviewCache() {
   cache.clear();
 }
-var import_node_fs4, import_node_path6, import_adm_zip2, log21, MAX_PREVIEW_BYTES, MAX_GCODE_PARSE_BYTES, MAX_RAW_SEGMENTS, MAX_SVG_SEGMENTS, THUMBNAIL_CANDIDATES, cache, JobPreview_default;
+var import_node_fs5, import_node_path7, import_adm_zip3, log21, MAX_PREVIEW_BYTES, MAX_GCODE_PARSE_BYTES, MAX_RAW_SEGMENTS, MAX_SVG_SEGMENTS, THUMBNAIL_CANDIDATES, cache, JobPreview_default;
 var init_JobPreview = __esm({
   "src/services/JobPreview.js"() {
-    import_node_fs4 = __toESM(require("node:fs"), 1);
-    import_node_path6 = __toESM(require("node:path"), 1);
-    import_adm_zip2 = __toESM(require_adm_zip(), 1);
+    import_node_fs5 = __toESM(require("node:fs"), 1);
+    import_node_path7 = __toESM(require("node:path"), 1);
+    import_adm_zip3 = __toESM(require_adm_zip(), 1);
     init_uploadPaths();
     init_logger();
     log21 = createLogger("JobPreview");
@@ -44377,6 +44909,146 @@ var init_JobPreview = __esm({
     ];
     cache = /* @__PURE__ */ new Map();
     JobPreview_default = { getJobPreview, buildPreviewFromArtifact, parseGcodeSegments, renderSegmentsToSvg, clearPreviewCache };
+  }
+});
+
+// src/cloud/localPrinterSnapshot.js
+function getBuildVolumeForModel(model) {
+  const normalized = String(model || "").toLowerCase();
+  if (normalized.includes("mini")) return BUILD_VOLUMES.mini;
+  return BUILD_VOLUMES.default;
+}
+function countAmsTrays(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return 0;
+  if (Array.isArray(snapshot.ams?.trays)) return snapshot.ams.trays.length;
+  if (Array.isArray(snapshot.ams?.ams)) {
+    return snapshot.ams.ams.reduce((count, unit) => count + (Array.isArray(unit.tray) ? unit.tray.length : 0), 0);
+  }
+  if (Array.isArray(snapshot.ams?.tray)) return snapshot.ams.tray.length;
+  return 0;
+}
+function collectAmsTrays(amsStatus) {
+  if (!amsStatus || !Array.isArray(amsStatus.slots)) return [];
+  return amsStatus.slots.map((slot) => {
+    const material = slot.configured_material || slot.live_type || null;
+    const colorHex = slot.configured_color || (slot.live_color ? String(slot.live_color).replace(/^#/, "") : null);
+    if (!material && !colorHex) return null;
+    const materialBase = material ? getFilamentType(material)?.trayType || material : null;
+    return {
+      ams_id: slot.ams_id,
+      tray_id: slot.tray_id,
+      material,
+      material_base: materialBase,
+      color_hex: colorHex,
+      color_name: slot.configured_color_name || null,
+      source: slot.configured_material ? "configured" : "live",
+      live_remaining: slot.live_remaining ?? null,
+      in_sync: slot.in_sync !== false
+    };
+  }).filter(Boolean);
+}
+function buildCurrentJobView(worker, activeJob, preview = null) {
+  const status = worker?.latestStatus || {};
+  const printingState = String(status.gcode_state || status.state || "").toLowerCase();
+  if (!activeJob && !["printing", "running", "pause", "paused", "prepare"].includes(printingState)) {
+    return null;
+  }
+  const progress = Number(status.progress);
+  const remaining = Number(status.remaining_time);
+  return {
+    job_id: activeJob?.job_id || null,
+    name: activeJob?.name || status.subtask_name || status.gcode_file || null,
+    state: printingState || "printing",
+    progress_percent: Number.isFinite(progress) ? Math.max(0, Math.min(progress, 100)) : null,
+    remaining_minutes: Number.isFinite(remaining) ? Math.max(0, remaining) : null,
+    layer: Number.isFinite(Number(status.layer)) ? Number(status.layer) : null,
+    total_layers: Number.isFinite(Number(status.total_layers)) ? Number(status.total_layers) : null,
+    preview: typeof preview === "string" && preview.startsWith("data:") ? preview : null
+  };
+}
+function buildSyncedPrinterRecord(printer, worker, options = {}, amsStatus = null) {
+  const statusSnapshot = printer.status_snapshot && typeof printer.status_snapshot === "object" ? { ...printer.status_snapshot } : {};
+  const liveState = worker?.state && worker.state !== "unknown" ? worker.state : statusSnapshot.state;
+  const status = worker?.connected ? liveState || "online" : liveState || "offline";
+  const record = {
+    local_printer_id: printer.printer_id,
+    name: printer.name || printer.printer_id,
+    model: printer.model || null,
+    ip_hostname: printer.ip_hostname || null,
+    status,
+    connected: !!worker?.connected,
+    capabilities: { ...printer.capabilities || {} },
+    last_seen: printer.last_seen || null
+  };
+  if (!record.capabilities.build_volume_mm) {
+    record.capabilities.build_volume_mm = getBuildVolumeForModel(printer.model);
+  }
+  if (printer.ip_hostname && !record.capabilities.ip_hostname) {
+    record.capabilities.ip_hostname = printer.ip_hostname;
+  }
+  if (record.capabilities.auto_eject === void 0) {
+    record.capabilities.auto_eject = true;
+    record.capabilities.ejection = { enabled: true, strategy: "in_gcode_sweep" };
+  }
+  if (options.sync_ams || options.sync_filament) {
+    record.status_snapshot = statusSnapshot;
+  }
+  if (options.sync_ams) {
+    record.ams_tray_count = countAmsTrays(statusSnapshot);
+  }
+  if (options.sync_filament && amsStatus) {
+    const trays = collectAmsTrays(amsStatus);
+    record.capabilities.ams_trays = trays;
+    record.capabilities.materials = [...new Set(
+      trays.flatMap((tray) => [tray.material, tray.material_base]).filter(Boolean)
+    )];
+    record.capabilities.colors = [...new Set(trays.map((tray) => tray.color_hex).filter(Boolean))];
+  }
+  return record;
+}
+async function collectLocalPrinterRecords(options = {}) {
+  const effective = {
+    include_saved_printers: options.include_saved_printers !== false,
+    sync_ams: options.sync_ams !== false,
+    sync_filament: options.sync_filament !== false,
+    ...options
+  };
+  const [{ PrinterModel: PrinterModel2 }, { RuntimeSupervisor: RuntimeSupervisor2 }, { AmsService: AmsService2 }, { JobModel: JobModel2 }, jobPreview] = await Promise.all([
+    Promise.resolve().then(() => (init_Printer(), Printer_exports)),
+    Promise.resolve().then(() => (init_RuntimeSupervisor(), RuntimeSupervisor_exports)),
+    Promise.resolve().then(() => (init_AmsService(), AmsService_exports)),
+    Promise.resolve().then(() => (init_Job(), Job_exports)),
+    Promise.resolve().then(() => (init_JobPreview(), JobPreview_exports))
+  ]);
+  const supervisor = RuntimeSupervisor2.getInstance();
+  const registeredPrinters = effective.include_saved_printers === false ? [] : PrinterModel2.findAll();
+  return registeredPrinters.map((printer) => {
+    let amsStatus = null;
+    if (effective.sync_filament) {
+      try {
+        amsStatus = AmsService2.getFullStatus(printer.printer_id);
+      } catch {
+      }
+    }
+    const worker = supervisor?.getWorker?.(printer.printer_id);
+    const record = buildSyncedPrinterRecord(printer, worker, effective, amsStatus);
+    try {
+      const activeJob = worker?.activeJobId ? JobModel2.findById(worker.activeJobId) : JobModel2.findAll({ printer_id: printer.printer_id, status: "printing", limit: 1 })[0] || null;
+      const currentJob = buildCurrentJobView(worker, activeJob, activeJob ? jobPreview.getJobPreview(activeJob) : null);
+      if (currentJob) record.current_job = currentJob;
+    } catch {
+    }
+    return record;
+  });
+}
+var BUILD_VOLUMES;
+var init_localPrinterSnapshot = __esm({
+  "src/cloud/localPrinterSnapshot.js"() {
+    init_FilamentCatalog();
+    BUILD_VOLUMES = {
+      default: { x: 256, y: 256, z: 256 },
+      mini: { x: 180, y: 180, z: 180 }
+    };
   }
 });
 
@@ -45033,6 +45705,881 @@ var init_PrinterRegistry = __esm({
       }
     };
     PrinterRegistry_default = PrinterRegistry;
+  }
+});
+
+// src/cloud/localCommandExecutor.js
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function buildGcode3mf2(gcode) {
+  const zip = new import_adm_zip4.default();
+  const gcodeBuffer = Buffer.from(gcode, "utf8");
+  const md5 = (0, import_node_crypto3.createHash)("md5").update(gcodeBuffer).digest("hex");
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+ <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+ <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
+ <Default Extension="gcode" ContentType="text/x.gcode"/>
+</Types>`;
+  const rels = `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+ <Relationship Target="/3D/3dmodel.model" Id="rel-1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
+</Relationships>`;
+  const model = `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+ <resources/>
+ <build/>
+</model>`;
+  const sliceInfo = `<?xml version="1.0" encoding="UTF-8"?>
+<config>
+  <header>
+    <header_item key="X-BBL-Client-Type" value="slicer"/>
+    <header_item key="X-BBL-Client-Version" value="PrintKinetix Cloud"/>
+  </header>
+  <plate>
+    <metadata key="index" value="1"/>
+    <metadata key="nozzle_diameters" value="0.4"/>
+  </plate>
+</config>`;
+  zip.addFile("[Content_Types].xml", Buffer.from(contentTypes, "utf8"));
+  zip.addFile("_rels/.rels", Buffer.from(rels, "utf8"));
+  zip.addFile("3D/3dmodel.model", Buffer.from(model, "utf8"));
+  zip.addFile("Metadata/plate_1.gcode", gcodeBuffer);
+  zip.addFile("Metadata/plate_1.gcode.md5", Buffer.from(md5, "utf8"));
+  zip.addFile("Metadata/slice_info.config", Buffer.from(sliceInfo, "utf8"));
+  return zip.toBuffer();
+}
+function requiredString(value, name) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`${name} is required`);
+  }
+  return value.trim();
+}
+async function getRequiredWorker(localPrinterId, deps) {
+  const worker = await deps.getWorker?.(localPrinterId);
+  if (!worker) throw new Error(`Local printer worker not found: ${localPrinterId}`);
+  return worker;
+}
+function normalizeAmsSlotRef(payload = {}) {
+  let amsId = Number.parseInt(payload.ams_id ?? 0, 10);
+  let trayId = Number.parseInt(payload.tray_id, 10);
+  if (!Number.isFinite(amsId) || amsId < 0) amsId = 0;
+  if (!Number.isFinite(trayId) || trayId < 0 || trayId > 15) {
+    throw new Error("payload.tray_id must be 0-15");
+  }
+  if (trayId > 3) {
+    amsId = Math.floor(trayId / 4);
+    trayId = trayId % 4;
+  }
+  return { amsId, trayId };
+}
+async function executeAmsAction(command, deps) {
+  const payload = command.payload || {};
+  const localPrinterId = requiredString(payload.local_printer_id, "payload.local_printer_id");
+  const amsService = await deps.getAmsService();
+  if (command.command_type === "printer.ams.get") {
+    return amsService.getFullStatus(localPrinterId);
+  }
+  const { amsId, trayId } = normalizeAmsSlotRef(payload);
+  if (command.command_type === "printer.ams.clear") {
+    amsService.clearTray(localPrinterId, amsId, trayId);
+    return { ok: true, cleared: { ams_id: amsId, tray_id: trayId }, status: amsService.getFullStatus(localPrinterId) };
+  }
+  const material = requiredString(payload.material, "payload.material");
+  const updated = amsService.setTray(localPrinterId, amsId, trayId, {
+    material,
+    colorHex: typeof payload.color_hex === "string" && payload.color_hex.trim() ? payload.color_hex.trim() : "FFFFFFFF",
+    colorName: typeof payload.color_name === "string" && payload.color_name.trim() ? payload.color_name.trim() : "White"
+  });
+  let pushedToPrinter = false;
+  let pushError = null;
+  if (payload.push_to_printer !== false) {
+    try {
+      const worker = await deps.getWorker?.(localPrinterId);
+      if (worker?.mqttClient?.connected) {
+        await amsService.syncToDevice(localPrinterId, worker.mqttClient);
+        pushedToPrinter = true;
+      }
+    } catch (error) {
+      pushError = error.message;
+    }
+  }
+  return {
+    ok: true,
+    updated,
+    pushed_to_printer: pushedToPrinter,
+    push_error: pushError,
+    status: amsService.getFullStatus(localPrinterId)
+  };
+}
+async function defaultCaptureCameraFrame(localPrinterId) {
+  const [{ PrinterModel: PrinterModel2 }] = await Promise.all([Promise.resolve().then(() => (init_Printer(), Printer_exports))]);
+  const printer = PrinterModel2.findById(localPrinterId);
+  if (!printer) throw new Error(`Local printer not found: ${localPrinterId}`);
+  if (process.env.MOCK_MODE === "true") {
+    const stamp = (/* @__PURE__ */ new Date()).toISOString().slice(11, 19);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240"><rect width="320" height="240" fill="#10201a"/><rect x="60" y="70" width="200" height="110" rx="8" fill="none" stroke="#2f8f6d" stroke-width="3"/><circle cx="160" cy="125" r="26" fill="none" stroke="#2f8f6d" stroke-width="3"/><text x="160" y="215" text-anchor="middle" fill="#9fd6be" font-family="monospace" font-size="14">MOCK CAM \xB7 ${printer.name || localPrinterId} \xB7 ${stamp} UTC</text></svg>`;
+    return {
+      content_type: "image/svg+xml",
+      image_base64: Buffer.from(svg, "utf8").toString("base64"),
+      mock: true
+    };
+  }
+  const { default: cameraProxy2 } = await Promise.resolve().then(() => (init_CameraProxy(), CameraProxy_exports));
+  const auth = PrinterModel2.getAuth(localPrinterId) || {};
+  if (!cameraProxy2.isRunning(localPrinterId)) {
+    await cameraProxy2.start(localPrinterId, printer.ip_hostname, auth.access_code || "", printer.model);
+  }
+  let frame = cameraProxy2.getFrame(localPrinterId);
+  for (let attempt = 0; attempt < 20 && !frame; attempt += 1) {
+    await wait(150);
+    frame = cameraProxy2.getFrame(localPrinterId);
+  }
+  if (!frame) {
+    throw new Error(cameraProxy2.getError(localPrinterId) || "Camera frame not yet available");
+  }
+  return {
+    content_type: "image/jpeg",
+    image_base64: frame.toString("base64"),
+    mock: false
+  };
+}
+async function executeCameraSnapshot(command, deps) {
+  const localPrinterId = requiredString(command.payload?.local_printer_id, "payload.local_printer_id");
+  const frame = await deps.captureCameraFrame(localPrinterId);
+  return {
+    ok: true,
+    local_printer_id: localPrinterId,
+    captured_at: (/* @__PURE__ */ new Date()).toISOString(),
+    ...frame
+  };
+}
+async function executePrinterAction(command, deps) {
+  if (command.command_type.startsWith("printer.ams.")) {
+    return executeAmsAction(command, deps);
+  }
+  if (command.command_type === "printer.camera.snapshot") {
+    return executeCameraSnapshot(command, deps);
+  }
+  const localPrinterId = requiredString(command.payload?.local_printer_id, "payload.local_printer_id");
+  const worker = await getRequiredWorker(localPrinterId, deps);
+  switch (command.command_type) {
+    case "printer.status":
+      return {
+        state: worker.state,
+        connected: !!worker.connected,
+        status: worker.latestStatus || {},
+        preflight: typeof worker.getPreflightStatus === "function" ? worker.getPreflightStatus() : null
+      };
+    case "printer.pause":
+      return worker._pausePrint();
+    case "printer.resume":
+      return worker._resumePrint();
+    case "printer.stop":
+      return worker._stopPrint();
+    case "printer.gcode":
+      return worker._sendGcode(requiredString(command.payload?.gcode, "payload.gcode"));
+    default:
+      throw new Error(`Unsupported printer command: ${command.command_type}`);
+  }
+}
+async function executeJobAction(command, deps) {
+  if (command.command_type !== "job.start") {
+    throw new Error(`Unsupported job command: ${command.command_type}`);
+  }
+  const localJobId = requiredString(command.payload?.local_job_id, "payload.local_job_id");
+  if (typeof deps.startJob !== "function") throw new Error("startJob dependency is required");
+  return deps.startJob(localJobId);
+}
+function safeRemoteFileName(value) {
+  return requiredString(value, "payload.original_name").split(/[\\/]/).pop().replace(/[^A-Za-z0-9._-]/g, "_");
+}
+function prepareReadyPrintArtifact({ buffer, originalName }) {
+  if (originalName.toLowerCase().endsWith(".gcode")) {
+    return {
+      buffer: buildGcode3mf2(buffer.toString("utf8")),
+      remoteFileName: originalName.replace(/\.gcode$/i, ".gcode.3mf")
+    };
+  }
+  if (!originalName.toLowerCase().endsWith(".3mf")) {
+    throw new Error("Ready print artifacts must be .gcode, .3mf, or .gcode.3mf");
+  }
+  return {
+    buffer,
+    remoteFileName: originalName
+  };
+}
+function assertPreflightOk(worker) {
+  if (typeof worker.getPreflightStatus !== "function") return;
+  const preflight = worker.getPreflightStatus();
+  if (preflight?.ok === false) {
+    const message = Array.isArray(preflight.errors) && preflight.errors.length > 0 ? preflight.errors.join("; ") : "printer preflight failed";
+    throw new Error(`Preflight failed: ${message}`);
+  }
+}
+async function defaultDownloadArtifact(downloadUrl) {
+  const response = await fetch(downloadUrl);
+  if (!response.ok) {
+    throw new Error(`Artifact download failed (${response.status})`);
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
+async function defaultUploadToPrinter({ localPrinterId, buffer, remoteFileName }) {
+  const [{ PrinterModel: PrinterModel2 }, { BambuFtpsClient: BambuFtpsClient2 }] = await Promise.all([
+    Promise.resolve().then(() => (init_Printer(), Printer_exports)),
+    Promise.resolve().then(() => (init_BambuFtpsClient(), BambuFtpsClient_exports))
+  ]);
+  const printer = PrinterModel2.findById(localPrinterId);
+  if (!printer) throw new Error(`Local printer not found: ${localPrinterId}`);
+  const auth = PrinterModel2.getAuth(localPrinterId);
+  if (!auth?.access_code) throw new Error("Upload failed: No access code");
+  const ftpsClient = new BambuFtpsClient2({
+    ip: printer.ip_hostname,
+    accessCode: auth.access_code,
+    printerId: localPrinterId
+  });
+  const ftpsReachable = await ftpsClient.isReachable();
+  if (!ftpsReachable) throw new Error("Upload failed: FTPS not reachable");
+  const uploadResult = await ftpsClient.upload(buffer, remoteFileName);
+  if (uploadResult?.success === false) {
+    throw new Error(`Upload failed: ${uploadResult.error || "unknown error"}`);
+  }
+  return uploadResult;
+}
+async function executeCloudPrintReadyRaw({ payload, localPrinterId, worker, buffer, remoteFileName }, deps) {
+  assertPreflightOk(worker);
+  const uploaded = await deps.uploadToPrinter({
+    localPrinterId,
+    buffer,
+    remoteFileName,
+    contentType: payload.content_type || "application/octet-stream"
+  });
+  const amsMapping = Array.isArray(payload.ams_mapping) ? payload.ams_mapping : [];
+  const startResult = await worker._startPrint({
+    filename: remoteFileName,
+    plateNumber: Number.parseInt(payload.plate_number || payload.plateNumber, 10) || 1,
+    useAms: typeof payload.use_ams === "boolean" ? payload.use_ams : amsMapping.length > 0,
+    amsMapping
+  });
+  return {
+    pipeline: "raw",
+    started: startResult?.started === true,
+    remote_file_name: remoteFileName,
+    uploaded,
+    start_result: startResult
+  };
+}
+async function executeCloudPrintReady(command, deps) {
+  const payload = command.payload || {};
+  const localPrinterId = requiredString(payload.local_printer_id, "payload.local_printer_id");
+  const downloadUrl = requiredString(payload.download_url, "payload.download_url");
+  const originalName = safeRemoteFileName(payload.original_name);
+  const worker = await getRequiredWorker(localPrinterId, deps);
+  const downloaded = await deps.downloadArtifact(downloadUrl);
+  const { buffer, remoteFileName } = prepareReadyPrintArtifact({
+    buffer: Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded),
+    originalName
+  });
+  if (payload.pipeline === "raw") {
+    return executeCloudPrintReadyRaw({ payload, localPrinterId, worker, buffer, remoteFileName }, deps);
+  }
+  const amsMapping = Array.isArray(payload.ams_mapping) ? payload.ams_mapping : [];
+  const slotMap = {};
+  amsMapping.forEach((value, index) => {
+    slotMap[index] = value;
+  });
+  const printerBusy = worker.state === "printing" || worker.state === "paused";
+  if (!printerBusy) assertPreflightOk(worker);
+  const loops = Number.parseInt(payload.loops ?? payload.n_loops, 10);
+  const job = await deps.submitJob({
+    name: typeof payload.name === "string" && payload.name.trim() ? payload.name.trim() : originalName,
+    printer_id: localPrinterId,
+    repeat_total: Number.parseInt(payload.repeat_total, 10) || 1,
+    ams_roles: amsMapping.length > 0 ? { slot_map: slotMap } : null,
+    fileName: remoteFileName,
+    fileContent: buffer,
+    rawBuffer3mf: buffer,
+    originalFileName3mf: remoteFileName,
+    transform_mode: payload.skip_transform === true ? "skip" : "optional",
+    transform_overrides: {
+      ...isPlainObject(payload.transform_overrides) ? payload.transform_overrides : {},
+      ...Number.isFinite(loops) && loops > 0 ? { n_loops: loops } : {}
+    },
+    auto_start: !printerBusy,
+    metadata: {
+      origin: "cloud",
+      cloud_job_id: command.job_id || payload.print_job_id || null,
+      cloud_command_id: command.command_id || null,
+      org_id: command.org_id || null,
+      merchant_requirements: isPlainObject(payload.requirements) ? payload.requirements : null
+    }
+  });
+  return {
+    pipeline: "orchestrated",
+    started: job.status === "printing",
+    queued: job.status !== "printing",
+    local_job_id: job.job_id,
+    job_status: job.status,
+    remote_file_name: job.transformed_file_name || remoteFileName,
+    transform: {
+      applied: job.transform_report?.skipped !== true,
+      error: job.transform_report?.transform_error || null,
+      loops: job.diff_summary?.loops || 1
+    }
+  };
+}
+function normalizeStringList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || "").trim()).filter(Boolean);
+  }
+  return String(value || "").split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean);
+}
+function normalizeBoolean(value, fallback) {
+  if (typeof value === "boolean") return value;
+  return fallback;
+}
+function normalizeDiscoveryOptions(payload = {}) {
+  const waitMs = Number.parseInt(payload.wait_ms ?? payload.waitMs ?? 1500, 10);
+  return {
+    scan_cidrs: normalizeStringList(payload.scan_cidrs || payload.scanCidrs),
+    wait_ms: Number.isFinite(waitMs) ? Math.max(0, Math.min(waitMs, 1e4)) : 1500
+  };
+}
+function normalizePrinterSyncOptions(payload = {}) {
+  return {
+    scan_cidrs: normalizeStringList(payload.scan_cidrs || payload.scanCidrs),
+    include_saved_printers: normalizeBoolean(payload.include_saved_printers, true),
+    sync_ams: normalizeBoolean(payload.sync_ams, true),
+    sync_filament: normalizeBoolean(payload.sync_filament, true)
+  };
+}
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function defaultDiscoverPrinters(options = {}) {
+  const [{ RuntimeSupervisor: RuntimeSupervisor2 }, { getDiscoveryInstance: getDiscoveryInstance2 }] = await Promise.all([
+    Promise.resolve().then(() => (init_RuntimeSupervisor(), RuntimeSupervisor_exports)),
+    Promise.resolve().then(() => (init_BambuDiscovery(), BambuDiscovery_exports))
+  ]);
+  const supervisor = RuntimeSupervisor2.getInstance();
+  const discovery = supervisor?.discovery || getDiscoveryInstance2();
+  supervisor?._syncDiscoverySerials?.();
+  discovery.start?.();
+  if (options.wait_ms > 0) {
+    await wait(options.wait_ms);
+  }
+  return discovery.getDiscovered?.() || [];
+}
+async function defaultSyncPrinters(options = {}) {
+  const { collectNetworkInterfaces: collectNetworkInterfaces2 } = await Promise.resolve().then(() => (init_localNetwork(), localNetwork_exports));
+  const printers = await collectLocalPrinterRecords(options);
+  const online = printers.filter((printer) => printer.connected || String(printer.status).toLowerCase() === "online").length;
+  const amsTrays = printers.reduce((count, printer) => count + (Number(printer.ams_tray_count) || 0), 0);
+  return {
+    printers,
+    summary: {
+      registered: printers.length,
+      online,
+      ams_trays: amsTrays,
+      network_interface_count: collectNetworkInterfaces2().length,
+      scan_cidrs: options.scan_cidrs
+    }
+  };
+}
+async function executePrinterDiscovery(command, deps) {
+  const options = normalizeDiscoveryOptions(command.payload || {});
+  const result = await deps.discoverPrinters(options);
+  const printers = Array.isArray(result) ? result : Array.isArray(result?.printers) ? result.printers : [];
+  return {
+    discovered: printers.length,
+    printers,
+    scan_cidrs: options.scan_cidrs
+  };
+}
+async function executePrinterSync(command, deps) {
+  const options = normalizePrinterSyncOptions(command.payload || {});
+  const result = await deps.syncPrinters(options);
+  const printers = Array.isArray(result) ? result : Array.isArray(result?.printers) ? result.printers : [];
+  return {
+    synced: printers.length,
+    printers,
+    summary: result?.summary || {
+      registered: printers.length,
+      online: printers.filter((printer) => String(printer.status || "").toLowerCase() === "online" || printer.connected === true).length,
+      ams_trays: printers.reduce((count, printer) => count + (Number(printer.ams_tray_count) || 0), 0)
+    }
+  };
+}
+async function defaultAdoptPrinter({ name, model, ip_hostname, access_code, serial }) {
+  const [{ PrinterModel: PrinterModel2 }, { PrinterRegistry: PrinterRegistry2 }] = await Promise.all([
+    Promise.resolve().then(() => (init_Printer(), Printer_exports)),
+    Promise.resolve().then(() => (init_PrinterRegistry(), PrinterRegistry_exports))
+  ]);
+  const existing = PrinterModel2.findAll().find((printer2) => printer2.ip_hostname === ip_hostname);
+  if (existing) {
+    return { already_added: true, printer: existing };
+  }
+  const printer = PrinterRegistry2.create({
+    name,
+    model,
+    ip_hostname,
+    auth: {
+      ...access_code ? { access_code } : {},
+      ...serial ? { serial } : {}
+    }
+  });
+  return { already_added: false, printer };
+}
+function normalizeAdoptModel(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "P1S";
+  const match = ADOPTABLE_MODELS.find((model) => model.toLowerCase() === raw.toLowerCase());
+  if (match) return match;
+  const upper = raw.toUpperCase();
+  if (upper.includes("A1") && upper.includes("MINI")) return "A1 Mini";
+  if (upper.includes("A1")) return "A1";
+  if (upper.includes("X1E")) return "X1E";
+  if (upper.includes("X1")) return "X1C";
+  if (upper.includes("P1P")) return "P1P";
+  if (upper.includes("P1")) return "P1S";
+  if (upper.includes("P2")) return "P2S";
+  if (upper.includes("H2")) return "H2D";
+  return raw;
+}
+async function executePrinterAdopt(command, deps) {
+  const payload = command.payload || {};
+  const ipHostname = requiredString(payload.ip_hostname || payload.ip, "payload.ip_hostname");
+  const name = requiredString(payload.name, "payload.name");
+  const model = normalizeAdoptModel(payload.model);
+  const accessCode = typeof payload.access_code === "string" && payload.access_code.trim() ? payload.access_code.trim() : null;
+  const serial = typeof payload.serial === "string" && payload.serial.trim() ? payload.serial.trim() : null;
+  const adoption = await deps.adoptPrinter({
+    name,
+    model,
+    ip_hostname: ipHostname,
+    access_code: accessCode,
+    serial
+  });
+  let synced = null;
+  try {
+    synced = await deps.syncPrinters({ sync_ams: true, sync_filament: true });
+  } catch {
+  }
+  return {
+    ok: true,
+    already_added: adoption.already_added === true,
+    printer: {
+      local_printer_id: adoption.printer?.printer_id || adoption.printer?.local_printer_id || null,
+      name: adoption.printer?.name || name,
+      model: adoption.printer?.model || model,
+      ip_hostname: ipHostname
+    },
+    synced_printer_count: Array.isArray(synced?.printers) ? synced.printers.length : null
+  };
+}
+async function executeCloudAction(command, deps) {
+  if (command.command_type === "cloud.print.ready") {
+    return executeCloudPrintReady(command, deps);
+  }
+  if (command.command_type === "cloud.printers.discover") {
+    return executePrinterDiscovery(command, deps);
+  }
+  if (command.command_type === "cloud.printers.sync") {
+    return executePrinterSync(command, deps);
+  }
+  if (command.command_type === "cloud.printers.adopt") {
+    return executePrinterAdopt(command, deps);
+  }
+  throw new Error(`Unsupported cloud command: ${command.command_type}`);
+}
+function getDefaultDeps() {
+  return {
+    async getWorker(printerId) {
+      const { RuntimeSupervisor: RuntimeSupervisor2 } = await Promise.resolve().then(() => (init_RuntimeSupervisor(), RuntimeSupervisor_exports));
+      return RuntimeSupervisor2.getInstance()?.getWorker(printerId) || null;
+    },
+    async startJob(jobId) {
+      const { JobOrchestrator: JobOrchestrator2 } = await Promise.resolve().then(() => (init_JobOrchestrator(), JobOrchestrator_exports));
+      return JobOrchestrator2.startJob(jobId);
+    },
+    async submitJob(params) {
+      const { JobOrchestrator: JobOrchestrator2 } = await Promise.resolve().then(() => (init_JobOrchestrator(), JobOrchestrator_exports));
+      return JobOrchestrator2.submit(params);
+    },
+    async getAmsService() {
+      const { AmsService: AmsService2 } = await Promise.resolve().then(() => (init_AmsService(), AmsService_exports));
+      return AmsService2;
+    },
+    downloadArtifact: defaultDownloadArtifact,
+    uploadToPrinter: defaultUploadToPrinter,
+    discoverPrinters: defaultDiscoverPrinters,
+    syncPrinters: defaultSyncPrinters,
+    adoptPrinter: defaultAdoptPrinter,
+    captureCameraFrame: defaultCaptureCameraFrame
+  };
+}
+async function executeCloudCommand(command, deps = {}) {
+  const effectiveDeps = { ...getDefaultDeps(), ...deps };
+  const commandType = requiredString(command?.command_type, "command.command_type");
+  if (commandType.startsWith("printer.")) {
+    return executePrinterAction({ ...command, command_type: commandType }, effectiveDeps);
+  }
+  if (commandType.startsWith("job.")) {
+    return executeJobAction({ ...command, command_type: commandType }, effectiveDeps);
+  }
+  if (commandType.startsWith("cloud.")) {
+    return executeCloudAction({ ...command, command_type: commandType }, effectiveDeps);
+  }
+  throw new Error(`Unsupported cloud command: ${commandType}`);
+}
+var import_node_crypto3, import_adm_zip4, ADOPTABLE_MODELS;
+var init_localCommandExecutor = __esm({
+  "src/cloud/localCommandExecutor.js"() {
+    import_node_crypto3 = require("node:crypto");
+    import_adm_zip4 = __toESM(require_adm_zip(), 1);
+    init_localPrinterSnapshot();
+    ADOPTABLE_MODELS = ["A1", "A1 Mini", "P1P", "P1S", "P2S", "X1", "X1C", "X1E", "H2D"];
+  }
+});
+
+// src/cloud/localNodeAgent.js
+function createLocalNodeAgent({
+  client,
+  executeCommand = executeCloudCommand,
+  claimLimit = 10,
+  pollIntervalMs = 2e3,
+  maxPollIntervalMs = 3e4,
+  resultOutbox = null,
+  outboxFlushLimit = 25,
+  logger = console
+}) {
+  if (!client) throw new Error("client is required");
+  let timer = null;
+  let running = false;
+  let inFlight = false;
+  let consecutiveFailures = 0;
+  async function flushPendingResults() {
+    if (!resultOutbox) return { flushed: 0, deferred: 0 };
+    const pending = resultOutbox.list(outboxFlushLimit);
+    let flushed = 0;
+    for (const entry of pending) {
+      try {
+        await client.reportCommandResult(entry.command_id, entry.payload);
+        resultOutbox.remove(entry.id);
+        flushed += 1;
+      } catch (error) {
+        resultOutbox.markAttempt(entry.id, error);
+        logger.warn?.(`Deferred command result still pending: ${entry.command_id}: ${error.message}`);
+        break;
+      }
+    }
+    return { flushed, deferred: resultOutbox.size() };
+  }
+  async function deliverFinalResult(commandId, payload) {
+    try {
+      await client.reportCommandResult(commandId, payload);
+      return { delivered: true, deferred: false };
+    } catch (error) {
+      if (!resultOutbox) throw error;
+      resultOutbox.enqueueCommandResult(commandId, payload);
+      logger.warn?.(`Deferred command result for ${commandId}: ${error.message}`);
+      return { delivered: false, deferred: true };
+    }
+  }
+  async function runOnce() {
+    const flush = await flushPendingResults();
+    const response = await client.claimCommands({ limit: claimLimit });
+    const commands = Array.isArray(response?.commands) ? response.commands : [];
+    const summary = {
+      claimed: commands.length,
+      succeeded: 0,
+      failed: 0,
+      deferred: flush.deferred,
+      flushed: flush.flushed
+    };
+    for (const command of commands) {
+      const commandId = command.command_id;
+      try {
+        try {
+          await client.reportCommandResult(commandId, { status: "running" });
+        } catch (error) {
+          logger.warn?.(`Unable to mark command running (${commandId}): ${error.message}`);
+        }
+        const result = await executeCommand(command);
+        const delivery = await deliverFinalResult(commandId, { status: "succeeded", result });
+        summary.succeeded += 1;
+        if (delivery.deferred) summary.deferred += 1;
+      } catch (error) {
+        const delivery = await deliverFinalResult(commandId, {
+          status: "failed",
+          error: error.message
+        });
+        summary.failed += 1;
+        if (delivery.deferred) summary.deferred += 1;
+      }
+    }
+    return summary;
+  }
+  function nextDelay() {
+    if (consecutiveFailures <= 0) return pollIntervalMs;
+    return Math.min(maxPollIntervalMs, pollIntervalMs * 2 ** Math.min(consecutiveFailures, 6));
+  }
+  function schedule(delay = nextDelay()) {
+    if (!running) return;
+    timer = setTimeout(async () => {
+      if (!running) return;
+      if (inFlight) {
+        logger.warn?.("Cloud command poll skipped because previous poll is still running");
+        schedule(nextDelay());
+        return;
+      }
+      inFlight = true;
+      try {
+        await runOnce();
+        consecutiveFailures = 0;
+      } catch (error) {
+        consecutiveFailures += 1;
+        logger.warn?.(`Cloud command poll failed: ${error.message}`);
+      } finally {
+        inFlight = false;
+        schedule(nextDelay());
+      }
+    }, delay);
+  }
+  function start() {
+    if (running) return;
+    running = true;
+    schedule(pollIntervalMs);
+  }
+  function stop() {
+    running = false;
+    if (timer) clearTimeout(timer);
+    timer = null;
+  }
+  return { flushPendingResults, runOnce, start, stop };
+}
+var init_localNodeAgent = __esm({
+  "src/cloud/localNodeAgent.js"() {
+    init_localCommandExecutor();
+  }
+});
+
+// src/cloud/localNodeClient.js
+function requireValue(value, name) {
+  if (!value || typeof value !== "string") {
+    throw new Error(`${name} is required`);
+  }
+  return value;
+}
+function normalizeCloudUrl(url) {
+  return requireValue(url, "CLOUD_API_URL").replace(/\/+$/, "");
+}
+function buildUrl(baseUrl, path15, query = null) {
+  const url = new URL(`${baseUrl}${path15}`);
+  if (query) {
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== void 0 && value !== null) {
+        url.searchParams.set(key, String(value));
+      }
+    }
+  }
+  return url.toString();
+}
+function defaultSleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function retryDelay(attempt, { baseDelayMs, maxDelayMs }) {
+  return Math.min(maxDelayMs, baseDelayMs * 2 ** Math.max(0, attempt - 1));
+}
+function isRetryableStatus(status) {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+function normalizeRetryConfig(retry = {}) {
+  return {
+    maxAttempts: Math.max(1, Number.parseInt(retry.maxAttempts, 10) || 1),
+    baseDelayMs: Math.max(0, Number.parseInt(retry.baseDelayMs, 10) || 250),
+    maxDelayMs: Math.max(0, Number.parseInt(retry.maxDelayMs, 10) || 5e3)
+  };
+}
+function parseJsonPayload(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { text };
+  }
+}
+function createLocalNodeClient({
+  cloudApiUrl = process.env.CLOUD_API_URL,
+  token = process.env.LOCAL_NODE_TOKEN,
+  fetchImpl = globalThis.fetch,
+  sleep: sleep2 = defaultSleep,
+  retry = {
+    maxAttempts: process.env.CLOUD_RETRY_MAX_ATTEMPTS,
+    baseDelayMs: process.env.CLOUD_RETRY_BASE_DELAY_MS,
+    maxDelayMs: process.env.CLOUD_RETRY_MAX_DELAY_MS
+  },
+  requestTimeoutMs = Number.parseInt(process.env.CLOUD_REQUEST_TIMEOUT_MS || "0", 10)
+} = {}) {
+  const baseUrl = normalizeCloudUrl(cloudApiUrl);
+  const nodeToken = requireValue(token, "LOCAL_NODE_TOKEN");
+  if (typeof fetchImpl !== "function") throw new Error("fetch implementation is required");
+  const retryConfig = normalizeRetryConfig(retry);
+  const timeoutMs = Math.max(0, Number.parseInt(requestTimeoutMs, 10) || 0);
+  async function request(path15, { method = "GET", query = null, body = null } = {}) {
+    const url = buildUrl(baseUrl, path15, query);
+    let lastError = null;
+    for (let attempt = 1; attempt <= retryConfig.maxAttempts; attempt += 1) {
+      const controller = timeoutMs > 0 ? new AbortController() : null;
+      const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+      const init2 = {
+        method,
+        headers: {
+          Authorization: `Bearer ${nodeToken}`,
+          "Content-Type": "application/json"
+        }
+      };
+      if (controller) init2.signal = controller.signal;
+      if (body !== null) init2.body = JSON.stringify(body);
+      try {
+        const response = await fetchImpl(url, init2);
+        const text = await response.text();
+        const payload = parseJsonPayload(text);
+        if (!response.ok) {
+          const error = new Error(payload?.error || `cloud request failed (${response.status})`);
+          error.status = response.status;
+          error.payload = payload;
+          throw error;
+        }
+        return payload;
+      } catch (error) {
+        lastError = error;
+        const retryable = !error.status || isRetryableStatus(error.status);
+        if (!retryable || attempt >= retryConfig.maxAttempts) throw error;
+        await sleep2(retryDelay(attempt, retryConfig));
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+    }
+    throw lastError;
+  }
+  return {
+    sendHeartbeat(payload) {
+      return request("/api/agent/heartbeat", { method: "POST", body: payload });
+    },
+    claimCommands({ limit = 10 } = {}) {
+      return request("/api/agent/commands", { method: "GET", query: { limit } });
+    },
+    sendEvents(events) {
+      return request("/api/agent/events", { method: "POST", body: { events } });
+    },
+    reportCommandResult(commandId, payload) {
+      return request("/api/agent/command-result", {
+        method: "POST",
+        body: {
+          command_id: commandId,
+          ...payload
+        }
+      });
+    }
+  };
+}
+var init_localNodeClient = __esm({
+  "src/cloud/localNodeClient.js"() {
+  }
+});
+
+// src/cloud/localResultOutbox.js
+function ensureDirectory(filePath) {
+  import_node_fs6.default.mkdirSync(import_node_path8.default.dirname(filePath), { recursive: true });
+}
+function readEntries(filePath) {
+  if (!import_node_fs6.default.existsSync(filePath)) return [];
+  try {
+    const parsed = JSON.parse(import_node_fs6.default.readFileSync(filePath, "utf8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+function writeEntries(filePath, entries) {
+  ensureDirectory(filePath);
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  import_node_fs6.default.writeFileSync(tempPath, `${JSON.stringify(entries, null, 2)}
+`);
+  import_node_fs6.default.renameSync(tempPath, filePath);
+}
+function requireString(value, name) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`${name} is required`);
+  }
+  return value.trim();
+}
+function createLocalResultOutbox({
+  filePath = process.env.CLOUD_RESULT_OUTBOX_PATH || "./data/cloud-result-outbox.json",
+  maxEntries = Number.parseInt(process.env.CLOUD_RESULT_OUTBOX_MAX_ENTRIES || "1000", 10),
+  now = () => /* @__PURE__ */ new Date(),
+  idFactory = import_node_crypto4.randomUUID
+} = {}) {
+  const normalizedPath = requireString(filePath, "filePath");
+  const entryLimit = Math.max(1, Number.isFinite(maxEntries) ? maxEntries : 1e3);
+  function load() {
+    return readEntries(normalizedPath);
+  }
+  function save(entries) {
+    writeEntries(normalizedPath, entries.slice(-entryLimit));
+  }
+  return {
+    enqueueCommandResult(commandId, payload) {
+      const entries = load();
+      const entry = {
+        id: idFactory(),
+        type: "command_result",
+        command_id: requireString(commandId, "commandId"),
+        payload: payload && typeof payload === "object" ? payload : {},
+        attempts: 0,
+        created_at: now().toISOString(),
+        last_attempt_at: null,
+        last_error: null
+      };
+      entries.push(entry);
+      save(entries);
+      return entry;
+    },
+    list(limit = entryLimit) {
+      const capped = Math.max(1, Math.min(Number.parseInt(limit, 10) || entryLimit, entryLimit));
+      return load().slice(0, capped);
+    },
+    remove(id) {
+      const target = requireString(id, "id");
+      save(load().filter((entry) => entry.id !== target));
+    },
+    markAttempt(id, error, attemptTime = now()) {
+      const target = requireString(id, "id");
+      const entries = load().map((entry) => {
+        if (entry.id !== target) return entry;
+        return {
+          ...entry,
+          attempts: (Number.parseInt(entry.attempts, 10) || 0) + 1,
+          last_attempt_at: attemptTime.toISOString(),
+          last_error: error?.message || String(error || "unknown error")
+        };
+      });
+      save(entries);
+    },
+    size() {
+      return load().length;
+    },
+    filePath: normalizedPath
+  };
+}
+var import_node_fs6, import_node_path8, import_node_crypto4;
+var init_localResultOutbox = __esm({
+  "src/cloud/localResultOutbox.js"() {
+    import_node_fs6 = __toESM(require("node:fs"), 1);
+    import_node_path8 = __toESM(require("node:path"), 1);
+    import_node_crypto4 = require("node:crypto");
   }
 });
 
@@ -46250,8 +47797,8 @@ var require_node7 = __commonJS({
           }
           break;
         case "FILE":
-          var fs10 = require("fs");
-          stream2 = new fs10.SyncWriteStream(fd2, { autoClose: false });
+          var fs12 = require("fs");
+          stream2 = new fs12.SyncWriteStream(fd2, { autoClose: false });
           stream2._type = "fs";
           break;
         case "PIPE":
@@ -59038,11 +60585,11 @@ var require_mime_types = __commonJS({
       }
       return exts[0];
     }
-    function lookup(path13) {
-      if (!path13 || typeof path13 !== "string") {
+    function lookup(path15) {
+      if (!path15 || typeof path15 !== "string") {
         return false;
       }
-      var extension2 = extname("x." + path13).toLowerCase().substr(1);
+      var extension2 = extname("x." + path15).toLowerCase().substr(1);
       if (!extension2) {
         return false;
       }
@@ -62557,7 +64104,7 @@ var require_path_to_regexp = __commonJS({
   "node_modules/path-to-regexp/index.js"(exports2, module2) {
     module2.exports = pathToRegexp;
     var MATCHING_GROUP_REGEXP = /\\.|\((?:\?<(.*?)>)?(?!\?)/g;
-    function pathToRegexp(path13, keys, options) {
+    function pathToRegexp(path15, keys, options) {
       options = options || {};
       keys = keys || [];
       var strict = options.strict;
@@ -62571,8 +64118,8 @@ var require_path_to_regexp = __commonJS({
       var pos = 0;
       var backtrack = "";
       var m;
-      if (path13 instanceof RegExp) {
-        while (m = MATCHING_GROUP_REGEXP.exec(path13.source)) {
+      if (path15 instanceof RegExp) {
+        while (m = MATCHING_GROUP_REGEXP.exec(path15.source)) {
           if (m[0][0] === "\\") continue;
           keys.push({
             name: m[1] || name++,
@@ -62580,18 +64127,18 @@ var require_path_to_regexp = __commonJS({
             offset: m.index
           });
         }
-        return path13;
+        return path15;
       }
-      if (Array.isArray(path13)) {
-        path13 = path13.map(function(value) {
+      if (Array.isArray(path15)) {
+        path15 = path15.map(function(value) {
           return pathToRegexp(value, keys, options).source;
         });
-        return new RegExp(path13.join("|"), flags);
+        return new RegExp(path15.join("|"), flags);
       }
-      if (typeof path13 !== "string") {
+      if (typeof path15 !== "string") {
         throw new TypeError("path must be a string, array of strings, or regular expression");
       }
-      path13 = path13.replace(
+      path15 = path15.replace(
         /\\.|(\/)?(\.)?:(\w+)(\(.*?\))?(\*)?(\?)?|[.*]|\/\(/g,
         function(match, slash, format, key, capture, star, optional, offset) {
           if (match[0] === "\\") {
@@ -62608,7 +64155,7 @@ var require_path_to_regexp = __commonJS({
           if (slash || format) {
             backtrack = "";
           } else {
-            backtrack += path13.slice(pos, offset);
+            backtrack += path15.slice(pos, offset);
           }
           pos = offset + match.length;
           if (match === "*") {
@@ -62636,7 +64183,7 @@ var require_path_to_regexp = __commonJS({
           return result;
         }
       );
-      while (m = MATCHING_GROUP_REGEXP.exec(path13)) {
+      while (m = MATCHING_GROUP_REGEXP.exec(path15)) {
         if (m[0][0] === "\\") continue;
         if (keysOffset + i === keys.length || keys[keysOffset + i].offset > m.index) {
           keys.splice(keysOffset + i, 0, {
@@ -62648,13 +64195,13 @@ var require_path_to_regexp = __commonJS({
         }
         i++;
       }
-      path13 += strict ? "" : path13[path13.length - 1] === "/" ? "?" : "/?";
+      path15 += strict ? "" : path15[path15.length - 1] === "/" ? "?" : "/?";
       if (end) {
-        path13 += "$";
-      } else if (path13[path13.length - 1] !== "/") {
-        path13 += lookahead ? "(?=/|$)" : "(?:/|$)";
+        path15 += "$";
+      } else if (path15[path15.length - 1] !== "/") {
+        path15 += lookahead ? "(?=/|$)" : "(?:/|$)";
       }
-      return new RegExp("^" + path13, flags);
+      return new RegExp("^" + path15, flags);
     }
   }
 });
@@ -62667,19 +64214,19 @@ var require_layer = __commonJS({
     var debug = require_src7()("express:router:layer");
     var hasOwnProperty = Object.prototype.hasOwnProperty;
     module2.exports = Layer;
-    function Layer(path13, options, fn) {
+    function Layer(path15, options, fn) {
       if (!(this instanceof Layer)) {
-        return new Layer(path13, options, fn);
+        return new Layer(path15, options, fn);
       }
-      debug("new %o", path13);
+      debug("new %o", path15);
       var opts = options || {};
       this.handle = fn;
       this.name = fn.name || "<anonymous>";
       this.params = void 0;
       this.path = void 0;
-      this.regexp = pathRegexp(path13, this.keys = [], opts);
-      this.regexp.fast_star = path13 === "*";
-      this.regexp.fast_slash = path13 === "/" && opts.end === false;
+      this.regexp = pathRegexp(path15, this.keys = [], opts);
+      this.regexp.fast_star = path15 === "*";
+      this.regexp.fast_slash = path15 === "/" && opts.end === false;
     }
     Layer.prototype.handle_error = function handle_error(error, req, res, next) {
       var fn = this.handle;
@@ -62703,20 +64250,20 @@ var require_layer = __commonJS({
         next(err);
       }
     };
-    Layer.prototype.match = function match(path13) {
+    Layer.prototype.match = function match(path15) {
       var match2;
-      if (path13 != null) {
+      if (path15 != null) {
         if (this.regexp.fast_slash) {
           this.params = {};
           this.path = "";
           return true;
         }
         if (this.regexp.fast_star) {
-          this.params = { "0": decode_param(path13) };
-          this.path = path13;
+          this.params = { "0": decode_param(path15) };
+          this.path = path15;
           return true;
         }
-        match2 = this.regexp.exec(path13);
+        match2 = this.regexp.exec(path15);
       }
       if (!match2) {
         this.params = void 0;
@@ -62809,10 +64356,10 @@ var require_route = __commonJS({
     var slice = Array.prototype.slice;
     var toString = Object.prototype.toString;
     module2.exports = Route;
-    function Route(path13) {
-      this.path = path13;
+    function Route(path15) {
+      this.path = path15;
       this.stack = [];
-      debug("new %o", path13);
+      debug("new %o", path15);
       this.methods = {};
     }
     Route.prototype._handles_method = function _handles_method(method) {
@@ -63024,8 +64571,8 @@ var require_router = __commonJS({
         if (++sync > 100) {
           return setImmediate(next, err);
         }
-        var path13 = getPathname(req);
-        if (path13 == null) {
+        var path15 = getPathname(req);
+        if (path15 == null) {
           return done(layerError);
         }
         var layer;
@@ -63033,7 +64580,7 @@ var require_router = __commonJS({
         var route;
         while (match !== true && idx < stack.length) {
           layer = stack[idx++];
-          match = matchLayer(layer, path13);
+          match = matchLayer(layer, path15);
           route = layer.route;
           if (typeof match !== "boolean") {
             layerError = layerError || match;
@@ -63071,18 +64618,18 @@ var require_router = __commonJS({
           } else if (route) {
             layer.handle_request(req, res, next);
           } else {
-            trim_prefix(layer, layerError, layerPath, path13);
+            trim_prefix(layer, layerError, layerPath, path15);
           }
           sync = 0;
         });
       }
-      function trim_prefix(layer, layerError, layerPath, path13) {
+      function trim_prefix(layer, layerError, layerPath, path15) {
         if (layerPath.length !== 0) {
-          if (layerPath !== path13.slice(0, layerPath.length)) {
+          if (layerPath !== path15.slice(0, layerPath.length)) {
             next(layerError);
             return;
           }
-          var c = path13[layerPath.length];
+          var c = path15[layerPath.length];
           if (c && c !== "/" && c !== ".") return next(layerError);
           debug("trim prefix (%s) from url %s", layerPath, req.url);
           removed = layerPath;
@@ -63160,7 +64707,7 @@ var require_router = __commonJS({
     };
     proto.use = function use(fn) {
       var offset = 0;
-      var path13 = "/";
+      var path15 = "/";
       if (typeof fn !== "function") {
         var arg = fn;
         while (Array.isArray(arg) && arg.length !== 0) {
@@ -63168,7 +64715,7 @@ var require_router = __commonJS({
         }
         if (typeof arg !== "function") {
           offset = 1;
-          path13 = fn;
+          path15 = fn;
         }
       }
       var callbacks = flatten(slice.call(arguments, offset));
@@ -63180,8 +64727,8 @@ var require_router = __commonJS({
         if (typeof fn !== "function") {
           throw new TypeError("Router.use() requires a middleware function but got a " + gettype(fn));
         }
-        debug("use %o %s", path13, fn.name || "<anonymous>");
-        var layer = new Layer(path13, {
+        debug("use %o %s", path15, fn.name || "<anonymous>");
+        var layer = new Layer(path15, {
           sensitive: this.caseSensitive,
           strict: false,
           end: false
@@ -63191,9 +64738,9 @@ var require_router = __commonJS({
       }
       return this;
     };
-    proto.route = function route(path13) {
-      var route2 = new Route(path13);
-      var layer = new Layer(path13, {
+    proto.route = function route(path15) {
+      var route2 = new Route(path15);
+      var layer = new Layer(path15, {
         sensitive: this.caseSensitive,
         strict: this.strict,
         end: true
@@ -63203,8 +64750,8 @@ var require_router = __commonJS({
       return route2;
     };
     methods.concat("all").forEach(function(method) {
-      proto[method] = function(path13) {
-        var route = this.route(path13);
+      proto[method] = function(path15) {
+        var route = this.route(path15);
         route[method].apply(route, slice.call(arguments, 1));
         return this;
       };
@@ -63240,9 +64787,9 @@ var require_router = __commonJS({
       }
       return toString.call(obj).replace(objectRegExp, "$1");
     }
-    function matchLayer(layer, path13) {
+    function matchLayer(layer, path15) {
       try {
-        return layer.match(path13);
+        return layer.match(path15);
       } catch (err) {
         return err;
       }
@@ -63360,13 +64907,13 @@ var require_view = __commonJS({
   "node_modules/express/lib/view.js"(exports2, module2) {
     "use strict";
     var debug = require_src7()("express:view");
-    var path13 = require("path");
-    var fs10 = require("fs");
-    var dirname = path13.dirname;
-    var basename = path13.basename;
-    var extname = path13.extname;
-    var join = path13.join;
-    var resolve = path13.resolve;
+    var path15 = require("path");
+    var fs12 = require("fs");
+    var dirname = path15.dirname;
+    var basename = path15.basename;
+    var extname = path15.extname;
+    var join = path15.join;
+    var resolve = path15.resolve;
     module2.exports = View;
     function View(name, options) {
       var opts = options || {};
@@ -63395,17 +64942,17 @@ var require_view = __commonJS({
       this.path = this.lookup(fileName);
     }
     View.prototype.lookup = function lookup(name) {
-      var path14;
+      var path16;
       var roots = [].concat(this.root);
       debug('lookup "%s"', name);
-      for (var i = 0; i < roots.length && !path14; i++) {
+      for (var i = 0; i < roots.length && !path16; i++) {
         var root = roots[i];
         var loc = resolve(root, name);
         var dir = dirname(loc);
         var file = basename(loc);
-        path14 = this.resolve(dir, file);
+        path16 = this.resolve(dir, file);
       }
-      return path14;
+      return path16;
     };
     View.prototype.render = function render(options, callback) {
       debug('render "%s"', this.path);
@@ -63413,21 +64960,21 @@ var require_view = __commonJS({
     };
     View.prototype.resolve = function resolve2(dir, file) {
       var ext = this.ext;
-      var path14 = join(dir, file);
-      var stat = tryStat(path14);
+      var path16 = join(dir, file);
+      var stat = tryStat(path16);
       if (stat && stat.isFile()) {
-        return path14;
+        return path16;
       }
-      path14 = join(dir, basename(file, ext), "index" + ext);
-      stat = tryStat(path14);
+      path16 = join(dir, basename(file, ext), "index" + ext);
+      stat = tryStat(path16);
       if (stat && stat.isFile()) {
-        return path14;
+        return path16;
       }
     };
-    function tryStat(path14) {
-      debug('stat "%s"', path14);
+    function tryStat(path16) {
+      debug('stat "%s"', path16);
       try {
-        return fs10.statSync(path14);
+        return fs12.statSync(path16);
       } catch (e) {
         return void 0;
       }
@@ -63723,8 +65270,8 @@ var require_types = __commonJS({
 // node_modules/mime/mime.js
 var require_mime = __commonJS({
   "node_modules/mime/mime.js"(exports2, module2) {
-    var path13 = require("path");
-    var fs10 = require("fs");
+    var path15 = require("path");
+    var fs12 = require("fs");
     function Mime() {
       this.types = /* @__PURE__ */ Object.create(null);
       this.extensions = /* @__PURE__ */ Object.create(null);
@@ -63745,7 +65292,7 @@ var require_mime = __commonJS({
     };
     Mime.prototype.load = function(file) {
       this._loading = file;
-      var map = {}, content = fs10.readFileSync(file, "ascii"), lines = content.split(/[\r\n]+/);
+      var map = {}, content = fs12.readFileSync(file, "ascii"), lines = content.split(/[\r\n]+/);
       lines.forEach(function(line) {
         var fields = line.replace(/\s*#.*|^\s*|\s*$/g, "").split(/\s+/);
         map[fields.shift()] = fields;
@@ -63753,8 +65300,8 @@ var require_mime = __commonJS({
       this.define(map);
       this._loading = null;
     };
-    Mime.prototype.lookup = function(path14, fallback) {
-      var ext = path14.replace(/^.*[\.\/\\]/, "").toLowerCase();
+    Mime.prototype.lookup = function(path16, fallback) {
+      var ext = path16.replace(/^.*[\.\/\\]/, "").toLowerCase();
       return this.types[ext] || fallback || this.default_type;
     };
     Mime.prototype.extension = function(mimeType) {
@@ -63983,33 +65530,33 @@ var require_send = __commonJS({
     var escapeHtml = require_escape_html();
     var etag = require_etag();
     var fresh = require_fresh();
-    var fs10 = require("fs");
+    var fs12 = require("fs");
     var mime = require_mime();
     var ms = require_ms8();
     var onFinished = require_on_finished();
     var parseRange = require_range_parser();
-    var path13 = require("path");
+    var path15 = require("path");
     var statuses = require_statuses();
     var Stream = require("stream");
     var util = require("util");
-    var extname = path13.extname;
-    var join = path13.join;
-    var normalize = path13.normalize;
-    var resolve = path13.resolve;
-    var sep = path13.sep;
+    var extname = path15.extname;
+    var join = path15.join;
+    var normalize = path15.normalize;
+    var resolve = path15.resolve;
+    var sep = path15.sep;
     var BYTES_RANGE_REGEXP = /^ *bytes=/;
     var MAX_MAXAGE = 60 * 60 * 24 * 365 * 1e3;
     var UP_PATH_REGEXP = /(?:^|[\\/])\.\.(?:[\\/]|$)/;
     module2.exports = send;
     module2.exports.mime = mime;
-    function send(req, path14, options) {
-      return new SendStream(req, path14, options);
+    function send(req, path16, options) {
+      return new SendStream(req, path16, options);
     }
-    function SendStream(req, path14, options) {
+    function SendStream(req, path16, options) {
       Stream.call(this);
       var opts = options || {};
       this.options = opts;
-      this.path = path14;
+      this.path = path16;
       this.req = req;
       this._acceptRanges = opts.acceptRanges !== void 0 ? Boolean(opts.acceptRanges) : true;
       this._cacheControl = opts.cacheControl !== void 0 ? Boolean(opts.cacheControl) : true;
@@ -64055,8 +65602,8 @@ var require_send = __commonJS({
       this._index = index2;
       return this;
     }, "send.index: pass index as option");
-    SendStream.prototype.root = function root(path14) {
-      this._root = resolve(String(path14));
+    SendStream.prototype.root = function root(path16) {
+      this._root = resolve(String(path16));
       debug("root %s", this._root);
       return this;
     };
@@ -64169,10 +65716,10 @@ var require_send = __commonJS({
       var lastModified = this.res.getHeader("Last-Modified");
       return parseHttpDate(lastModified) <= parseHttpDate(ifRange);
     };
-    SendStream.prototype.redirect = function redirect(path14) {
+    SendStream.prototype.redirect = function redirect(path16) {
       var res = this.res;
       if (hasListeners(this, "directory")) {
-        this.emit("directory", res, path14);
+        this.emit("directory", res, path16);
         return;
       }
       if (this.hasTrailingSlash()) {
@@ -64192,42 +65739,42 @@ var require_send = __commonJS({
     SendStream.prototype.pipe = function pipe(res) {
       var root = this._root;
       this.res = res;
-      var path14 = decode(this.path);
-      if (path14 === -1) {
+      var path16 = decode(this.path);
+      if (path16 === -1) {
         this.error(400);
         return res;
       }
-      if (~path14.indexOf("\0")) {
+      if (~path16.indexOf("\0")) {
         this.error(400);
         return res;
       }
       var parts;
       if (root !== null) {
-        if (path14) {
-          path14 = normalize("." + sep + path14);
+        if (path16) {
+          path16 = normalize("." + sep + path16);
         }
-        if (UP_PATH_REGEXP.test(path14)) {
-          debug('malicious path "%s"', path14);
+        if (UP_PATH_REGEXP.test(path16)) {
+          debug('malicious path "%s"', path16);
           this.error(403);
           return res;
         }
-        parts = path14.split(sep);
-        path14 = normalize(join(root, path14));
+        parts = path16.split(sep);
+        path16 = normalize(join(root, path16));
       } else {
-        if (UP_PATH_REGEXP.test(path14)) {
-          debug('malicious path "%s"', path14);
+        if (UP_PATH_REGEXP.test(path16)) {
+          debug('malicious path "%s"', path16);
           this.error(403);
           return res;
         }
-        parts = normalize(path14).split(sep);
-        path14 = resolve(path14);
+        parts = normalize(path16).split(sep);
+        path16 = resolve(path16);
       }
       if (containsDotFile(parts)) {
         var access = this._dotfiles;
         if (access === void 0) {
           access = parts[parts.length - 1][0] === "." ? this._hidden ? "allow" : "ignore" : "allow";
         }
-        debug('%s dotfile "%s"', access, path14);
+        debug('%s dotfile "%s"', access, path16);
         switch (access) {
           case "allow":
             break;
@@ -64241,13 +65788,13 @@ var require_send = __commonJS({
         }
       }
       if (this._index.length && this.hasTrailingSlash()) {
-        this.sendIndex(path14);
+        this.sendIndex(path16);
         return res;
       }
-      this.sendFile(path14);
+      this.sendFile(path16);
       return res;
     };
-    SendStream.prototype.send = function send2(path14, stat) {
+    SendStream.prototype.send = function send2(path16, stat) {
       var len = stat.size;
       var options = this.options;
       var opts = {};
@@ -64259,9 +65806,9 @@ var require_send = __commonJS({
         this.headersAlreadySent();
         return;
       }
-      debug('pipe "%s"', path14);
-      this.setHeader(path14, stat);
-      this.type(path14);
+      debug('pipe "%s"', path16);
+      this.setHeader(path16, stat);
+      this.type(path16);
       if (this.isConditionalGET()) {
         if (this.isPreconditionFailure()) {
           this.error(412);
@@ -64310,28 +65857,28 @@ var require_send = __commonJS({
         res.end();
         return;
       }
-      this.stream(path14, opts);
+      this.stream(path16, opts);
     };
-    SendStream.prototype.sendFile = function sendFile(path14) {
+    SendStream.prototype.sendFile = function sendFile(path16) {
       var i = 0;
       var self2 = this;
-      debug('stat "%s"', path14);
-      fs10.stat(path14, function onstat(err, stat) {
-        if (err && err.code === "ENOENT" && !extname(path14) && path14[path14.length - 1] !== sep) {
+      debug('stat "%s"', path16);
+      fs12.stat(path16, function onstat(err, stat) {
+        if (err && err.code === "ENOENT" && !extname(path16) && path16[path16.length - 1] !== sep) {
           return next(err);
         }
         if (err) return self2.onStatError(err);
-        if (stat.isDirectory()) return self2.redirect(path14);
-        self2.emit("file", path14, stat);
-        self2.send(path14, stat);
+        if (stat.isDirectory()) return self2.redirect(path16);
+        self2.emit("file", path16, stat);
+        self2.send(path16, stat);
       });
       function next(err) {
         if (self2._extensions.length <= i) {
           return err ? self2.onStatError(err) : self2.error(404);
         }
-        var p = path14 + "." + self2._extensions[i++];
+        var p = path16 + "." + self2._extensions[i++];
         debug('stat "%s"', p);
-        fs10.stat(p, function(err2, stat) {
+        fs12.stat(p, function(err2, stat) {
           if (err2) return next(err2);
           if (stat.isDirectory()) return next();
           self2.emit("file", p, stat);
@@ -64339,7 +65886,7 @@ var require_send = __commonJS({
         });
       }
     };
-    SendStream.prototype.sendIndex = function sendIndex(path14) {
+    SendStream.prototype.sendIndex = function sendIndex(path16) {
       var i = -1;
       var self2 = this;
       function next(err) {
@@ -64347,9 +65894,9 @@ var require_send = __commonJS({
           if (err) return self2.onStatError(err);
           return self2.error(404);
         }
-        var p = join(path14, self2._index[i]);
+        var p = join(path16, self2._index[i]);
         debug('stat "%s"', p);
-        fs10.stat(p, function(err2, stat) {
+        fs12.stat(p, function(err2, stat) {
           if (err2) return next(err2);
           if (stat.isDirectory()) return next();
           self2.emit("file", p, stat);
@@ -64358,10 +65905,10 @@ var require_send = __commonJS({
       }
       next();
     };
-    SendStream.prototype.stream = function stream(path14, options) {
+    SendStream.prototype.stream = function stream(path16, options) {
       var self2 = this;
       var res = this.res;
-      var stream2 = fs10.createReadStream(path14, options);
+      var stream2 = fs12.createReadStream(path16, options);
       this.emit("stream", stream2);
       stream2.pipe(res);
       function cleanup() {
@@ -64376,10 +65923,10 @@ var require_send = __commonJS({
         self2.emit("end");
       });
     };
-    SendStream.prototype.type = function type(path14) {
+    SendStream.prototype.type = function type(path16) {
       var res = this.res;
       if (res.getHeader("Content-Type")) return;
-      var type2 = mime.lookup(path14);
+      var type2 = mime.lookup(path16);
       if (!type2) {
         debug("no content-type");
         return;
@@ -64388,9 +65935,9 @@ var require_send = __commonJS({
       debug("content-type %s", type2);
       res.setHeader("Content-Type", type2 + (charset ? "; charset=" + charset : ""));
     };
-    SendStream.prototype.setHeader = function setHeader(path14, stat) {
+    SendStream.prototype.setHeader = function setHeader(path16, stat) {
       var res = this.res;
-      this.emit("headers", res, path14, stat);
+      this.emit("headers", res, path16, stat);
       if (this._acceptRanges && !res.getHeader("Accept-Ranges")) {
         debug("accept ranges");
         res.setHeader("Accept-Ranges", "bytes");
@@ -64449,9 +65996,9 @@ var require_send = __commonJS({
       }
       return err instanceof Error ? createError(status, err, { expose: false }) : createError(status, err);
     }
-    function decode(path14) {
+    function decode(path16) {
       try {
-        return decodeURIComponent(path14);
+        return decodeURIComponent(path16);
       } catch (err) {
         return -1;
       }
@@ -65360,10 +66907,10 @@ var require_utils6 = __commonJS({
     var querystring = require("querystring");
     exports2.etag = createETagGenerator({ weak: false });
     exports2.wetag = createETagGenerator({ weak: true });
-    exports2.isAbsolute = function(path13) {
-      if ("/" === path13[0]) return true;
-      if (":" === path13[1] && ("\\" === path13[2] || "/" === path13[2])) return true;
-      if ("\\\\" === path13.substring(0, 2)) return true;
+    exports2.isAbsolute = function(path15) {
+      if ("/" === path15[0]) return true;
+      if (":" === path15[1] && ("\\" === path15[2] || "/" === path15[2])) return true;
+      if ("\\\\" === path15.substring(0, 2)) return true;
     };
     exports2.flatten = deprecate.function(
       flatten,
@@ -65574,7 +67121,7 @@ var require_application = __commonJS({
     };
     app2.use = function use(fn) {
       var offset = 0;
-      var path13 = "/";
+      var path15 = "/";
       if (typeof fn !== "function") {
         var arg = fn;
         while (Array.isArray(arg) && arg.length !== 0) {
@@ -65582,7 +67129,7 @@ var require_application = __commonJS({
         }
         if (typeof arg !== "function") {
           offset = 1;
-          path13 = fn;
+          path15 = fn;
         }
       }
       var fns = flatten(slice.call(arguments, offset));
@@ -65593,12 +67140,12 @@ var require_application = __commonJS({
       var router15 = this._router;
       fns.forEach(function(fn2) {
         if (!fn2 || !fn2.handle || !fn2.set) {
-          return router15.use(path13, fn2);
+          return router15.use(path15, fn2);
         }
-        debug(".use app under %s", path13);
-        fn2.mountpath = path13;
+        debug(".use app under %s", path15);
+        fn2.mountpath = path15;
         fn2.parent = this;
-        router15.use(path13, function mounted_app(req, res, next) {
+        router15.use(path15, function mounted_app(req, res, next) {
           var orig = req.app;
           fn2.handle(req, res, function(err) {
             setPrototypeOf(req, orig.request);
@@ -65610,9 +67157,9 @@ var require_application = __commonJS({
       }, this);
       return this;
     };
-    app2.route = function route(path13) {
+    app2.route = function route(path15) {
       this.lazyrouter();
-      return this._router.route(path13);
+      return this._router.route(path15);
     };
     app2.engine = function engine(ext, fn) {
       if (typeof fn !== "function") {
@@ -65663,7 +67210,7 @@ var require_application = __commonJS({
       }
       return this;
     };
-    app2.path = function path13() {
+    app2.path = function path15() {
       return this.parent ? this.parent.path() + this.mountpath : "";
     };
     app2.enabled = function enabled(setting) {
@@ -65679,19 +67226,19 @@ var require_application = __commonJS({
       return this.set(setting, false);
     };
     methods.forEach(function(method) {
-      app2[method] = function(path13) {
+      app2[method] = function(path15) {
         if (method === "get" && arguments.length === 1) {
-          return this.set(path13);
+          return this.set(path15);
         }
         this.lazyrouter();
-        var route = this._router.route(path13);
+        var route = this._router.route(path15);
         route[method].apply(route, slice.call(arguments, 1));
         return this;
       };
     });
-    app2.all = function all(path13) {
+    app2.all = function all(path15) {
       this.lazyrouter();
-      var route = this._router.route(path13);
+      var route = this._router.route(path15);
       var args = slice.call(arguments, 1);
       for (var i = 0; i < methods.length; i++) {
         route[methods[i]].apply(route, args);
@@ -66450,7 +67997,7 @@ var require_request = __commonJS({
       var subdomains2 = !isIP(hostname) ? hostname.split(".").reverse() : [hostname];
       return subdomains2.slice(offset);
     });
-    defineGetter(req, "path", function path13() {
+    defineGetter(req, "path", function path15() {
       return parse(this).pathname;
     });
     defineGetter(req, "hostname", function hostname() {
@@ -66772,7 +68319,7 @@ var require_response = __commonJS({
     var http = require("http");
     var isAbsolute = require_utils6().isAbsolute;
     var onFinished = require_on_finished();
-    var path13 = require("path");
+    var path15 = require("path");
     var statuses = require_statuses();
     var merge = require_utils_merge();
     var sign = require_cookie_signature().sign;
@@ -66781,9 +68328,9 @@ var require_response = __commonJS({
     var setCharset = require_utils6().setCharset;
     var cookie = require_cookie();
     var send = require_send();
-    var extname = path13.extname;
+    var extname = path15.extname;
     var mime = send.mime;
-    var resolve = path13.resolve;
+    var resolve = path15.resolve;
     var vary = require_vary();
     var res = Object.create(http.ServerResponse.prototype);
     module2.exports = res;
@@ -66960,26 +68507,26 @@ var require_response = __commonJS({
       this.type("txt");
       return this.send(body);
     };
-    res.sendFile = function sendFile(path14, options, callback) {
+    res.sendFile = function sendFile(path16, options, callback) {
       var done = callback;
       var req = this.req;
       var res2 = this;
       var next = req.next;
       var opts = options || {};
-      if (!path14) {
+      if (!path16) {
         throw new TypeError("path argument is required to res.sendFile");
       }
-      if (typeof path14 !== "string") {
+      if (typeof path16 !== "string") {
         throw new TypeError("path must be a string to res.sendFile");
       }
       if (typeof options === "function") {
         done = options;
         opts = {};
       }
-      if (!opts.root && !isAbsolute(path14)) {
+      if (!opts.root && !isAbsolute(path16)) {
         throw new TypeError("path must be absolute or specify root to res.sendFile");
       }
-      var pathname = encodeURI(path14);
+      var pathname = encodeURI(path16);
       var file = send(req, pathname, opts);
       sendfile(res2, file, opts, function(err) {
         if (done) return done(err);
@@ -66989,7 +68536,7 @@ var require_response = __commonJS({
         }
       });
     };
-    res.sendfile = function(path14, options, callback) {
+    res.sendfile = function(path16, options, callback) {
       var done = callback;
       var req = this.req;
       var res2 = this;
@@ -66999,7 +68546,7 @@ var require_response = __commonJS({
         done = options;
         opts = {};
       }
-      var file = send(req, path14, opts);
+      var file = send(req, path16, opts);
       sendfile(res2, file, opts, function(err) {
         if (done) return done(err);
         if (err && err.code === "EISDIR") return next();
@@ -67012,7 +68559,7 @@ var require_response = __commonJS({
       res.sendfile,
       "res.sendfile: Use res.sendFile instead"
     );
-    res.download = function download(path14, filename, options, callback) {
+    res.download = function download(path16, filename, options, callback) {
       var done = callback;
       var name = filename;
       var opts = options || null;
@@ -67029,7 +68576,7 @@ var require_response = __commonJS({
         opts = filename;
       }
       var headers = {
-        "Content-Disposition": contentDisposition(name || path14)
+        "Content-Disposition": contentDisposition(name || path16)
       };
       if (opts && opts.headers) {
         var keys = Object.keys(opts.headers);
@@ -67042,7 +68589,7 @@ var require_response = __commonJS({
       }
       opts = Object.create(opts);
       opts.headers = headers;
-      var fullPath = !opts.root ? resolve(path14) : path14;
+      var fullPath = !opts.root ? resolve(path16) : path16;
       return this.sendFile(fullPath, opts, done);
     };
     res.contentType = res.type = function contentType(type) {
@@ -67343,11 +68890,11 @@ var require_serve_static = __commonJS({
         }
         var forwardError = !fallthrough;
         var originalUrl = parseUrl.original(req);
-        var path13 = parseUrl(req).pathname;
-        if (path13 === "/" && originalUrl.pathname.substr(-1) !== "/") {
-          path13 = "";
+        var path15 = parseUrl(req).pathname;
+        if (path15 === "/" && originalUrl.pathname.substr(-1) !== "/") {
+          path15 = "";
         }
-        var stream = send(req, path13, opts);
+        var stream = send(req, path15, opts);
         stream.on("directory", onDirectory);
         if (setHeaders) {
           stream.on("headers", setHeaders);
@@ -74800,19 +76347,19 @@ var require_utils7 = __commonJS({
       if (decode)
         return decode(data, hint);
     }
-    function basename(path13) {
-      if (typeof path13 !== "string")
+    function basename(path15) {
+      if (typeof path15 !== "string")
         return "";
-      for (let i = path13.length - 1; i >= 0; --i) {
-        switch (path13.charCodeAt(i)) {
+      for (let i = path15.length - 1; i >= 0; --i) {
+        switch (path15.charCodeAt(i)) {
           case 47:
           // '/'
           case 92:
-            path13 = path13.slice(i + 1);
-            return path13 === ".." || path13 === "." ? "" : path13;
+            path15 = path15.slice(i + 1);
+            return path15 === ".." || path15 === "." ? "" : path15;
         }
       }
-      return path13 === ".." || path13 === "." ? "" : path13;
+      return path15 === ".." || path15 === "." ? "" : path15;
     }
     var TOKEN = [
       0,
@@ -78684,8 +80231,8 @@ var require_make_middleware = __commonJS({
 // node_modules/mkdirp/index.js
 var require_mkdirp = __commonJS({
   "node_modules/mkdirp/index.js"(exports2, module2) {
-    var path13 = require("path");
-    var fs10 = require("fs");
+    var path15 = require("path");
+    var fs12 = require("fs");
     var _0777 = parseInt("0777", 8);
     module2.exports = mkdirP.mkdirp = mkdirP.mkdirP = mkdirP;
     function mkdirP(p, opts, f, made) {
@@ -78696,7 +80243,7 @@ var require_mkdirp = __commonJS({
         opts = { mode: opts };
       }
       var mode = opts.mode;
-      var xfs = opts.fs || fs10;
+      var xfs = opts.fs || fs12;
       if (mode === void 0) {
         mode = _0777;
       }
@@ -78704,7 +80251,7 @@ var require_mkdirp = __commonJS({
       var cb = f || /* istanbul ignore next */
       function() {
       };
-      p = path13.resolve(p);
+      p = path15.resolve(p);
       xfs.mkdir(p, mode, function(er) {
         if (!er) {
           made = made || p;
@@ -78712,8 +80259,8 @@ var require_mkdirp = __commonJS({
         }
         switch (er.code) {
           case "ENOENT":
-            if (path13.dirname(p) === p) return cb(er);
-            mkdirP(path13.dirname(p), opts, function(er2, made2) {
+            if (path15.dirname(p) === p) return cb(er);
+            mkdirP(path15.dirname(p), opts, function(er2, made2) {
               if (er2) cb(er2, made2);
               else mkdirP(p, opts, cb, made2);
             });
@@ -78735,19 +80282,19 @@ var require_mkdirp = __commonJS({
         opts = { mode: opts };
       }
       var mode = opts.mode;
-      var xfs = opts.fs || fs10;
+      var xfs = opts.fs || fs12;
       if (mode === void 0) {
         mode = _0777;
       }
       if (!made) made = null;
-      p = path13.resolve(p);
+      p = path15.resolve(p);
       try {
         xfs.mkdirSync(p, mode);
         made = made || p;
       } catch (err0) {
         switch (err0.code) {
           case "ENOENT":
-            made = sync(path13.dirname(p), opts, made);
+            made = sync(path15.dirname(p), opts, made);
             sync(p, opts, made);
             break;
           // In the case of any other error, just see if there's a dir
@@ -78772,9 +80319,9 @@ var require_mkdirp = __commonJS({
 // node_modules/multer/storage/disk.js
 var require_disk = __commonJS({
   "node_modules/multer/storage/disk.js"(exports2, module2) {
-    var fs10 = require("fs");
+    var fs12 = require("fs");
     var os7 = require("os");
-    var path13 = require("path");
+    var path15 = require("path");
     var crypto5 = require("crypto");
     var mkdirp = require_mkdirp();
     function getFilename(req, file, cb) {
@@ -78802,8 +80349,8 @@ var require_disk = __commonJS({
         if (err) return cb(err);
         that.getFilename(req, file, function(err2, filename) {
           if (err2) return cb(err2);
-          var finalPath = path13.join(destination, filename);
-          var outStream = fs10.createWriteStream(finalPath);
+          var finalPath = path15.join(destination, filename);
+          var outStream = fs12.createWriteStream(finalPath);
           file.stream.pipe(outStream);
           outStream.on("error", cb);
           outStream.on("finish", function() {
@@ -78818,11 +80365,11 @@ var require_disk = __commonJS({
       });
     };
     DiskStorage.prototype._removeFile = function _removeFile(req, file, cb) {
-      var path14 = file.path;
+      var path16 = file.path;
       delete file.destination;
       delete file.filename;
       delete file.path;
-      fs10.unlink(path14, cb);
+      fs12.unlink(path16, cb);
     };
     module2.exports = function(opts) {
       return new DiskStorage(opts);
@@ -81539,7 +83086,7 @@ var require_multer = __commonJS({
 });
 
 // src/api/routes/jobs.js
-var import_express4, import_multer, import_node_fs6, import_node_path8, UPLOADS_DIR2, router4, upload, jobs_default;
+var import_express4, import_multer, import_node_fs7, import_node_path9, UPLOADS_DIR2, router4, upload, jobs_default;
 var init_jobs = __esm({
   "src/api/routes/jobs.js"() {
     import_express4 = __toESM(require_express2(), 1);
@@ -81551,8 +83098,8 @@ var init_jobs = __esm({
     init_errorHandler();
     init_Extract3mf();
     import_multer = __toESM(require_multer(), 1);
-    import_node_fs6 = __toESM(require("node:fs"), 1);
-    import_node_path8 = __toESM(require("node:path"), 1);
+    import_node_fs7 = __toESM(require("node:fs"), 1);
+    import_node_path9 = __toESM(require("node:path"), 1);
     init_uploadPaths();
     UPLOADS_DIR2 = getUploadRoot();
     router4 = (0, import_express4.Router)();
@@ -81651,13 +83198,13 @@ var init_jobs = __esm({
       const type = req.query.type || "transformed";
       let filePath, downloadName;
       if (type === "original") {
-        filePath = import_node_path8.default.join(UPLOADS_DIR2, `${job.job_id}_${job.source_file_name}`);
+        filePath = import_node_path9.default.join(UPLOADS_DIR2, `${job.job_id}_${job.source_file_name}`);
         downloadName = job.source_file_name;
       } else {
-        filePath = import_node_path8.default.join(UPLOADS_DIR2, `${job.job_id}_${job.transformed_file_name || job.source_file_name}`);
+        filePath = import_node_path9.default.join(UPLOADS_DIR2, `${job.job_id}_${job.transformed_file_name || job.source_file_name}`);
         downloadName = job.transformed_file_name || job.source_file_name;
       }
-      if (!filePath || !import_node_fs6.default.existsSync(filePath)) {
+      if (!filePath || !import_node_fs7.default.existsSync(filePath)) {
         return res.status(404).json({ error: `No ${type} file found for this job` });
       }
       res.download(filePath, downloadName);
@@ -81799,9 +83346,9 @@ var init_JobTemplate = __esm({
 
 // src/api/routes/jobTemplates.js
 function ensureTemplatesDir() {
-  import_node_fs7.default.mkdirSync(TEMPLATES_DIR, { recursive: true });
+  import_node_fs8.default.mkdirSync(TEMPLATES_DIR, { recursive: true });
 }
-var import_express5, import_multer2, import_node_fs7, import_node_path9, router5, TEMPLATES_DIR, upload2, jobTemplates_default;
+var import_express5, import_multer2, import_node_fs8, import_node_path10, router5, TEMPLATES_DIR, upload2, jobTemplates_default;
 var init_jobTemplates = __esm({
   "src/api/routes/jobTemplates.js"() {
     import_express5 = __toESM(require_express2(), 1);
@@ -81809,8 +83356,8 @@ var init_jobTemplates = __esm({
     init_auth();
     init_errorHandler();
     import_multer2 = __toESM(require_multer(), 1);
-    import_node_fs7 = __toESM(require("node:fs"), 1);
-    import_node_path9 = __toESM(require("node:path"), 1);
+    import_node_fs8 = __toESM(require("node:fs"), 1);
+    import_node_path10 = __toESM(require("node:path"), 1);
     init_uploadPaths();
     router5 = (0, import_express5.Router)();
     TEMPLATES_DIR = getUploadPath("templates");
@@ -81846,8 +83393,8 @@ var init_jobTemplates = __esm({
           transform_overrides: parsedOverrides || {}
         });
         ensureTemplatesDir();
-        source_file_path = import_node_path9.default.join(TEMPLATES_DIR, `${tmpl2.template_id}_${source_file_name}`);
-        import_node_fs7.default.writeFileSync(source_file_path, req.file.buffer);
+        source_file_path = import_node_path10.default.join(TEMPLATES_DIR, `${tmpl2.template_id}_${source_file_name}`);
+        import_node_fs8.default.writeFileSync(source_file_path, req.file.buffer);
         const updated = JobTemplateModel.update(tmpl2.template_id, { source_file_name, source_file_path });
         return res.status(201).json(updated);
       }
@@ -81876,21 +83423,21 @@ var init_jobTemplates = __esm({
         updates.ams_roles = JSON.parse(updates.ams_roles);
       }
       if (req.file) {
-        if (existing.source_file_path && import_node_fs7.default.existsSync(existing.source_file_path)) {
-          import_node_fs7.default.unlinkSync(existing.source_file_path);
+        if (existing.source_file_path && import_node_fs8.default.existsSync(existing.source_file_path)) {
+          import_node_fs8.default.unlinkSync(existing.source_file_path);
         }
         ensureTemplatesDir();
         updates.source_file_name = req.file.originalname;
-        updates.source_file_path = import_node_path9.default.join(TEMPLATES_DIR, `${req.params.id}_${req.file.originalname}`);
-        import_node_fs7.default.writeFileSync(updates.source_file_path, req.file.buffer);
+        updates.source_file_path = import_node_path10.default.join(TEMPLATES_DIR, `${req.params.id}_${req.file.originalname}`);
+        import_node_fs8.default.writeFileSync(updates.source_file_path, req.file.buffer);
       }
       const tmpl = JobTemplateModel.update(req.params.id, updates);
       res.json(tmpl);
     }));
     router5.delete("/:id", requireAuth, asyncHandler(async (req, res) => {
       const existing = JobTemplateModel.findById(req.params.id);
-      if (existing?.source_file_path && import_node_fs7.default.existsSync(existing.source_file_path)) {
-        import_node_fs7.default.unlinkSync(existing.source_file_path);
+      if (existing?.source_file_path && import_node_fs8.default.existsSync(existing.source_file_path)) {
+        import_node_fs8.default.unlinkSync(existing.source_file_path);
       }
       JobTemplateModel.delete(req.params.id);
       res.json({ deleted: true });
@@ -81898,7 +83445,7 @@ var init_jobTemplates = __esm({
     router5.get("/:id/file", requireAuth, asyncHandler(async (req, res) => {
       const tmpl = JobTemplateModel.findById(req.params.id);
       if (!tmpl) return res.status(404).json({ error: "Template not found" });
-      if (!tmpl.source_file_path || !import_node_fs7.default.existsSync(tmpl.source_file_path)) {
+      if (!tmpl.source_file_path || !import_node_fs8.default.existsSync(tmpl.source_file_path)) {
         return res.status(404).json({ error: "No file stored for this template" });
       }
       res.download(tmpl.source_file_path, tmpl.source_file_name);
@@ -81906,10 +83453,10 @@ var init_jobTemplates = __esm({
     router5.post("/:id/submit", requireAuth, asyncHandler(async (req, res) => {
       const tmpl = JobTemplateModel.findById(req.params.id);
       if (!tmpl) return res.status(404).json({ error: "Template not found" });
-      if (!tmpl.source_file_path || !import_node_fs7.default.existsSync(tmpl.source_file_path)) {
+      if (!tmpl.source_file_path || !import_node_fs8.default.existsSync(tmpl.source_file_path)) {
         return res.status(400).json({ error: "Template has no stored file \u2014 upload a G-code file first" });
       }
-      const rawBuffer = import_node_fs7.default.readFileSync(tmpl.source_file_path);
+      const rawBuffer = import_node_fs8.default.readFileSync(tmpl.source_file_path);
       let fileContent;
       let fileName = tmpl.source_file_name;
       let rawBuffer3mf = null;
@@ -82599,10 +84146,10 @@ function orcaOverrides(settings = {}) {
   return { process: process2, filament };
 }
 function writeDerivedPreset(basePath, overrides, outPath) {
-  const obj = JSON.parse(import_node_fs8.default.readFileSync(basePath, "utf-8"));
+  const obj = JSON.parse(import_node_fs9.default.readFileSync(basePath, "utf-8"));
   delete obj.setting_id;
   Object.assign(obj, overrides);
-  import_node_fs8.default.writeFileSync(outPath, JSON.stringify(obj, null, 2));
+  import_node_fs9.default.writeFileSync(outPath, JSON.stringify(obj, null, 2));
   return outPath;
 }
 function detectCliEngine() {
@@ -82613,7 +84160,7 @@ function detectCliEngine() {
   ].filter(Boolean);
   for (const candidate of candidates) {
     try {
-      if (import_node_fs8.default.existsSync(candidate)) return { path: candidate, label: import_node_path10.default.basename(candidate) };
+      if (import_node_fs9.default.existsSync(candidate)) return { path: candidate, label: import_node_path11.default.basename(candidate) };
     } catch {
     }
   }
@@ -82632,12 +84179,12 @@ function runProcess(exe, args, { cwd, timeoutMs } = {}) {
     );
   });
 }
-var import_node_fs8, import_node_os4, import_node_path10, import_node_child_process, log30, DEFAULT_CLI_CANDIDATES, ORCA_RESOURCES, ORCA_PRESETS, SLICER_SETTING_FIELDS, SUPPORTED_INPUT_FORMATS, BACKENDS, BACKEND_PRIORITY, SliceService;
+var import_node_fs9, import_node_os4, import_node_path11, import_node_child_process, log30, DEFAULT_CLI_CANDIDATES, ORCA_RESOURCES, ORCA_PRESETS, SLICER_SETTING_FIELDS, SUPPORTED_INPUT_FORMATS, BACKENDS, BACKEND_PRIORITY, SliceService;
 var init_SliceService = __esm({
   "src/services/SliceService.js"() {
-    import_node_fs8 = __toESM(require("node:fs"), 1);
+    import_node_fs9 = __toESM(require("node:fs"), 1);
     import_node_os4 = __toESM(require("node:os"), 1);
-    import_node_path10 = __toESM(require("node:path"), 1);
+    import_node_path11 = __toESM(require("node:path"), 1);
     import_node_child_process = require("node:child_process");
     init_logger();
     init_AutomatorZip();
@@ -82778,22 +84325,22 @@ var init_SliceService = __esm({
         if (!engine) return { ok: false, code: "no_backend", error: "No CLI engine found" };
         const model = job.options?.printer_model || job.profile?.printer_model || "P1S";
         const preset = ORCA_PRESETS[model] || ORCA_PRESETS.P1S;
-        const machineJson = import_node_path10.default.join(ORCA_RESOURCES, "machine", `${preset.machine}.json`);
-        const processJson = import_node_path10.default.join(ORCA_RESOURCES, "process", `${preset.process}.json`);
-        const filamentJson = import_node_path10.default.join(ORCA_RESOURCES, "filament", `${preset.filament}.json`);
+        const machineJson = import_node_path11.default.join(ORCA_RESOURCES, "machine", `${preset.machine}.json`);
+        const processJson = import_node_path11.default.join(ORCA_RESOURCES, "process", `${preset.process}.json`);
+        const filamentJson = import_node_path11.default.join(ORCA_RESOURCES, "filament", `${preset.filament}.json`);
         for (const [label, f] of [["machine", machineJson], ["process", processJson], ["filament", filamentJson]]) {
-          if (!import_node_fs8.default.existsSync(f)) {
+          if (!import_node_fs9.default.existsSync(f)) {
             return { ok: false, code: "preset_missing", error: `Slicer ${label} preset not found: ${f}` };
           }
         }
-        const work = import_node_fs8.default.mkdtempSync(import_node_path10.default.join(import_node_os4.default.tmpdir(), "ag-slice-"));
+        const work = import_node_fs9.default.mkdtempSync(import_node_path11.default.join(import_node_os4.default.tmpdir(), "ag-slice-"));
         const ext = (job.modelName.split(".").pop() || "stl").toLowerCase();
-        const modelPath = import_node_path10.default.join(work, `input.${ext}`);
-        import_node_fs8.default.writeFileSync(modelPath, job.modelBuffer);
+        const modelPath = import_node_path11.default.join(work, `input.${ext}`);
+        import_node_fs9.default.writeFileSync(modelPath, job.modelBuffer);
         const ov = orcaOverrides(job.options?.settings);
         let processArg = processJson, filamentArg = filamentJson;
-        if (Object.keys(ov.process).length) processArg = writeDerivedPreset(processJson, ov.process, import_node_path10.default.join(work, "process.json"));
-        if (Object.keys(ov.filament).length) filamentArg = writeDerivedPreset(filamentJson, ov.filament, import_node_path10.default.join(work, "filament.json"));
+        if (Object.keys(ov.process).length) processArg = writeDerivedPreset(processJson, ov.process, import_node_path11.default.join(work, "process.json"));
+        if (Object.keys(ov.filament).length) filamentArg = writeDerivedPreset(filamentJson, ov.filament, import_node_path11.default.join(work, "filament.json"));
         const appliedSettings = { ...ov.process, ...ov.filament };
         if (Object.keys(appliedSettings).length) log30.info(`Slice overrides: ${JSON.stringify(appliedSettings)}`);
         const args = [
@@ -82812,7 +84359,7 @@ var init_SliceService = __esm({
         ];
         try {
           const { stdout } = await runProcess(engine.path, args, { cwd: void 0, timeoutMs: 18e4 });
-          const plates = import_node_fs8.default.readdirSync(work).map((f) => ({ f, m: /^plate_(\d+)\.gcode$/i.exec(f) })).filter((x) => x.m).map((x) => ({ index: parseInt(x.m[1], 10), gcode: import_node_fs8.default.readFileSync(import_node_path10.default.join(work, x.f), "utf-8") })).sort((a, b) => a.index - b.index);
+          const plates = import_node_fs9.default.readdirSync(work).map((f) => ({ f, m: /^plate_(\d+)\.gcode$/i.exec(f) })).filter((x) => x.m).map((x) => ({ index: parseInt(x.m[1], 10), gcode: import_node_fs9.default.readFileSync(import_node_path11.default.join(work, x.f), "utf-8") })).sort((a, b) => a.index - b.index);
           if (!plates.length) {
             const tail = (stdout || "").split("\n").slice(-4).join(" ");
             return { ok: false, code: "no_output", error: `Slicer produced no plate gcode. ${tail}` };
@@ -82827,7 +84374,7 @@ var init_SliceService = __esm({
           };
         } finally {
           try {
-            import_node_fs8.default.rmSync(work, { recursive: true, force: true });
+            import_node_fs9.default.rmSync(work, { recursive: true, force: true });
           } catch {
           }
         }
@@ -83735,29 +85282,29 @@ function resolveCloudflaredPath() {
   if (process.env.CLOUDFLARED_PATH) return process.env.CLOUDFLARED_PATH;
   const home = import_node_os5.default.homedir() || process.env.USERPROFILE || process.env.HOME || ".";
   const candidates = process.platform === "win32" ? [
-    import_node_path11.default.join(home, "cloudflared.exe"),
+    import_node_path12.default.join(home, "cloudflared.exe"),
     "C:\\Program Files (x86)\\cloudflared\\cloudflared.exe"
   ] : [
     "/usr/local/bin/cloudflared",
     "/usr/bin/cloudflared",
-    import_node_path11.default.join(home, ".cloudflared", "cloudflared"),
-    import_node_path11.default.join(home, "cloudflared")
+    import_node_path12.default.join(home, ".cloudflared", "cloudflared"),
+    import_node_path12.default.join(home, "cloudflared")
   ];
   for (const candidate of candidates) {
     try {
-      if (import_node_fs9.default.existsSync(candidate)) return candidate;
+      if (import_node_fs10.default.existsSync(candidate)) return candidate;
     } catch {
     }
   }
   return "cloudflared";
 }
-var import_node_child_process2, import_node_fs9, import_node_os5, import_node_path11, log31, TunnelService, service, TunnelService_default;
+var import_node_child_process2, import_node_fs10, import_node_os5, import_node_path12, log31, TunnelService, service, TunnelService_default;
 var init_TunnelService = __esm({
   "src/services/TunnelService.js"() {
     import_node_child_process2 = require("node:child_process");
-    import_node_fs9 = __toESM(require("node:fs"), 1);
+    import_node_fs10 = __toESM(require("node:fs"), 1);
     import_node_os5 = __toESM(require("node:os"), 1);
-    import_node_path11 = __toESM(require("node:path"), 1);
+    import_node_path12 = __toESM(require("node:path"), 1);
     init_logger();
     log31 = createLogger("TunnelService");
     TunnelService = class {
@@ -84103,13 +85650,13 @@ async function init() {
     process.exit(1);
   }
 }
-var import_express15, import_node_http, import_node_path12, import_node_url2, import_meta2, __dirname3, publicDir, log33, isVercelRuntime2, farmDashboardFile, cloudLandingFile, rootPageFile, app, server;
+var import_express15, import_node_http, import_node_path13, import_node_url2, import_meta2, __dirname3, publicDir, log33, isVercelRuntime2, farmDashboardFile, cloudLandingFile, rootPageFile, app, server;
 var init_server = __esm({
   "server.js"() {
     init_config();
     import_express15 = __toESM(require_express2(), 1);
     import_node_http = require("node:http");
-    import_node_path12 = __toESM(require("node:path"), 1);
+    import_node_path13 = __toESM(require("node:path"), 1);
     import_node_url2 = require("node:url");
     init_database();
     init_default_profiles();
@@ -84125,8 +85672,8 @@ var init_server = __esm({
     init_logger();
     init_runtimePaths();
     import_meta2 = {};
-    __dirname3 = import_meta2.url ? import_node_path12.default.dirname((0, import_node_url2.fileURLToPath)(import_meta2.url)) : process.env.PKX_ASSET_ROOT || process.cwd();
-    publicDir = resolveAsset("public", import_node_path12.default.join(__dirname3, "public"));
+    __dirname3 = import_meta2.url ? import_node_path13.default.dirname((0, import_node_url2.fileURLToPath)(import_meta2.url)) : process.env.PKX_ASSET_ROOT || process.cwd();
+    publicDir = resolveAsset("public", import_node_path13.default.join(__dirname3, "public"));
     log33 = createLogger("Server");
     isVercelRuntime2 = Boolean(process.env.VERCEL);
     farmDashboardFile = "farm-dashboard.html";
@@ -84145,22 +85692,22 @@ var init_server = __esm({
     });
     app.use(import_express15.default.static(publicDir, { index: false }));
     app.get("/cloud", (req, res) => {
-      res.sendFile(import_node_path12.default.join(publicDir, "cloud.html"));
+      res.sendFile(import_node_path13.default.join(publicDir, "cloud.html"));
     });
     app.get("/merchant-onboarding", (req, res) => {
-      res.sendFile(import_node_path12.default.join(publicDir, "merchant-onboarding.html"));
+      res.sendFile(import_node_path13.default.join(publicDir, "merchant-onboarding.html"));
     });
     app.get("/admin-reset", (req, res) => {
-      res.sendFile(import_node_path12.default.join(publicDir, "admin-reset.html"));
+      res.sendFile(import_node_path13.default.join(publicDir, "admin-reset.html"));
     });
     app.get("/", (req, res) => {
-      res.sendFile(import_node_path12.default.join(publicDir, rootPageFile));
+      res.sendFile(import_node_path13.default.join(publicDir, rootPageFile));
     });
     app.use("/api", router_default);
     app.use(errorHandler);
     app.get("*", (req, res) => {
       if (!req.path.startsWith("/api") && !isVercelRuntime2) {
-        res.sendFile(import_node_path12.default.join(publicDir, farmDashboardFile));
+        res.sendFile(import_node_path13.default.join(publicDir, farmDashboardFile));
       }
     });
     init();
@@ -84168,1006 +85715,7 @@ var init_server = __esm({
 });
 
 // src/cloud/runLocalNode.js
-init_config();
-var import_node_os6 = __toESM(require("node:os"), 1);
-
-// src/cloud/localCommandExecutor.js
-var import_node_crypto3 = require("node:crypto");
-var import_adm_zip3 = __toESM(require_adm_zip(), 1);
-
-// src/cloud/localPrinterSnapshot.js
-init_FilamentCatalog();
-var BUILD_VOLUMES = {
-  default: { x: 256, y: 256, z: 256 },
-  mini: { x: 180, y: 180, z: 180 }
-};
-function getBuildVolumeForModel(model) {
-  const normalized = String(model || "").toLowerCase();
-  if (normalized.includes("mini")) return BUILD_VOLUMES.mini;
-  return BUILD_VOLUMES.default;
-}
-function countAmsTrays(snapshot) {
-  if (!snapshot || typeof snapshot !== "object") return 0;
-  if (Array.isArray(snapshot.ams?.trays)) return snapshot.ams.trays.length;
-  if (Array.isArray(snapshot.ams?.ams)) {
-    return snapshot.ams.ams.reduce((count, unit) => count + (Array.isArray(unit.tray) ? unit.tray.length : 0), 0);
-  }
-  if (Array.isArray(snapshot.ams?.tray)) return snapshot.ams.tray.length;
-  return 0;
-}
-function collectAmsTrays(amsStatus) {
-  if (!amsStatus || !Array.isArray(amsStatus.slots)) return [];
-  return amsStatus.slots.map((slot) => {
-    const material = slot.configured_material || slot.live_type || null;
-    const colorHex = slot.configured_color || (slot.live_color ? String(slot.live_color).replace(/^#/, "") : null);
-    if (!material && !colorHex) return null;
-    const materialBase = material ? getFilamentType(material)?.trayType || material : null;
-    return {
-      ams_id: slot.ams_id,
-      tray_id: slot.tray_id,
-      material,
-      material_base: materialBase,
-      color_hex: colorHex,
-      color_name: slot.configured_color_name || null,
-      source: slot.configured_material ? "configured" : "live",
-      live_remaining: slot.live_remaining ?? null,
-      in_sync: slot.in_sync !== false
-    };
-  }).filter(Boolean);
-}
-function buildCurrentJobView(worker, activeJob, preview = null) {
-  const status = worker?.latestStatus || {};
-  const printingState = String(status.gcode_state || status.state || "").toLowerCase();
-  if (!activeJob && !["printing", "running", "pause", "paused", "prepare"].includes(printingState)) {
-    return null;
-  }
-  const progress = Number(status.progress);
-  const remaining = Number(status.remaining_time);
-  return {
-    job_id: activeJob?.job_id || null,
-    name: activeJob?.name || status.subtask_name || status.gcode_file || null,
-    state: printingState || "printing",
-    progress_percent: Number.isFinite(progress) ? Math.max(0, Math.min(progress, 100)) : null,
-    remaining_minutes: Number.isFinite(remaining) ? Math.max(0, remaining) : null,
-    layer: Number.isFinite(Number(status.layer)) ? Number(status.layer) : null,
-    total_layers: Number.isFinite(Number(status.total_layers)) ? Number(status.total_layers) : null,
-    preview: typeof preview === "string" && preview.startsWith("data:") ? preview : null
-  };
-}
-function buildSyncedPrinterRecord(printer, worker, options = {}, amsStatus = null) {
-  const statusSnapshot = printer.status_snapshot && typeof printer.status_snapshot === "object" ? { ...printer.status_snapshot } : {};
-  const liveState = worker?.state && worker.state !== "unknown" ? worker.state : statusSnapshot.state;
-  const status = worker?.connected ? liveState || "online" : liveState || "offline";
-  const record = {
-    local_printer_id: printer.printer_id,
-    name: printer.name || printer.printer_id,
-    model: printer.model || null,
-    ip_hostname: printer.ip_hostname || null,
-    status,
-    connected: !!worker?.connected,
-    capabilities: { ...printer.capabilities || {} },
-    last_seen: printer.last_seen || null
-  };
-  if (!record.capabilities.build_volume_mm) {
-    record.capabilities.build_volume_mm = getBuildVolumeForModel(printer.model);
-  }
-  if (printer.ip_hostname && !record.capabilities.ip_hostname) {
-    record.capabilities.ip_hostname = printer.ip_hostname;
-  }
-  if (record.capabilities.auto_eject === void 0) {
-    record.capabilities.auto_eject = true;
-    record.capabilities.ejection = { enabled: true, strategy: "in_gcode_sweep" };
-  }
-  if (options.sync_ams || options.sync_filament) {
-    record.status_snapshot = statusSnapshot;
-  }
-  if (options.sync_ams) {
-    record.ams_tray_count = countAmsTrays(statusSnapshot);
-  }
-  if (options.sync_filament && amsStatus) {
-    const trays = collectAmsTrays(amsStatus);
-    record.capabilities.ams_trays = trays;
-    record.capabilities.materials = [...new Set(
-      trays.flatMap((tray) => [tray.material, tray.material_base]).filter(Boolean)
-    )];
-    record.capabilities.colors = [...new Set(trays.map((tray) => tray.color_hex).filter(Boolean))];
-  }
-  return record;
-}
-async function collectLocalPrinterRecords(options = {}) {
-  const effective = {
-    include_saved_printers: options.include_saved_printers !== false,
-    sync_ams: options.sync_ams !== false,
-    sync_filament: options.sync_filament !== false,
-    ...options
-  };
-  const [{ PrinterModel: PrinterModel2 }, { RuntimeSupervisor: RuntimeSupervisor2 }, { AmsService: AmsService2 }, { JobModel: JobModel2 }, jobPreview] = await Promise.all([
-    Promise.resolve().then(() => (init_Printer(), Printer_exports)),
-    Promise.resolve().then(() => (init_RuntimeSupervisor(), RuntimeSupervisor_exports)),
-    Promise.resolve().then(() => (init_AmsService(), AmsService_exports)),
-    Promise.resolve().then(() => (init_Job(), Job_exports)),
-    Promise.resolve().then(() => (init_JobPreview(), JobPreview_exports))
-  ]);
-  const supervisor = RuntimeSupervisor2.getInstance();
-  const registeredPrinters = effective.include_saved_printers === false ? [] : PrinterModel2.findAll();
-  return registeredPrinters.map((printer) => {
-    let amsStatus = null;
-    if (effective.sync_filament) {
-      try {
-        amsStatus = AmsService2.getFullStatus(printer.printer_id);
-      } catch {
-      }
-    }
-    const worker = supervisor?.getWorker?.(printer.printer_id);
-    const record = buildSyncedPrinterRecord(printer, worker, effective, amsStatus);
-    try {
-      const activeJob = worker?.activeJobId ? JobModel2.findById(worker.activeJobId) : JobModel2.findAll({ printer_id: printer.printer_id, status: "printing", limit: 1 })[0] || null;
-      const currentJob = buildCurrentJobView(worker, activeJob, activeJob ? jobPreview.getJobPreview(activeJob) : null);
-      if (currentJob) record.current_job = currentJob;
-    } catch {
-    }
-    return record;
-  });
-}
-
-// src/cloud/localCommandExecutor.js
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function buildGcode3mf2(gcode) {
-  const zip = new import_adm_zip3.default();
-  const gcodeBuffer = Buffer.from(gcode, "utf8");
-  const md5 = (0, import_node_crypto3.createHash)("md5").update(gcodeBuffer).digest("hex");
-  const contentTypes = `<?xml version="1.0" encoding="UTF-8"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
- <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
- <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
- <Default Extension="gcode" ContentType="text/x.gcode"/>
-</Types>`;
-  const rels = `<?xml version="1.0" encoding="UTF-8"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
- <Relationship Target="/3D/3dmodel.model" Id="rel-1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
-</Relationships>`;
-  const model = `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
- <resources/>
- <build/>
-</model>`;
-  const sliceInfo = `<?xml version="1.0" encoding="UTF-8"?>
-<config>
-  <header>
-    <header_item key="X-BBL-Client-Type" value="slicer"/>
-    <header_item key="X-BBL-Client-Version" value="PrintKinetix Cloud"/>
-  </header>
-  <plate>
-    <metadata key="index" value="1"/>
-    <metadata key="nozzle_diameters" value="0.4"/>
-  </plate>
-</config>`;
-  zip.addFile("[Content_Types].xml", Buffer.from(contentTypes, "utf8"));
-  zip.addFile("_rels/.rels", Buffer.from(rels, "utf8"));
-  zip.addFile("3D/3dmodel.model", Buffer.from(model, "utf8"));
-  zip.addFile("Metadata/plate_1.gcode", gcodeBuffer);
-  zip.addFile("Metadata/plate_1.gcode.md5", Buffer.from(md5, "utf8"));
-  zip.addFile("Metadata/slice_info.config", Buffer.from(sliceInfo, "utf8"));
-  return zip.toBuffer();
-}
-function requiredString(value, name) {
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(`${name} is required`);
-  }
-  return value.trim();
-}
-async function getRequiredWorker(localPrinterId, deps) {
-  const worker = await deps.getWorker?.(localPrinterId);
-  if (!worker) throw new Error(`Local printer worker not found: ${localPrinterId}`);
-  return worker;
-}
-function normalizeAmsSlotRef(payload = {}) {
-  let amsId = Number.parseInt(payload.ams_id ?? 0, 10);
-  let trayId = Number.parseInt(payload.tray_id, 10);
-  if (!Number.isFinite(amsId) || amsId < 0) amsId = 0;
-  if (!Number.isFinite(trayId) || trayId < 0 || trayId > 15) {
-    throw new Error("payload.tray_id must be 0-15");
-  }
-  if (trayId > 3) {
-    amsId = Math.floor(trayId / 4);
-    trayId = trayId % 4;
-  }
-  return { amsId, trayId };
-}
-async function executeAmsAction(command, deps) {
-  const payload = command.payload || {};
-  const localPrinterId = requiredString(payload.local_printer_id, "payload.local_printer_id");
-  const amsService = await deps.getAmsService();
-  if (command.command_type === "printer.ams.get") {
-    return amsService.getFullStatus(localPrinterId);
-  }
-  const { amsId, trayId } = normalizeAmsSlotRef(payload);
-  if (command.command_type === "printer.ams.clear") {
-    amsService.clearTray(localPrinterId, amsId, trayId);
-    return { ok: true, cleared: { ams_id: amsId, tray_id: trayId }, status: amsService.getFullStatus(localPrinterId) };
-  }
-  const material = requiredString(payload.material, "payload.material");
-  const updated = amsService.setTray(localPrinterId, amsId, trayId, {
-    material,
-    colorHex: typeof payload.color_hex === "string" && payload.color_hex.trim() ? payload.color_hex.trim() : "FFFFFFFF",
-    colorName: typeof payload.color_name === "string" && payload.color_name.trim() ? payload.color_name.trim() : "White"
-  });
-  let pushedToPrinter = false;
-  let pushError = null;
-  if (payload.push_to_printer !== false) {
-    try {
-      const worker = await deps.getWorker?.(localPrinterId);
-      if (worker?.mqttClient?.connected) {
-        await amsService.syncToDevice(localPrinterId, worker.mqttClient);
-        pushedToPrinter = true;
-      }
-    } catch (error) {
-      pushError = error.message;
-    }
-  }
-  return {
-    ok: true,
-    updated,
-    pushed_to_printer: pushedToPrinter,
-    push_error: pushError,
-    status: amsService.getFullStatus(localPrinterId)
-  };
-}
-async function defaultCaptureCameraFrame(localPrinterId) {
-  const [{ PrinterModel: PrinterModel2 }] = await Promise.all([Promise.resolve().then(() => (init_Printer(), Printer_exports))]);
-  const printer = PrinterModel2.findById(localPrinterId);
-  if (!printer) throw new Error(`Local printer not found: ${localPrinterId}`);
-  if (process.env.MOCK_MODE === "true") {
-    const stamp = (/* @__PURE__ */ new Date()).toISOString().slice(11, 19);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240"><rect width="320" height="240" fill="#10201a"/><rect x="60" y="70" width="200" height="110" rx="8" fill="none" stroke="#2f8f6d" stroke-width="3"/><circle cx="160" cy="125" r="26" fill="none" stroke="#2f8f6d" stroke-width="3"/><text x="160" y="215" text-anchor="middle" fill="#9fd6be" font-family="monospace" font-size="14">MOCK CAM \xB7 ${printer.name || localPrinterId} \xB7 ${stamp} UTC</text></svg>`;
-    return {
-      content_type: "image/svg+xml",
-      image_base64: Buffer.from(svg, "utf8").toString("base64"),
-      mock: true
-    };
-  }
-  const { default: cameraProxy2 } = await Promise.resolve().then(() => (init_CameraProxy(), CameraProxy_exports));
-  const auth = PrinterModel2.getAuth(localPrinterId) || {};
-  if (!cameraProxy2.isRunning(localPrinterId)) {
-    await cameraProxy2.start(localPrinterId, printer.ip_hostname, auth.access_code || "", printer.model);
-  }
-  let frame = cameraProxy2.getFrame(localPrinterId);
-  for (let attempt = 0; attempt < 20 && !frame; attempt += 1) {
-    await wait(150);
-    frame = cameraProxy2.getFrame(localPrinterId);
-  }
-  if (!frame) {
-    throw new Error(cameraProxy2.getError(localPrinterId) || "Camera frame not yet available");
-  }
-  return {
-    content_type: "image/jpeg",
-    image_base64: frame.toString("base64"),
-    mock: false
-  };
-}
-async function executeCameraSnapshot(command, deps) {
-  const localPrinterId = requiredString(command.payload?.local_printer_id, "payload.local_printer_id");
-  const frame = await deps.captureCameraFrame(localPrinterId);
-  return {
-    ok: true,
-    local_printer_id: localPrinterId,
-    captured_at: (/* @__PURE__ */ new Date()).toISOString(),
-    ...frame
-  };
-}
-async function executePrinterAction(command, deps) {
-  if (command.command_type.startsWith("printer.ams.")) {
-    return executeAmsAction(command, deps);
-  }
-  if (command.command_type === "printer.camera.snapshot") {
-    return executeCameraSnapshot(command, deps);
-  }
-  const localPrinterId = requiredString(command.payload?.local_printer_id, "payload.local_printer_id");
-  const worker = await getRequiredWorker(localPrinterId, deps);
-  switch (command.command_type) {
-    case "printer.status":
-      return {
-        state: worker.state,
-        connected: !!worker.connected,
-        status: worker.latestStatus || {},
-        preflight: typeof worker.getPreflightStatus === "function" ? worker.getPreflightStatus() : null
-      };
-    case "printer.pause":
-      return worker._pausePrint();
-    case "printer.resume":
-      return worker._resumePrint();
-    case "printer.stop":
-      return worker._stopPrint();
-    case "printer.gcode":
-      return worker._sendGcode(requiredString(command.payload?.gcode, "payload.gcode"));
-    default:
-      throw new Error(`Unsupported printer command: ${command.command_type}`);
-  }
-}
-async function executeJobAction(command, deps) {
-  if (command.command_type !== "job.start") {
-    throw new Error(`Unsupported job command: ${command.command_type}`);
-  }
-  const localJobId = requiredString(command.payload?.local_job_id, "payload.local_job_id");
-  if (typeof deps.startJob !== "function") throw new Error("startJob dependency is required");
-  return deps.startJob(localJobId);
-}
-function safeRemoteFileName(value) {
-  return requiredString(value, "payload.original_name").split(/[\\/]/).pop().replace(/[^A-Za-z0-9._-]/g, "_");
-}
-function prepareReadyPrintArtifact({ buffer, originalName }) {
-  if (originalName.toLowerCase().endsWith(".gcode")) {
-    return {
-      buffer: buildGcode3mf2(buffer.toString("utf8")),
-      remoteFileName: originalName.replace(/\.gcode$/i, ".gcode.3mf")
-    };
-  }
-  if (!originalName.toLowerCase().endsWith(".3mf")) {
-    throw new Error("Ready print artifacts must be .gcode, .3mf, or .gcode.3mf");
-  }
-  return {
-    buffer,
-    remoteFileName: originalName
-  };
-}
-function assertPreflightOk(worker) {
-  if (typeof worker.getPreflightStatus !== "function") return;
-  const preflight = worker.getPreflightStatus();
-  if (preflight?.ok === false) {
-    const message = Array.isArray(preflight.errors) && preflight.errors.length > 0 ? preflight.errors.join("; ") : "printer preflight failed";
-    throw new Error(`Preflight failed: ${message}`);
-  }
-}
-async function defaultDownloadArtifact(downloadUrl) {
-  const response = await fetch(downloadUrl);
-  if (!response.ok) {
-    throw new Error(`Artifact download failed (${response.status})`);
-  }
-  return Buffer.from(await response.arrayBuffer());
-}
-async function defaultUploadToPrinter({ localPrinterId, buffer, remoteFileName }) {
-  const [{ PrinterModel: PrinterModel2 }, { BambuFtpsClient: BambuFtpsClient2 }] = await Promise.all([
-    Promise.resolve().then(() => (init_Printer(), Printer_exports)),
-    Promise.resolve().then(() => (init_BambuFtpsClient(), BambuFtpsClient_exports))
-  ]);
-  const printer = PrinterModel2.findById(localPrinterId);
-  if (!printer) throw new Error(`Local printer not found: ${localPrinterId}`);
-  const auth = PrinterModel2.getAuth(localPrinterId);
-  if (!auth?.access_code) throw new Error("Upload failed: No access code");
-  const ftpsClient = new BambuFtpsClient2({
-    ip: printer.ip_hostname,
-    accessCode: auth.access_code,
-    printerId: localPrinterId
-  });
-  const ftpsReachable = await ftpsClient.isReachable();
-  if (!ftpsReachable) throw new Error("Upload failed: FTPS not reachable");
-  const uploadResult = await ftpsClient.upload(buffer, remoteFileName);
-  if (uploadResult?.success === false) {
-    throw new Error(`Upload failed: ${uploadResult.error || "unknown error"}`);
-  }
-  return uploadResult;
-}
-async function executeCloudPrintReadyRaw({ payload, localPrinterId, worker, buffer, remoteFileName }, deps) {
-  assertPreflightOk(worker);
-  const uploaded = await deps.uploadToPrinter({
-    localPrinterId,
-    buffer,
-    remoteFileName,
-    contentType: payload.content_type || "application/octet-stream"
-  });
-  const amsMapping = Array.isArray(payload.ams_mapping) ? payload.ams_mapping : [];
-  const startResult = await worker._startPrint({
-    filename: remoteFileName,
-    plateNumber: Number.parseInt(payload.plate_number || payload.plateNumber, 10) || 1,
-    useAms: typeof payload.use_ams === "boolean" ? payload.use_ams : amsMapping.length > 0,
-    amsMapping
-  });
-  return {
-    pipeline: "raw",
-    started: startResult?.started === true,
-    remote_file_name: remoteFileName,
-    uploaded,
-    start_result: startResult
-  };
-}
-async function executeCloudPrintReady(command, deps) {
-  const payload = command.payload || {};
-  const localPrinterId = requiredString(payload.local_printer_id, "payload.local_printer_id");
-  const downloadUrl = requiredString(payload.download_url, "payload.download_url");
-  const originalName = safeRemoteFileName(payload.original_name);
-  const worker = await getRequiredWorker(localPrinterId, deps);
-  const downloaded = await deps.downloadArtifact(downloadUrl);
-  const { buffer, remoteFileName } = prepareReadyPrintArtifact({
-    buffer: Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded),
-    originalName
-  });
-  if (payload.pipeline === "raw") {
-    return executeCloudPrintReadyRaw({ payload, localPrinterId, worker, buffer, remoteFileName }, deps);
-  }
-  const amsMapping = Array.isArray(payload.ams_mapping) ? payload.ams_mapping : [];
-  const slotMap = {};
-  amsMapping.forEach((value, index) => {
-    slotMap[index] = value;
-  });
-  const printerBusy = worker.state === "printing" || worker.state === "paused";
-  if (!printerBusy) assertPreflightOk(worker);
-  const loops = Number.parseInt(payload.loops ?? payload.n_loops, 10);
-  const job = await deps.submitJob({
-    name: typeof payload.name === "string" && payload.name.trim() ? payload.name.trim() : originalName,
-    printer_id: localPrinterId,
-    repeat_total: Number.parseInt(payload.repeat_total, 10) || 1,
-    ams_roles: amsMapping.length > 0 ? { slot_map: slotMap } : null,
-    fileName: remoteFileName,
-    fileContent: buffer,
-    rawBuffer3mf: buffer,
-    originalFileName3mf: remoteFileName,
-    transform_mode: payload.skip_transform === true ? "skip" : "optional",
-    transform_overrides: {
-      ...isPlainObject(payload.transform_overrides) ? payload.transform_overrides : {},
-      ...Number.isFinite(loops) && loops > 0 ? { n_loops: loops } : {}
-    },
-    auto_start: !printerBusy,
-    metadata: {
-      origin: "cloud",
-      cloud_job_id: command.job_id || payload.print_job_id || null,
-      cloud_command_id: command.command_id || null,
-      org_id: command.org_id || null,
-      merchant_requirements: isPlainObject(payload.requirements) ? payload.requirements : null
-    }
-  });
-  return {
-    pipeline: "orchestrated",
-    started: job.status === "printing",
-    queued: job.status !== "printing",
-    local_job_id: job.job_id,
-    job_status: job.status,
-    remote_file_name: job.transformed_file_name || remoteFileName,
-    transform: {
-      applied: job.transform_report?.skipped !== true,
-      error: job.transform_report?.transform_error || null,
-      loops: job.diff_summary?.loops || 1
-    }
-  };
-}
-function normalizeStringList(value) {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item || "").trim()).filter(Boolean);
-  }
-  return String(value || "").split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean);
-}
-function normalizeBoolean(value, fallback) {
-  if (typeof value === "boolean") return value;
-  return fallback;
-}
-function normalizeDiscoveryOptions(payload = {}) {
-  const waitMs = Number.parseInt(payload.wait_ms ?? payload.waitMs ?? 1500, 10);
-  return {
-    scan_cidrs: normalizeStringList(payload.scan_cidrs || payload.scanCidrs),
-    wait_ms: Number.isFinite(waitMs) ? Math.max(0, Math.min(waitMs, 1e4)) : 1500
-  };
-}
-function normalizePrinterSyncOptions(payload = {}) {
-  return {
-    scan_cidrs: normalizeStringList(payload.scan_cidrs || payload.scanCidrs),
-    include_saved_printers: normalizeBoolean(payload.include_saved_printers, true),
-    sync_ams: normalizeBoolean(payload.sync_ams, true),
-    sync_filament: normalizeBoolean(payload.sync_filament, true)
-  };
-}
-function wait(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-async function defaultDiscoverPrinters(options = {}) {
-  const [{ RuntimeSupervisor: RuntimeSupervisor2 }, { getDiscoveryInstance: getDiscoveryInstance2 }] = await Promise.all([
-    Promise.resolve().then(() => (init_RuntimeSupervisor(), RuntimeSupervisor_exports)),
-    Promise.resolve().then(() => (init_BambuDiscovery(), BambuDiscovery_exports))
-  ]);
-  const supervisor = RuntimeSupervisor2.getInstance();
-  const discovery = supervisor?.discovery || getDiscoveryInstance2();
-  supervisor?._syncDiscoverySerials?.();
-  discovery.start?.();
-  if (options.wait_ms > 0) {
-    await wait(options.wait_ms);
-  }
-  return discovery.getDiscovered?.() || [];
-}
-async function defaultSyncPrinters(options = {}) {
-  const { collectNetworkInterfaces: collectNetworkInterfaces2 } = await Promise.resolve().then(() => (init_localNetwork(), localNetwork_exports));
-  const printers = await collectLocalPrinterRecords(options);
-  const online = printers.filter((printer) => printer.connected || String(printer.status).toLowerCase() === "online").length;
-  const amsTrays = printers.reduce((count, printer) => count + (Number(printer.ams_tray_count) || 0), 0);
-  return {
-    printers,
-    summary: {
-      registered: printers.length,
-      online,
-      ams_trays: amsTrays,
-      network_interface_count: collectNetworkInterfaces2().length,
-      scan_cidrs: options.scan_cidrs
-    }
-  };
-}
-async function executePrinterDiscovery(command, deps) {
-  const options = normalizeDiscoveryOptions(command.payload || {});
-  const result = await deps.discoverPrinters(options);
-  const printers = Array.isArray(result) ? result : Array.isArray(result?.printers) ? result.printers : [];
-  return {
-    discovered: printers.length,
-    printers,
-    scan_cidrs: options.scan_cidrs
-  };
-}
-async function executePrinterSync(command, deps) {
-  const options = normalizePrinterSyncOptions(command.payload || {});
-  const result = await deps.syncPrinters(options);
-  const printers = Array.isArray(result) ? result : Array.isArray(result?.printers) ? result.printers : [];
-  return {
-    synced: printers.length,
-    printers,
-    summary: result?.summary || {
-      registered: printers.length,
-      online: printers.filter((printer) => String(printer.status || "").toLowerCase() === "online" || printer.connected === true).length,
-      ams_trays: printers.reduce((count, printer) => count + (Number(printer.ams_tray_count) || 0), 0)
-    }
-  };
-}
-async function defaultAdoptPrinter({ name, model, ip_hostname, access_code, serial }) {
-  const [{ PrinterModel: PrinterModel2 }, { PrinterRegistry: PrinterRegistry2 }] = await Promise.all([
-    Promise.resolve().then(() => (init_Printer(), Printer_exports)),
-    Promise.resolve().then(() => (init_PrinterRegistry(), PrinterRegistry_exports))
-  ]);
-  const existing = PrinterModel2.findAll().find((printer2) => printer2.ip_hostname === ip_hostname);
-  if (existing) {
-    return { already_added: true, printer: existing };
-  }
-  const printer = PrinterRegistry2.create({
-    name,
-    model,
-    ip_hostname,
-    auth: {
-      ...access_code ? { access_code } : {},
-      ...serial ? { serial } : {}
-    }
-  });
-  return { already_added: false, printer };
-}
-var ADOPTABLE_MODELS = ["A1", "A1 Mini", "P1P", "P1S", "P2S", "X1", "X1C", "X1E", "H2D"];
-function normalizeAdoptModel(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return "P1S";
-  const match = ADOPTABLE_MODELS.find((model) => model.toLowerCase() === raw.toLowerCase());
-  if (match) return match;
-  const upper = raw.toUpperCase();
-  if (upper.includes("A1") && upper.includes("MINI")) return "A1 Mini";
-  if (upper.includes("A1")) return "A1";
-  if (upper.includes("X1E")) return "X1E";
-  if (upper.includes("X1")) return "X1C";
-  if (upper.includes("P1P")) return "P1P";
-  if (upper.includes("P1")) return "P1S";
-  if (upper.includes("P2")) return "P2S";
-  if (upper.includes("H2")) return "H2D";
-  return raw;
-}
-async function executePrinterAdopt(command, deps) {
-  const payload = command.payload || {};
-  const ipHostname = requiredString(payload.ip_hostname || payload.ip, "payload.ip_hostname");
-  const name = requiredString(payload.name, "payload.name");
-  const model = normalizeAdoptModel(payload.model);
-  const accessCode = typeof payload.access_code === "string" && payload.access_code.trim() ? payload.access_code.trim() : null;
-  const serial = typeof payload.serial === "string" && payload.serial.trim() ? payload.serial.trim() : null;
-  const adoption = await deps.adoptPrinter({
-    name,
-    model,
-    ip_hostname: ipHostname,
-    access_code: accessCode,
-    serial
-  });
-  let synced = null;
-  try {
-    synced = await deps.syncPrinters({ sync_ams: true, sync_filament: true });
-  } catch {
-  }
-  return {
-    ok: true,
-    already_added: adoption.already_added === true,
-    printer: {
-      local_printer_id: adoption.printer?.printer_id || adoption.printer?.local_printer_id || null,
-      name: adoption.printer?.name || name,
-      model: adoption.printer?.model || model,
-      ip_hostname: ipHostname
-    },
-    synced_printer_count: Array.isArray(synced?.printers) ? synced.printers.length : null
-  };
-}
-async function executeCloudAction(command, deps) {
-  if (command.command_type === "cloud.print.ready") {
-    return executeCloudPrintReady(command, deps);
-  }
-  if (command.command_type === "cloud.printers.discover") {
-    return executePrinterDiscovery(command, deps);
-  }
-  if (command.command_type === "cloud.printers.sync") {
-    return executePrinterSync(command, deps);
-  }
-  if (command.command_type === "cloud.printers.adopt") {
-    return executePrinterAdopt(command, deps);
-  }
-  throw new Error(`Unsupported cloud command: ${command.command_type}`);
-}
-function getDefaultDeps() {
-  return {
-    async getWorker(printerId) {
-      const { RuntimeSupervisor: RuntimeSupervisor2 } = await Promise.resolve().then(() => (init_RuntimeSupervisor(), RuntimeSupervisor_exports));
-      return RuntimeSupervisor2.getInstance()?.getWorker(printerId) || null;
-    },
-    async startJob(jobId) {
-      const { JobOrchestrator: JobOrchestrator2 } = await Promise.resolve().then(() => (init_JobOrchestrator(), JobOrchestrator_exports));
-      return JobOrchestrator2.startJob(jobId);
-    },
-    async submitJob(params) {
-      const { JobOrchestrator: JobOrchestrator2 } = await Promise.resolve().then(() => (init_JobOrchestrator(), JobOrchestrator_exports));
-      return JobOrchestrator2.submit(params);
-    },
-    async getAmsService() {
-      const { AmsService: AmsService2 } = await Promise.resolve().then(() => (init_AmsService(), AmsService_exports));
-      return AmsService2;
-    },
-    downloadArtifact: defaultDownloadArtifact,
-    uploadToPrinter: defaultUploadToPrinter,
-    discoverPrinters: defaultDiscoverPrinters,
-    syncPrinters: defaultSyncPrinters,
-    adoptPrinter: defaultAdoptPrinter,
-    captureCameraFrame: defaultCaptureCameraFrame
-  };
-}
-async function executeCloudCommand(command, deps = {}) {
-  const effectiveDeps = { ...getDefaultDeps(), ...deps };
-  const commandType = requiredString(command?.command_type, "command.command_type");
-  if (commandType.startsWith("printer.")) {
-    return executePrinterAction({ ...command, command_type: commandType }, effectiveDeps);
-  }
-  if (commandType.startsWith("job.")) {
-    return executeJobAction({ ...command, command_type: commandType }, effectiveDeps);
-  }
-  if (commandType.startsWith("cloud.")) {
-    return executeCloudAction({ ...command, command_type: commandType }, effectiveDeps);
-  }
-  throw new Error(`Unsupported cloud command: ${commandType}`);
-}
-
-// src/cloud/localNodeAgent.js
-function createLocalNodeAgent({
-  client,
-  executeCommand = executeCloudCommand,
-  claimLimit = 10,
-  pollIntervalMs = 2e3,
-  maxPollIntervalMs = 3e4,
-  resultOutbox = null,
-  outboxFlushLimit = 25,
-  logger = console
-}) {
-  if (!client) throw new Error("client is required");
-  let timer = null;
-  let running = false;
-  let inFlight = false;
-  let consecutiveFailures = 0;
-  async function flushPendingResults() {
-    if (!resultOutbox) return { flushed: 0, deferred: 0 };
-    const pending = resultOutbox.list(outboxFlushLimit);
-    let flushed = 0;
-    for (const entry of pending) {
-      try {
-        await client.reportCommandResult(entry.command_id, entry.payload);
-        resultOutbox.remove(entry.id);
-        flushed += 1;
-      } catch (error) {
-        resultOutbox.markAttempt(entry.id, error);
-        logger.warn?.(`Deferred command result still pending: ${entry.command_id}: ${error.message}`);
-        break;
-      }
-    }
-    return { flushed, deferred: resultOutbox.size() };
-  }
-  async function deliverFinalResult(commandId, payload) {
-    try {
-      await client.reportCommandResult(commandId, payload);
-      return { delivered: true, deferred: false };
-    } catch (error) {
-      if (!resultOutbox) throw error;
-      resultOutbox.enqueueCommandResult(commandId, payload);
-      logger.warn?.(`Deferred command result for ${commandId}: ${error.message}`);
-      return { delivered: false, deferred: true };
-    }
-  }
-  async function runOnce() {
-    const flush = await flushPendingResults();
-    const response = await client.claimCommands({ limit: claimLimit });
-    const commands = Array.isArray(response?.commands) ? response.commands : [];
-    const summary = {
-      claimed: commands.length,
-      succeeded: 0,
-      failed: 0,
-      deferred: flush.deferred,
-      flushed: flush.flushed
-    };
-    for (const command of commands) {
-      const commandId = command.command_id;
-      try {
-        try {
-          await client.reportCommandResult(commandId, { status: "running" });
-        } catch (error) {
-          logger.warn?.(`Unable to mark command running (${commandId}): ${error.message}`);
-        }
-        const result = await executeCommand(command);
-        const delivery = await deliverFinalResult(commandId, { status: "succeeded", result });
-        summary.succeeded += 1;
-        if (delivery.deferred) summary.deferred += 1;
-      } catch (error) {
-        const delivery = await deliverFinalResult(commandId, {
-          status: "failed",
-          error: error.message
-        });
-        summary.failed += 1;
-        if (delivery.deferred) summary.deferred += 1;
-      }
-    }
-    return summary;
-  }
-  function nextDelay() {
-    if (consecutiveFailures <= 0) return pollIntervalMs;
-    return Math.min(maxPollIntervalMs, pollIntervalMs * 2 ** Math.min(consecutiveFailures, 6));
-  }
-  function schedule(delay = nextDelay()) {
-    if (!running) return;
-    timer = setTimeout(async () => {
-      if (!running) return;
-      if (inFlight) {
-        logger.warn?.("Cloud command poll skipped because previous poll is still running");
-        schedule(nextDelay());
-        return;
-      }
-      inFlight = true;
-      try {
-        await runOnce();
-        consecutiveFailures = 0;
-      } catch (error) {
-        consecutiveFailures += 1;
-        logger.warn?.(`Cloud command poll failed: ${error.message}`);
-      } finally {
-        inFlight = false;
-        schedule(nextDelay());
-      }
-    }, delay);
-  }
-  function start() {
-    if (running) return;
-    running = true;
-    schedule(pollIntervalMs);
-  }
-  function stop() {
-    running = false;
-    if (timer) clearTimeout(timer);
-    timer = null;
-  }
-  return { flushPendingResults, runOnce, start, stop };
-}
-
-// src/cloud/localNodeClient.js
-function requireValue(value, name) {
-  if (!value || typeof value !== "string") {
-    throw new Error(`${name} is required`);
-  }
-  return value;
-}
-function normalizeCloudUrl(url) {
-  return requireValue(url, "CLOUD_API_URL").replace(/\/+$/, "");
-}
-function buildUrl(baseUrl, path13, query = null) {
-  const url = new URL(`${baseUrl}${path13}`);
-  if (query) {
-    for (const [key, value] of Object.entries(query)) {
-      if (value !== void 0 && value !== null) {
-        url.searchParams.set(key, String(value));
-      }
-    }
-  }
-  return url.toString();
-}
-function defaultSleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-function retryDelay(attempt, { baseDelayMs, maxDelayMs }) {
-  return Math.min(maxDelayMs, baseDelayMs * 2 ** Math.max(0, attempt - 1));
-}
-function isRetryableStatus(status) {
-  return status === 408 || status === 425 || status === 429 || status >= 500;
-}
-function normalizeRetryConfig(retry = {}) {
-  return {
-    maxAttempts: Math.max(1, Number.parseInt(retry.maxAttempts, 10) || 1),
-    baseDelayMs: Math.max(0, Number.parseInt(retry.baseDelayMs, 10) || 250),
-    maxDelayMs: Math.max(0, Number.parseInt(retry.maxDelayMs, 10) || 5e3)
-  };
-}
-function parseJsonPayload(text) {
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { text };
-  }
-}
-function createLocalNodeClient({
-  cloudApiUrl = process.env.CLOUD_API_URL,
-  token = process.env.LOCAL_NODE_TOKEN,
-  fetchImpl = globalThis.fetch,
-  sleep: sleep2 = defaultSleep,
-  retry = {
-    maxAttempts: process.env.CLOUD_RETRY_MAX_ATTEMPTS,
-    baseDelayMs: process.env.CLOUD_RETRY_BASE_DELAY_MS,
-    maxDelayMs: process.env.CLOUD_RETRY_MAX_DELAY_MS
-  },
-  requestTimeoutMs = Number.parseInt(process.env.CLOUD_REQUEST_TIMEOUT_MS || "0", 10)
-} = {}) {
-  const baseUrl = normalizeCloudUrl(cloudApiUrl);
-  const nodeToken = requireValue(token, "LOCAL_NODE_TOKEN");
-  if (typeof fetchImpl !== "function") throw new Error("fetch implementation is required");
-  const retryConfig = normalizeRetryConfig(retry);
-  const timeoutMs = Math.max(0, Number.parseInt(requestTimeoutMs, 10) || 0);
-  async function request(path13, { method = "GET", query = null, body = null } = {}) {
-    const url = buildUrl(baseUrl, path13, query);
-    let lastError = null;
-    for (let attempt = 1; attempt <= retryConfig.maxAttempts; attempt += 1) {
-      const controller = timeoutMs > 0 ? new AbortController() : null;
-      const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-      const init2 = {
-        method,
-        headers: {
-          Authorization: `Bearer ${nodeToken}`,
-          "Content-Type": "application/json"
-        }
-      };
-      if (controller) init2.signal = controller.signal;
-      if (body !== null) init2.body = JSON.stringify(body);
-      try {
-        const response = await fetchImpl(url, init2);
-        const text = await response.text();
-        const payload = parseJsonPayload(text);
-        if (!response.ok) {
-          const error = new Error(payload?.error || `cloud request failed (${response.status})`);
-          error.status = response.status;
-          error.payload = payload;
-          throw error;
-        }
-        return payload;
-      } catch (error) {
-        lastError = error;
-        const retryable = !error.status || isRetryableStatus(error.status);
-        if (!retryable || attempt >= retryConfig.maxAttempts) throw error;
-        await sleep2(retryDelay(attempt, retryConfig));
-      } finally {
-        if (timeout) clearTimeout(timeout);
-      }
-    }
-    throw lastError;
-  }
-  return {
-    sendHeartbeat(payload) {
-      return request("/api/agent/heartbeat", { method: "POST", body: payload });
-    },
-    claimCommands({ limit = 10 } = {}) {
-      return request("/api/agent/commands", { method: "GET", query: { limit } });
-    },
-    sendEvents(events) {
-      return request("/api/agent/events", { method: "POST", body: { events } });
-    },
-    reportCommandResult(commandId, payload) {
-      return request("/api/agent/command-result", {
-        method: "POST",
-        body: {
-          command_id: commandId,
-          ...payload
-        }
-      });
-    }
-  };
-}
-
-// src/cloud/localResultOutbox.js
-var import_node_fs5 = __toESM(require("node:fs"), 1);
-var import_node_path7 = __toESM(require("node:path"), 1);
-var import_node_crypto4 = require("node:crypto");
-function ensureDirectory(filePath) {
-  import_node_fs5.default.mkdirSync(import_node_path7.default.dirname(filePath), { recursive: true });
-}
-function readEntries(filePath) {
-  if (!import_node_fs5.default.existsSync(filePath)) return [];
-  try {
-    const parsed = JSON.parse(import_node_fs5.default.readFileSync(filePath, "utf8"));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-function writeEntries(filePath, entries) {
-  ensureDirectory(filePath);
-  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  import_node_fs5.default.writeFileSync(tempPath, `${JSON.stringify(entries, null, 2)}
-`);
-  import_node_fs5.default.renameSync(tempPath, filePath);
-}
-function requireString(value, name) {
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(`${name} is required`);
-  }
-  return value.trim();
-}
-function createLocalResultOutbox({
-  filePath = process.env.CLOUD_RESULT_OUTBOX_PATH || "./data/cloud-result-outbox.json",
-  maxEntries = Number.parseInt(process.env.CLOUD_RESULT_OUTBOX_MAX_ENTRIES || "1000", 10),
-  now = () => /* @__PURE__ */ new Date(),
-  idFactory = import_node_crypto4.randomUUID
-} = {}) {
-  const normalizedPath = requireString(filePath, "filePath");
-  const entryLimit = Math.max(1, Number.isFinite(maxEntries) ? maxEntries : 1e3);
-  function load() {
-    return readEntries(normalizedPath);
-  }
-  function save(entries) {
-    writeEntries(normalizedPath, entries.slice(-entryLimit));
-  }
-  return {
-    enqueueCommandResult(commandId, payload) {
-      const entries = load();
-      const entry = {
-        id: idFactory(),
-        type: "command_result",
-        command_id: requireString(commandId, "commandId"),
-        payload: payload && typeof payload === "object" ? payload : {},
-        attempts: 0,
-        created_at: now().toISOString(),
-        last_attempt_at: null,
-        last_error: null
-      };
-      entries.push(entry);
-      save(entries);
-      return entry;
-    },
-    list(limit = entryLimit) {
-      const capped = Math.max(1, Math.min(Number.parseInt(limit, 10) || entryLimit, entryLimit));
-      return load().slice(0, capped);
-    },
-    remove(id) {
-      const target = requireString(id, "id");
-      save(load().filter((entry) => entry.id !== target));
-    },
-    markAttempt(id, error, attemptTime = now()) {
-      const target = requireString(id, "id");
-      const entries = load().map((entry) => {
-        if (entry.id !== target) return entry;
-        return {
-          ...entry,
-          attempts: (Number.parseInt(entry.attempts, 10) || 0) + 1,
-          last_attempt_at: attemptTime.toISOString(),
-          last_error: error?.message || String(error || "unknown error")
-        };
-      });
-      save(entries);
-    },
-    size() {
-      return load().length;
-    },
-    filePath: normalizedPath
-  };
-}
-
-// src/cloud/runLocalNode.js
-init_localNetwork();
-init_SystemEvents();
-init_logger();
-var log34 = createLogger("CloudNode");
+var runLocalNode_exports = {};
 function getHostInfo() {
   return {
     hostname: import_node_os6.default.hostname(),
@@ -85277,10 +85825,129 @@ async function main() {
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 }
-main().catch((error) => {
-  log34.error(`Cloud node failed to start: ${error.message}`);
-  process.exit(1);
+var import_node_os6, log34;
+var init_runLocalNode = __esm({
+  "src/cloud/runLocalNode.js"() {
+    init_config();
+    import_node_os6 = __toESM(require("node:os"), 1);
+    init_localNodeAgent();
+    init_localNodeClient();
+    init_localResultOutbox();
+    init_localNetwork();
+    init_localPrinterSnapshot();
+    init_SystemEvents();
+    init_logger();
+    log34 = createLogger("CloudNode");
+    main().catch(async (error) => {
+      log34.error(`Cloud node failed to start: ${error.message}`);
+      if (process.env.PKX_HOLD_CONSOLE === "1" && process.stdin.isTTY) {
+        console.error(error.stack || "");
+        process.stdout.write("\nPress Enter to close this window...");
+        await new Promise((resolve) => {
+          process.stdin.resume();
+          process.stdin.once("data", resolve);
+        });
+      }
+      process.exit(1);
+    });
+  }
 });
+
+// src/cloud/farmNodeEntry.js
+var import_node_fs11 = __toESM(require("node:fs"), 1);
+var import_node_path14 = __toESM(require("node:path"), 1);
+var import_node_readline = __toESM(require("node:readline"), 1);
+var DEFAULT_CLOUD_URL = "https://bambu-print-farm-automation.vercel.app";
+async function loadSea() {
+  try {
+    const sea = await import("node:sea");
+    return sea?.isSea?.() ? sea : null;
+  } catch {
+    return null;
+  }
+}
+function holdConsoleOpen(message = "\nPress Enter to close this window...") {
+  if (!process.stdin.isTTY) return Promise.resolve();
+  process.stdout.write(message);
+  return new Promise((resolve) => {
+    process.stdin.resume();
+    process.stdin.once("data", resolve);
+  });
+}
+async function fatal(error) {
+  process.stderr.write("\n[farm-node] Failed to start:\n");
+  process.stderr.write(`${error?.stack || error?.message || error}
+`);
+  await holdConsoleOpen();
+  process.exit(1);
+}
+function extractEmbeddedAssets(sea, baseDir, AdmZip5) {
+  const marker = import_node_path14.default.join(baseDir, "sql-wasm.wasm");
+  const publicDir2 = import_node_path14.default.join(baseDir, "public");
+  if (import_node_fs11.default.existsSync(marker) && import_node_fs11.default.existsSync(publicDir2)) return false;
+  let assetBuffer;
+  try {
+    assetBuffer = sea.getAsset("assets.zip");
+  } catch {
+    throw new Error(
+      "This farm-node.exe was built without embedded assets. Re-download it from the admin console, or use the Portable .zip instead."
+    );
+  }
+  new AdmZip5(Buffer.from(assetBuffer)).extractAllTo(baseDir, true);
+  process.stdout.write(`[farm-node] First run: extracted dashboard assets to ${baseDir}
+`);
+  return true;
+}
+async function promptForCloudConfig(envPath) {
+  const rl = import_node_readline.default.createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (question) => new Promise((resolve) => rl.question(question, resolve));
+  process.stdout.write("\n=== PrintKinetix Farm Node \u2014 first-time setup ===\n");
+  process.stdout.write("Connect this computer to your PrintKinetix cloud.\n");
+  process.stdout.write("You can find both values in the cloud console (/cloud) after provisioning a node.\n\n");
+  const url = (await ask(`Cloud API URL [${DEFAULT_CLOUD_URL}]: `)).trim() || DEFAULT_CLOUD_URL;
+  let token = "";
+  while (!token) {
+    token = (await ask("Node token (pkx_node_...): ")).trim();
+    if (!token) process.stdout.write("The node token is required \u2014 copy it from the Provision step in /cloud.\n");
+  }
+  rl.close();
+  const { createNodeEnv: createNodeEnv2 } = await Promise.resolve().then(() => (init_nodePackage(), nodePackage_exports));
+  import_node_fs11.default.writeFileSync(envPath, createNodeEnv2({ cloudApiUrl: url, localNodeToken: token }));
+  process.stdout.write(`
+Saved configuration to ${envPath}
+`);
+  process.stdout.write("Delete that file (or edit it) to re-run this setup.\n\n");
+}
+async function bootstrap() {
+  const sea = await loadSea();
+  const baseDir = sea ? import_node_path14.default.dirname(process.execPath) : process.env.PKX_ASSET_ROOT || process.cwd();
+  if (sea) {
+    process.env.PKX_ASSET_ROOT = baseDir;
+    try {
+      process.chdir(baseDir);
+    } catch {
+    }
+    const AdmZip5 = (await Promise.resolve().then(() => __toESM(require_adm_zip(), 1))).default;
+    extractEmbeddedAssets(sea, baseDir, AdmZip5);
+  }
+  const envPath = import_node_path14.default.join(baseDir, ".env");
+  const dotenv = await Promise.resolve().then(() => __toESM(require_main(), 1));
+  dotenv.config({ path: envPath });
+  const missingCloudConfig = !process.env.CLOUD_API_URL || !process.env.LOCAL_NODE_TOKEN;
+  if (missingCloudConfig && process.stdin.isTTY) {
+    await promptForCloudConfig(envPath);
+    dotenv.config({ path: envPath, override: true });
+  }
+  if (process.stdin.isTTY) process.env.PKX_HOLD_CONSOLE = "1";
+  await Promise.resolve().then(() => (init_runLocalNode(), runLocalNode_exports));
+}
+process.on("uncaughtException", (error) => {
+  fatal(error);
+});
+process.on("unhandledRejection", (error) => {
+  fatal(error);
+});
+bootstrap().catch(fatal);
 /*! Bundled license information:
 
 safe-buffer/index.js:
