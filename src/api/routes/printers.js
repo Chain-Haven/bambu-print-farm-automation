@@ -406,37 +406,24 @@ router.post('/:id/control', requireAdmin, asyncHandler(async (req, res) => {
                 : worker._stopPrint();
         return res.json({ ok: true, action, ...result });
     }
-    if (action === 'clear_error') {
-        const ok = worker.clearPrintError();
-        return res.json({ ok: ok !== false, action });
+    // Every other manual control goes through the worker's unified, state-gated
+    // control path (mock-aware, refuses unsafe motion/temperature actions during
+    // a print, shared with the cloud command executor).
+    try {
+        const result = worker.manualControl({ action, ...req.body });
+        return res.json(result);
+    } catch (err) {
+        const message = String(err.message || 'control failed');
+        // Distinguish a bad request (unknown action / unsafe-while-printing) from
+        // a transport failure.
+        if (/Unknown control action|is required/.test(message)) {
+            return res.status(400).json({ error: message });
+        }
+        if (/while the printer is/.test(message)) {
+            return res.status(409).json({ error: message });
+        }
+        return res.status(503).json({ error: message });
     }
-
-    const mqtt = worker.mqttClient;
-    if (!mqtt) return res.status(503).json({ error: 'Printer MQTT not connected' });
-    let ok = false;
-
-    switch (action) {
-        case 'light_on':  ok = mqtt.setLight(true); break;
-        case 'light_off': ok = mqtt.setLight(false); break;
-        case 'set_fan':   ok = mqtt.setFan(req.body.fan || 1, req.body.speed ?? 128); break;
-        case 'set_nozzle_temp': ok = mqtt.setNozzleTemp(req.body.temp ?? 0); break;
-        case 'set_bed_temp':    ok = mqtt.setBedTemp(req.body.temp ?? 0); break;
-        case 'home':      ok = mqtt.homeAxes(req.body.axes || 'all'); break;
-        case 'move':      ok = mqtt.moveAxis({ x: req.body.x, y: req.body.y, z: req.body.z, speed: req.body.speed }); break;
-        case 'bed_level':  ok = mqtt.startBedLeveling(); break;
-        case 'extrude':    ok = mqtt.extrude(req.body.mm || 10, req.body.speed || 300); break;
-        case 'retract':    ok = mqtt.retract(req.body.mm || 10, req.body.speed || 300); break;
-        case 'load_filament':   ok = mqtt.loadFilament(req.body.temp || 220); break;
-        case 'unload_filament': ok = mqtt.unloadFilament(req.body.temp || 220); break;
-        case 'set_speed_profile':  ok = mqtt.setSpeedProfile(req.body.level || 2); break;
-        case 'set_speed_override': ok = mqtt.setSpeedOverride(req.body.percent || 100); break;
-        case 'set_flow_override':  ok = mqtt.setFlowOverride(req.body.percent || 100); break;
-        case 'set_z_offset':       ok = mqtt.setZOffset(req.body.offset || 0); break;
-        default:
-            return res.status(400).json({ error: `Unknown action: ${action}` });
-    }
-
-    res.json({ ok, action });
 }));
 
 // ===== PRINTER OVERRIDES (saved settings) =====

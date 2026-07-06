@@ -4,7 +4,7 @@ import { PrinterModel } from '../models/Printer.js';
 import { CommandBus } from '../services/CommandBus.js';
 import { EventModel } from '../models/Event.js';
 import { createLogger } from '../utils/logger.js';
-import { decodePrintError, formatErrorCode, isBlockingError } from '../utils/PrinterErrors.js';
+import { decodePrintError, formatErrorCode, isBlockingError, decodeHmsList, hasBlockingHms } from '../utils/PrinterErrors.js';
 
 const log = createLogger('PrinterWorker');
 
@@ -195,6 +195,11 @@ export class PrinterWorker {
                 case 'printer.status':
                     result = { status: this.latestStatus };
                     break;
+                case 'printer.control':
+                    // Manual controls (light/fan/temps/home/move/filament/speed/
+                    // xcam/skip-objects) through the unified, state-gated path.
+                    result = this.manualControl(cmd.params || {});
+                    break;
                 default:
                     throw new Error(`Unknown printer action: ${cmd.action}`);
             }
@@ -269,10 +274,115 @@ export class PrinterWorker {
         throw new Error('MQTT client not available');
     }
 
+    /**
+     * Unified manual-control entry point. BOTH the HTTP /control route and the
+     * cloud command executor go through here, so every manual control gets:
+     *   - connection + mock awareness (canControl)
+     *   - state gating: motion/temperature/filament/leveling actions are refused
+     *     while the printer is printing or paused (they would wreck the print or
+     *     the machine); mid-print-safe actions (speed/flow/z-offset/light/fan/
+     *     AI-monitoring/skip-objects/clear-error) are always allowed.
+     * Returns { ok, action, ... } and throws with a clear message on a rejected
+     * or unknown action.
+     */
+    // Actions that are unsafe to run while a print is active.
+    static MOTION_ACTIONS = new Set([
+        'home', 'move', 'bed_level', 'set_nozzle_temp', 'set_bed_temp',
+        'extrude', 'retract', 'load_filament', 'unload_filament',
+    ]);
+
+    static CONTROL_ACTIONS = new Set([
+        'light_on', 'light_off', 'set_fan', 'set_nozzle_temp', 'set_bed_temp',
+        'home', 'move', 'bed_level', 'extrude', 'retract', 'load_filament',
+        'unload_filament', 'set_speed_profile', 'set_speed_override',
+        'set_flow_override', 'set_z_offset', 'set_xcam', 'skip_objects', 'clear_error',
+    ]);
+
+    manualControl(request = {}) {
+        const action = String(request.action || '').trim();
+        if (!action) throw new Error('control action is required');
+        if (!PrinterWorker.CONTROL_ACTIONS.has(action)) {
+            throw new Error(`Unknown control action: ${action}`);
+        }
+        if (!this.canControl()) throw new Error('Printer is not connected');
+
+        const printing = this.state === 'printing' || this.state === 'paused';
+        if (printing && PrinterWorker.MOTION_ACTIONS.has(action)) {
+            throw new Error(`Cannot ${action} while the printer is ${this.state}`);
+        }
+
+        if (this.mockMode) return { ok: true, action, mock: true };
+        const mqtt = this.mqttClient;
+        if (!mqtt) throw new Error('MQTT client not available');
+
+        let ok = false;
+        switch (action) {
+            case 'light_on':  ok = mqtt.setLight(true); break;
+            case 'light_off': ok = mqtt.setLight(false); break;
+            case 'set_fan':   ok = mqtt.setFan(request.fan || 1, request.speed ?? 128); break;
+            case 'set_nozzle_temp': ok = mqtt.setNozzleTemp(request.temp ?? 0); break;
+            case 'set_bed_temp':    ok = mqtt.setBedTemp(request.temp ?? 0); break;
+            case 'home':      ok = mqtt.homeAxes(request.axes || 'all'); break;
+            case 'move':      ok = mqtt.moveAxis({ x: request.x, y: request.y, z: request.z, speed: request.speed }); break;
+            case 'bed_level': ok = mqtt.startBedLeveling(); break;
+            case 'extrude':   ok = mqtt.extrude(request.mm || 10, request.speed || 300); break;
+            case 'retract':   ok = mqtt.retract(request.mm || 10, request.speed || 300); break;
+            case 'load_filament':   ok = mqtt.loadFilament(request.temp || 220); break;
+            case 'unload_filament': ok = mqtt.unloadFilament(request.temp || 220); break;
+            case 'set_speed_profile':  ok = mqtt.setSpeedProfile(request.level || 2); break;
+            case 'set_speed_override': ok = mqtt.setSpeedOverride(request.percent || 100); break;
+            case 'set_flow_override':  ok = mqtt.setFlowOverride(request.percent || 100); break;
+            case 'set_z_offset':       ok = mqtt.setZOffset(request.offset || 0); break;
+            case 'set_xcam':           ok = mqtt.setXcamControl({ module: request.module, control: request.control !== false, printHalt: request.print_halt !== false }); break;
+            case 'skip_objects':       ok = mqtt.skipObjects(request.obj_list || request.objects || []); break;
+            case 'clear_error':        ok = this.clearPrintError(); break;
+            default:
+                throw new Error(`Unknown control action: ${action}`);
+        }
+        if (ok === false) throw new Error(`Control command "${action}" was not delivered (MQTT not connected)`);
+        return { ok: true, action };
+    }
+
+    /**
+     * Parse the get_version reply: { info: { command:'get_version', module:[...] } }.
+     * Summarizes the printer's firmware (ota module) + per-module versions and
+     * whether an OTA update is available, stored on latestStatus.firmware.
+     */
+    _handleVersionInfo(info) {
+        const modules = Array.isArray(info?.module) ? info.module : [];
+        if (modules.length === 0) return;
+        const byName = (name) => modules.find((m) => String(m?.name || '').toLowerCase() === name) || null;
+        const ota = byName('ota') || byName('esp32') || modules[0];
+        const firmware = {
+            version: ota?.sw_ver || null,
+            new_version: ota?.new_ver && ota.new_ver !== ota.sw_ver ? ota.new_ver : null,
+            ota_available: !!(ota?.new_ver && ota.new_ver !== ota.sw_ver),
+            modules: modules.map((m) => ({
+                name: m?.name || null,
+                sw_ver: m?.sw_ver || null,
+                hw_ver: m?.hw_ver || null,
+                new_ver: m?.new_ver && m.new_ver !== m.sw_ver ? m.new_ver : null,
+            })),
+            reported_at: new Date().toISOString(),
+        };
+        this.latestStatus = { ...this.latestStatus, firmware };
+        PrinterModel.updateStatus(this.printerId, this.latestStatus);
+        if (this.onStatusUpdate) this.onStatusUpdate(this.latestStatus);
+        if (firmware.ota_available) {
+            log.info(`Printer ${this.printer.name}: firmware ${firmware.version} (update ${firmware.new_version} available)`);
+        }
+    }
+
     /** Handle incoming MQTT status data. */
     _handleStatus(data) {
         this.connected = true;
         this.lastReportTime = Date.now();
+
+        // Firmware/module version report arrives on the same topic as status.
+        if (data.info && (data.info.command === 'get_version' || Array.isArray(data.info.module))) {
+            this._handleVersionInfo(data.info);
+        }
+
         const print = data.print || {};
 
         // Capture prior error state so we can log transitions to the event log below.
@@ -311,9 +421,20 @@ export class PrinterWorker {
         if (print.mc_print_stage !== undefined) update.print_stage = print.mc_print_stage;
         if (print.stg_cur !== undefined) update.stage_current = print.stg_cur;
         if (print.home_flag !== undefined) update.home_flag = print.home_flag;
+        // AI (xcam) monitoring on/off state, when the printer reports it.
+        if (print.xcam !== undefined && print.xcam && typeof print.xcam === 'object') {
+            update.ai_monitoring = print.xcam.printing_monitor === 'enable'
+                || print.xcam.spaghetti_detector === true
+                || print.xcam.printing_monitor === true;
+        }
         if (print.wifi_signal !== undefined) update.wifi_signal = print.wifi_signal;
         if (print.lights_report !== undefined) update.lights = print.lights_report;
-        if (print.hms !== undefined) update.hms_errors = print.hms;
+        if (print.hms !== undefined) {
+            update.hms_errors = print.hms;
+            // Decode opaque {attr,code} pairs into severity-ranked messages so the
+            // fleet/telemetry surface shows "AMS filament ran out" instead of hex.
+            update.hms_decoded = decodeHmsList(print.hms);
+        }
         if (print.print_error !== undefined) {
             update.print_error = print.print_error;
             // Log error state changes
@@ -381,13 +502,29 @@ export class PrinterWorker {
             const hms = Array.isArray(this.latestStatus?.hms_errors) ? this.latestStatus.hms_errors : [];
             const keyOf = (h) => `${h?.attr}-${h?.code}`;
             const priorKeys = new Set((priorHms || []).map(keyOf));
+            const decodedByKey = new Map(
+                decodeHmsList(hms).map((d) => [`${d.attr}-${d.code}`, d]),
+            );
             for (const h of hms.filter((x) => !priorKeys.has(keyOf(x)))) {
-                const hex = `${(h?.attr ?? 0).toString(16).toUpperCase()}_${(h?.code ?? 0).toString(16).toUpperCase()}`;
+                const decoded = decodedByKey.get(keyOf(h)) || null;
                 EventModel.create({
                     entity_type: 'printer', entity_id: this.printerId,
                     event_type: 'printer.hms',
-                    payload: { attr: h?.attr, code: h?.code, hms: hex, state: this.state },
+                    payload: {
+                        attr: h?.attr, code: h?.code,
+                        hms: decoded?.formatted,
+                        severity: decoded?.severity,
+                        message: decoded?.message,
+                        category: decoded?.category,
+                        wiki_url: decoded?.wiki_url,
+                        state: this.state,
+                    },
                 });
+                if (decoded) {
+                    const line = `Printer ${this.printer.name}: HMS ${decoded.formatted} [${decoded.severity}] — ${decoded.message}`;
+                    if (decoded.severity === 'fatal' || decoded.severity === 'serious') log.warn(line);
+                    else log.info(line);
+                }
             }
         } catch { /* error logging must never break status handling */ }
     }
@@ -403,6 +540,11 @@ export class PrinterWorker {
      * error clears so a later fault alerts again.
      */
     _checkForFailures() {
+        // Surface a NEW fatal/serious HMS fault during a print as an alert (but do
+        // not auto-cancel: HMS faults like filament runout pause the printer and
+        // often recover, unlike a blocking print_error which dooms the job).
+        this._checkHmsFaults();
+
         const code = this.latestStatus?.print_error || 0;
 
         if (!code || !isBlockingError(code)) {
@@ -456,6 +598,51 @@ export class PrinterWorker {
             } catch (e) {
                 log.error(`Auto-cancel failed for ${this.printer.name}: ${e.message}`);
             }
+        }
+    }
+
+    /**
+     * Alert on a new fatal/serious HMS fault during an active print. Deduped by
+     * the HMS code so one fault alerts once; the set resets as faults clear.
+     */
+    _checkHmsFaults() {
+        const decoded = Array.isArray(this.latestStatus?.hms_decoded) ? this.latestStatus.hms_decoded : [];
+        const serious = decoded.filter((h) => h.severity === 'fatal' || h.severity === 'serious');
+        if (!this._alertedHmsCodes) this._alertedHmsCodes = new Set();
+
+        // Forget cleared faults so a recurrence re-alerts.
+        const active = new Set(serious.map((h) => h.formatted));
+        for (const key of [...this._alertedHmsCodes]) {
+            if (!active.has(key)) this._alertedHmsCodes.delete(key);
+        }
+
+        const activePrint = this.state === 'printing' || this.state === 'paused' || !!this.activeJobId;
+        if (!activePrint) return;
+
+        for (const fault of serious) {
+            if (this._alertedHmsCodes.has(fault.formatted)) continue;
+            this._alertedHmsCodes.add(fault.formatted);
+            const alert = {
+                printer_id: this.printerId,
+                printer_name: this.printer.name,
+                severity: fault.severity === 'fatal' ? 'critical' : 'warning',
+                kind: 'hms',
+                hms: fault.formatted,
+                category: fault.category,
+                message: fault.message,
+                wiki_url: fault.wiki_url,
+                job_id: this.activeJobId,
+                state: this.state,
+                at: new Date().toISOString(),
+            };
+            log.warn(`Printer ${this.printer.name}: HMS fault during print — ${fault.formatted} (${fault.message})`);
+            try {
+                EventModel.create({
+                    entity_type: 'printer', entity_id: this.printerId,
+                    event_type: 'printer.hms_fault', payload: alert,
+                });
+            } catch { /* best-effort */ }
+            if (this.onAlert) { try { this.onAlert(alert); } catch { /* ignore */ } }
         }
     }
 

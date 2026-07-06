@@ -132,6 +132,24 @@ export function buildTelemetryView(status = {}, amsStatus = null) {
         hms_count: Array.isArray(status.hms_errors) ? status.hms_errors.length : 0,
     };
 
+    // Decoded HMS notices (most-severe first), so the cloud shows readable
+    // fault messages instead of hex. Capped to keep the snapshot compact.
+    if (Array.isArray(status.hms_decoded) && status.hms_decoded.length > 0) {
+        telemetry.hms = status.hms_decoded.slice(0, 8).map((h) => ({
+            code: h.formatted,
+            severity: h.severity,
+            message: h.message,
+            category: h.category,
+        }));
+        telemetry.hms_worst_severity = status.hms_decoded[0]?.severity || null;
+    }
+    // Firmware summary (from the get_version info command), when known.
+    if (status.firmware && typeof status.firmware === 'object') {
+        telemetry.firmware = status.firmware;
+    }
+    // AI (xcam) monitoring state, when reported.
+    if (status.ai_monitoring !== undefined) telemetry.ai_monitoring = status.ai_monitoring;
+
     // AMS dry-box humidity/temperature per unit (dropped by AmsService before).
     if (amsStatus && Array.isArray(amsStatus.units)) {
         const units = amsStatus.units

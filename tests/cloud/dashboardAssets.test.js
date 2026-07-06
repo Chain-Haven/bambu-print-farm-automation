@@ -414,6 +414,9 @@ describe('cloud dashboard assets', () => {
             'telemetryHtml',
             'status_snapshot?.telemetry',
             'printer-telemetry',
+            // Decoded HMS message + AI-monitoring indicator on the card.
+            'ai_monitoring',
+            'telemetry.hms',
         ]) {
             expect(fleet).toContain(marker);
         }

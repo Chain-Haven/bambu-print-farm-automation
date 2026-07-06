@@ -265,6 +265,27 @@ async function executePrinterAction(command, deps) {
             return worker._stopPrint();
         case 'printer.gcode':
             return worker._sendGcode(requiredString(command.payload?.gcode, 'payload.gcode'));
+        // Manual controls (light/fan/temps/home/move/filament/speed/z-offset),
+        // AI monitoring, and skip-objects all flow through the worker's unified,
+        // state-gated control path — so cloud-routed control has the same safety
+        // and parity as the local HTTP route.
+        case 'printer.control':
+            return worker.manualControl({
+                ...(isPlainObject(command.payload) ? command.payload : {}),
+                action: requiredString(command.payload?.action, 'payload.action'),
+            });
+        case 'printer.xcam':
+            return worker.manualControl({
+                action: 'set_xcam',
+                module: command.payload?.module,
+                control: command.payload?.control,
+                print_halt: command.payload?.print_halt,
+            });
+        case 'printer.skip_objects':
+            return worker.manualControl({
+                action: 'skip_objects',
+                obj_list: command.payload?.obj_list || command.payload?.objects,
+            });
         default:
             throw new Error(`Unsupported printer command: ${command.command_type}`);
     }

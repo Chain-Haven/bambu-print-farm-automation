@@ -121,6 +121,45 @@ Full write-up is in `DIAGNOSIS.md`.
  updated. Internal identifiers (package name, DB paths, `AG_` gcode markers)
  intentionally unchanged.
 
+## Changes already made (July 2026 session — deeper printer integration)
+
+Implemented the five roadmap items from the prior telemetry pass. All additive
+on the existing MQTT/FTPS stack; node bundle rebuilt so the fixes ship.
+
+1. **HMS error-code dictionary** (`src/utils/PrinterErrors.js`): `decodeHms`/
+   `decodeHmsList`/`hasBlockingHms`/`formatHmsCode` turn opaque `{attr,code}`
+   pairs into the canonical `ATTR_H_ATTR_L_CODE_H_CODE_L` string with severity
+   (code high word → fatal/serious/common/info), a curated message table for
+   common faults, a wiki link for the long tail, and most-severe-first sorting.
+   `PrinterWorker._handleStatus` stores `hms_decoded`; `_logErrorTransitions`
+   logs readable messages; new `_checkHmsFaults` alerts on a NEW fatal/serious
+   HMS during a print (alert only — HMS faults like runout self-recover, unlike
+   a blocking print_error which auto-cancels). Telemetry snapshot carries a
+   decoded `hms` array + `hms_worst_severity`; fleet cards show the worst fault's
+   message colored by severity instead of hex.
+2. **Firmware/module version read** (`BambuMqttClient.requestVersion()` → the
+   `info:get_version` command, sent right after subscribe). `PrinterWorker.
+   _handleVersionInfo` parses `info.module[]` into `latestStatus.firmware`
+   ({ version, new_version, ota_available, modules[] }); surfaced in telemetry.
+3. **Bambu AI failure detection** (`BambuMqttClient.setXcamControl({module,
+   control,print_halt})` → `xcam_control_set`). `startPrint({aiMonitoring})`
+   sets `layer_inspect` and enables the `printing` xcam module (halt-on-detect)
+   right after start. `_handleStatus` ingests `xcam` → `ai_monitoring`;
+   telemetry + fleet card show a "👁 AI" indicator.
+4. **Skip-objects** (`BambuMqttClient.skipObjects(objIds)` → `skip_objects`
+   with `obj_list`) to salvage a multi-part plate when one part fails.
+5. **Unified, state-gated manual control** (`PrinterWorker.manualControl`):
+   ONE entry point for light/fan/temps/home/move/filament/speed/z-offset/xcam/
+   skip-objects/clear-error, shared by the HTTP `/control` route, the cloud
+   command executor (`printer.control`/`printer.xcam`/`printer.skip_objects`),
+   and the CommandBus (`printer.control` action). Refuses motion/temperature
+   actions while printing/paused (`MOTION_ACTIONS`), validates the action
+   against `CONTROL_ACTIONS`, is mock-aware, and gives cloud-routed control the
+   same safety + parity as local. The HTTP route maps rejections to 400/409/503.
+   Tests: `printerErrorsHms`, `bambuMqttControls`, `printerWorkerControl`,
+   extended `localCommandExecutor` + `printerTelemetry` + `dashboardAssets`.
+   Full suite 625 green; fleet card browser-verified.
+
 ## Changes already made (July 2026 session — node security hardening + printer telemetry)
 
 Security audit of the farm-node ↔ cloud path and the Windows package, plus a

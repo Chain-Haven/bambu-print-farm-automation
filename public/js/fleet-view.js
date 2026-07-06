@@ -222,8 +222,17 @@ function telemetryHtml(printer) {
   if (driest && driest.humidity >= 4) {
     chips.push(`<span class="telem-chip warn" title="AMS humidity high — dry filament">💧 AMS ${driest.humidity}/5</span>`);
   }
+  if (telemetry.ai_monitoring) {
+    chips.push('<span class="telem-chip" title="AI print-failure monitoring is on">👁 AI</span>');
+  }
   if (Number(telemetry.print_error) > 0) {
     chips.push('<span class="telem-chip error" title="Printer error">⚠ error</span>');
+  } else if (Array.isArray(telemetry.hms) && telemetry.hms.length > 0) {
+    // Decoded HMS: show the worst fault's message, colored by severity.
+    const worst = telemetry.hms[0];
+    const cls = (worst.severity === 'fatal' || worst.severity === 'serious') ? 'error' : 'warn';
+    const extra = telemetry.hms.length > 1 ? ` +${telemetry.hms.length - 1}` : '';
+    chips.push(`<span class="telem-chip ${cls}" title="${escapeHtml(worst.code)} — ${escapeHtml(worst.message)}">⚠ ${escapeHtml(worst.message)}${extra}</span>`);
   } else if (Number(telemetry.hms_count) > 0) {
     chips.push(`<span class="telem-chip warn" title="HMS notices">⚠ ${telemetry.hms_count} HMS</span>`);
   }

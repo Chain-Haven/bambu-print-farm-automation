@@ -33537,6 +33537,7 @@ var init_BambuMqttClient = __esm({
               else {
                 log2.info(`Subscribed to ${topic}`);
                 this.requestStatus();
+                this.requestVersion();
               }
             });
           });
@@ -33595,6 +33596,56 @@ var init_BambuMqttClient = __esm({
         });
       }
       /**
+       * Request the firmware/module version report. The printer replies on the
+       * report topic with { info: { command: 'get_version', module: [...] } },
+       * which PrinterWorker parses for firmware + OTA-available state.
+       */
+      requestVersion() {
+        return this.publish({
+          info: { sequence_id: "0", command: "get_version" }
+        });
+      }
+      /**
+       * Toggle Bambu's on-device AI monitoring (xcam). Modules:
+       *   'printing'                   — spaghetti / print-failure detection
+       *   'first_layer_inspector'      — first-layer inspection
+       *   'buildplate_marker_detector' — plate marker / plate-present check
+       * control=true enables it; printHalt=true pauses the print when the module
+       * trips (vs. just flagging it).
+       */
+      setXcamControl({ module: module2 = "printing", control = true, printHalt = true } = {}) {
+        log2.info(`AI monitoring (${module2}) \u2192 ${control ? "ON" : "OFF"}${control && printHalt ? " (halt-on-detect)" : ""}`);
+        return this.publish({
+          xcam: {
+            sequence_id: String(Date.now()),
+            command: "xcam_control_set",
+            module_name: module2,
+            control: !!control,
+            print_halt: !!printHalt
+          }
+        });
+      }
+      /**
+       * Abandon specific objects on a multi-part plate mid-print so the rest of
+       * the plate keeps printing (e.g. one part detached). objIds are the plate
+       * object ids the slicer assigned.
+       */
+      skipObjects(objIds = []) {
+        const list = (Array.isArray(objIds) ? objIds : [objIds]).map((id) => Number.parseInt(id, 10)).filter((id) => Number.isFinite(id));
+        if (list.length === 0) {
+          log2.warn("skipObjects called with no valid object ids");
+          return false;
+        }
+        log2.info(`Skipping ${list.length} object(s) on plate: ${list.join(", ")}`);
+        return this.publish({
+          print: {
+            sequence_id: String(Date.now()),
+            command: "skip_objects",
+            obj_list: list
+          }
+        });
+      }
+      /**
        * Clear a stale print_error from the printer.
        * Bambu printers can retain error codes even after the problem resolves.
        */
@@ -33608,7 +33659,7 @@ var init_BambuMqttClient = __esm({
        * Send print start command (Bambu LAN protocol).
        * After uploading a .3mf to /cache/ via FTPS, this tells the printer to open it.
        */
-      startPrint({ filename, plateNumber = 1, useAms = true, amsMapping = [] }) {
+      startPrint({ filename, plateNumber = 1, useAms = true, amsMapping = [], aiMonitoring = false, timelapse = false } = {}) {
         const payload = {
           print: {
             sequence_id: String(Date.now()),
@@ -33617,11 +33668,12 @@ var init_BambuMqttClient = __esm({
             subtask_name: filename.replace(/\.gcode\.3mf$/i, "").replace(/\.3mf$/i, ""),
             url: `ftp:///sdcard/cache/${filename}`,
             bed_type: "auto",
-            timelapse: false,
+            timelapse: !!timelapse,
             bed_leveling: true,
             flow_cali: true,
             vibration_cali: true,
-            layer_inspect: false,
+            // First-layer inspection: part of the project_file start payload.
+            layer_inspect: !!aiMonitoring,
             use_ams: useAms,
             ams_mapping: amsMapping,
             profile_id: "0",
@@ -33630,8 +33682,15 @@ var init_BambuMqttClient = __esm({
             task_id: "0"
           }
         };
-        log2.info(`Starting print: ${filename} (plate ${plateNumber})`);
-        return this.publish(payload);
+        log2.info(`Starting print: ${filename} (plate ${plateNumber})${aiMonitoring ? " + AI first-layer inspect" : ""}`);
+        const ok = this.publish(payload);
+        if (ok && aiMonitoring) {
+          try {
+            this.setXcamControl({ module: "printing", control: true, printHalt: true });
+          } catch {
+          }
+        }
+        return ok;
       }
       /**
        * Override what the printer thinks is in an AMS tray.
@@ -34073,9 +34132,13 @@ var init_CommandBus = __esm({
 // src/utils/PrinterErrors.js
 var PrinterErrors_exports = {};
 __export(PrinterErrors_exports, {
+  decodeHms: () => decodeHms,
+  decodeHmsList: () => decodeHmsList,
   decodePrintError: () => decodePrintError,
   default: () => PrinterErrors_default,
   formatErrorCode: () => formatErrorCode,
+  formatHmsCode: () => formatHmsCode,
+  hasBlockingHms: () => hasBlockingHms,
   isBlockingError: () => isBlockingError
 });
 function formatErrorCode(errorCode) {
@@ -34119,7 +34182,41 @@ function isBlockingError(errorCode) {
   const known = KNOWN_ERRORS[hex];
   return true;
 }
-var log4, KNOWN_ERRORS, PrinterErrors_default;
+function formatHmsCode(attr, code) {
+  const a = Number(attr) >>> 0;
+  const c = Number(code) >>> 0;
+  const hx = (n) => (n & 65535).toString(16).toUpperCase().padStart(4, "0");
+  return `${hx(a >>> 16)}_${hx(a)}_${hx(c >>> 16)}_${hx(c)}`;
+}
+function decodeHms(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const attr = Number(entry.attr) >>> 0;
+  const code = Number(entry.code) >>> 0;
+  if (!attr && !code) return null;
+  const formatted = formatHmsCode(attr, code);
+  const severity = HMS_SEVERITY[code >>> 16 & 65535] || "unknown";
+  const known = KNOWN_HMS[formatted];
+  return {
+    attr,
+    code,
+    formatted,
+    severity,
+    severity_rank: HMS_SEVERITY_RANK[severity] ?? 0,
+    message: known?.message || `Unrecognized HMS notice (${formatted})`,
+    category: known?.category || "unknown",
+    // The Bambu wiki keys HMS pages by the lowercased code with no underscores.
+    wiki_url: `https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/${formatted.replace(/_/g, "").toLowerCase()}`,
+    known: !!known
+  };
+}
+function decodeHmsList(hmsList) {
+  if (!Array.isArray(hmsList)) return [];
+  return hmsList.map(decodeHms).filter(Boolean).sort((a, b) => b.severity_rank - a.severity_rank);
+}
+function hasBlockingHms(hmsList) {
+  return decodeHmsList(hmsList).some((h) => h.severity === "fatal" || h.severity === "serious");
+}
+var log4, KNOWN_ERRORS, HMS_SEVERITY, HMS_SEVERITY_RANK, KNOWN_HMS, PrinterErrors_default;
 var init_PrinterErrors = __esm({
   "src/utils/PrinterErrors.js"() {
     init_logger();
@@ -34156,7 +34253,28 @@ var init_PrinterErrors = __esm({
         ]
       }
     };
-    PrinterErrors_default = { formatErrorCode, decodePrintError, isBlockingError };
+    HMS_SEVERITY = { 1: "fatal", 2: "serious", 3: "common", 4: "info" };
+    HMS_SEVERITY_RANK = { fatal: 4, serious: 3, common: 2, info: 1, unknown: 0 };
+    KNOWN_HMS = {
+      "0300_0100_0001_0001": { message: "Nozzle temperature is abnormal; heating may be too slow or failed", category: "temperature" },
+      "0300_0200_0001_0001": { message: "Heatbed temperature is abnormal", category: "temperature" },
+      "0700_0100_0001_0003": { message: "The filament may be tangled or stuck; check the spool and AMS path", category: "filament" },
+      "0700_0200_0002_0002": { message: "AMS filament has run out \u2014 load a new spool", category: "filament" },
+      "0700_0100_0002_0002": { message: "Filament ran out during printing", category: "filament" },
+      "0C00_0100_0001_0001": { message: "First layer inspection detected a possible defect", category: "quality" },
+      "0500_0100_0001_0001": { message: "Motor/axis motion anomaly detected", category: "motion" },
+      "1200_0100_0001_0007": { message: "The build plate may be missing or misplaced", category: "hardware" },
+      "0300_1400_0002_0009": { message: "Chamber temperature is high; check enclosure and cooling", category: "temperature" }
+    };
+    PrinterErrors_default = {
+      formatErrorCode,
+      decodePrintError,
+      isBlockingError,
+      formatHmsCode,
+      decodeHms,
+      decodeHmsList,
+      hasBlockingHms
+    };
   }
 });
 
@@ -34180,7 +34298,7 @@ var init_PrinterWorker = __esm({
       paused: ["printing", "idle", "error", "offline"],
       error: ["idle", "offline", "unknown"]
     };
-    PrinterWorker = class {
+    PrinterWorker = class _PrinterWorker {
       constructor(printer) {
         this.printerId = printer.printer_id;
         this.printer = printer;
@@ -34323,6 +34441,9 @@ var init_PrinterWorker = __esm({
             case "printer.status":
               result = { status: this.latestStatus };
               break;
+            case "printer.control":
+              result = this.manualControl(cmd.params || {});
+              break;
             default:
               throw new Error(`Unknown printer action: ${cmd.action}`);
           }
@@ -34394,10 +34515,165 @@ var init_PrinterWorker = __esm({
         }
         throw new Error("MQTT client not available");
       }
+      /**
+       * Unified manual-control entry point. BOTH the HTTP /control route and the
+       * cloud command executor go through here, so every manual control gets:
+       *   - connection + mock awareness (canControl)
+       *   - state gating: motion/temperature/filament/leveling actions are refused
+       *     while the printer is printing or paused (they would wreck the print or
+       *     the machine); mid-print-safe actions (speed/flow/z-offset/light/fan/
+       *     AI-monitoring/skip-objects/clear-error) are always allowed.
+       * Returns { ok, action, ... } and throws with a clear message on a rejected
+       * or unknown action.
+       */
+      // Actions that are unsafe to run while a print is active.
+      static MOTION_ACTIONS = /* @__PURE__ */ new Set([
+        "home",
+        "move",
+        "bed_level",
+        "set_nozzle_temp",
+        "set_bed_temp",
+        "extrude",
+        "retract",
+        "load_filament",
+        "unload_filament"
+      ]);
+      static CONTROL_ACTIONS = /* @__PURE__ */ new Set([
+        "light_on",
+        "light_off",
+        "set_fan",
+        "set_nozzle_temp",
+        "set_bed_temp",
+        "home",
+        "move",
+        "bed_level",
+        "extrude",
+        "retract",
+        "load_filament",
+        "unload_filament",
+        "set_speed_profile",
+        "set_speed_override",
+        "set_flow_override",
+        "set_z_offset",
+        "set_xcam",
+        "skip_objects",
+        "clear_error"
+      ]);
+      manualControl(request = {}) {
+        const action = String(request.action || "").trim();
+        if (!action) throw new Error("control action is required");
+        if (!_PrinterWorker.CONTROL_ACTIONS.has(action)) {
+          throw new Error(`Unknown control action: ${action}`);
+        }
+        if (!this.canControl()) throw new Error("Printer is not connected");
+        const printing = this.state === "printing" || this.state === "paused";
+        if (printing && _PrinterWorker.MOTION_ACTIONS.has(action)) {
+          throw new Error(`Cannot ${action} while the printer is ${this.state}`);
+        }
+        if (this.mockMode) return { ok: true, action, mock: true };
+        const mqtt2 = this.mqttClient;
+        if (!mqtt2) throw new Error("MQTT client not available");
+        let ok = false;
+        switch (action) {
+          case "light_on":
+            ok = mqtt2.setLight(true);
+            break;
+          case "light_off":
+            ok = mqtt2.setLight(false);
+            break;
+          case "set_fan":
+            ok = mqtt2.setFan(request.fan || 1, request.speed ?? 128);
+            break;
+          case "set_nozzle_temp":
+            ok = mqtt2.setNozzleTemp(request.temp ?? 0);
+            break;
+          case "set_bed_temp":
+            ok = mqtt2.setBedTemp(request.temp ?? 0);
+            break;
+          case "home":
+            ok = mqtt2.homeAxes(request.axes || "all");
+            break;
+          case "move":
+            ok = mqtt2.moveAxis({ x: request.x, y: request.y, z: request.z, speed: request.speed });
+            break;
+          case "bed_level":
+            ok = mqtt2.startBedLeveling();
+            break;
+          case "extrude":
+            ok = mqtt2.extrude(request.mm || 10, request.speed || 300);
+            break;
+          case "retract":
+            ok = mqtt2.retract(request.mm || 10, request.speed || 300);
+            break;
+          case "load_filament":
+            ok = mqtt2.loadFilament(request.temp || 220);
+            break;
+          case "unload_filament":
+            ok = mqtt2.unloadFilament(request.temp || 220);
+            break;
+          case "set_speed_profile":
+            ok = mqtt2.setSpeedProfile(request.level || 2);
+            break;
+          case "set_speed_override":
+            ok = mqtt2.setSpeedOverride(request.percent || 100);
+            break;
+          case "set_flow_override":
+            ok = mqtt2.setFlowOverride(request.percent || 100);
+            break;
+          case "set_z_offset":
+            ok = mqtt2.setZOffset(request.offset || 0);
+            break;
+          case "set_xcam":
+            ok = mqtt2.setXcamControl({ module: request.module, control: request.control !== false, printHalt: request.print_halt !== false });
+            break;
+          case "skip_objects":
+            ok = mqtt2.skipObjects(request.obj_list || request.objects || []);
+            break;
+          case "clear_error":
+            ok = this.clearPrintError();
+            break;
+          default:
+            throw new Error(`Unknown control action: ${action}`);
+        }
+        if (ok === false) throw new Error(`Control command "${action}" was not delivered (MQTT not connected)`);
+        return { ok: true, action };
+      }
+      /**
+       * Parse the get_version reply: { info: { command:'get_version', module:[...] } }.
+       * Summarizes the printer's firmware (ota module) + per-module versions and
+       * whether an OTA update is available, stored on latestStatus.firmware.
+       */
+      _handleVersionInfo(info) {
+        const modules = Array.isArray(info?.module) ? info.module : [];
+        if (modules.length === 0) return;
+        const byName = (name) => modules.find((m) => String(m?.name || "").toLowerCase() === name) || null;
+        const ota = byName("ota") || byName("esp32") || modules[0];
+        const firmware = {
+          version: ota?.sw_ver || null,
+          new_version: ota?.new_ver && ota.new_ver !== ota.sw_ver ? ota.new_ver : null,
+          ota_available: !!(ota?.new_ver && ota.new_ver !== ota.sw_ver),
+          modules: modules.map((m) => ({
+            name: m?.name || null,
+            sw_ver: m?.sw_ver || null,
+            hw_ver: m?.hw_ver || null,
+            new_ver: m?.new_ver && m.new_ver !== m.sw_ver ? m.new_ver : null
+          })),
+          reported_at: (/* @__PURE__ */ new Date()).toISOString()
+        };
+        this.latestStatus = { ...this.latestStatus, firmware };
+        PrinterModel.updateStatus(this.printerId, this.latestStatus);
+        if (this.onStatusUpdate) this.onStatusUpdate(this.latestStatus);
+        if (firmware.ota_available) {
+          log5.info(`Printer ${this.printer.name}: firmware ${firmware.version} (update ${firmware.new_version} available)`);
+        }
+      }
       /** Handle incoming MQTT status data. */
       _handleStatus(data) {
         this.connected = true;
         this.lastReportTime = Date.now();
+        if (data.info && (data.info.command === "get_version" || Array.isArray(data.info.module))) {
+          this._handleVersionInfo(data.info);
+        }
         const print = data.print || {};
         const priorPrintError = this.latestStatus?.print_error || 0;
         const priorHms = Array.isArray(this.latestStatus?.hms_errors) ? this.latestStatus.hms_errors : [];
@@ -34426,9 +34702,15 @@ var init_PrinterWorker = __esm({
         if (print.mc_print_stage !== void 0) update.print_stage = print.mc_print_stage;
         if (print.stg_cur !== void 0) update.stage_current = print.stg_cur;
         if (print.home_flag !== void 0) update.home_flag = print.home_flag;
+        if (print.xcam !== void 0 && print.xcam && typeof print.xcam === "object") {
+          update.ai_monitoring = print.xcam.printing_monitor === "enable" || print.xcam.spaghetti_detector === true || print.xcam.printing_monitor === true;
+        }
         if (print.wifi_signal !== void 0) update.wifi_signal = print.wifi_signal;
         if (print.lights_report !== void 0) update.lights = print.lights_report;
-        if (print.hms !== void 0) update.hms_errors = print.hms;
+        if (print.hms !== void 0) {
+          update.hms_errors = print.hms;
+          update.hms_decoded = decodeHmsList(print.hms);
+        }
         if (print.print_error !== void 0) {
           update.print_error = print.print_error;
           const prevError = this.latestStatus?.print_error;
@@ -34490,14 +34772,31 @@ var init_PrinterWorker = __esm({
           const hms = Array.isArray(this.latestStatus?.hms_errors) ? this.latestStatus.hms_errors : [];
           const keyOf = (h) => `${h?.attr}-${h?.code}`;
           const priorKeys = new Set((priorHms || []).map(keyOf));
+          const decodedByKey = new Map(
+            decodeHmsList(hms).map((d) => [`${d.attr}-${d.code}`, d])
+          );
           for (const h of hms.filter((x) => !priorKeys.has(keyOf(x)))) {
-            const hex = `${(h?.attr ?? 0).toString(16).toUpperCase()}_${(h?.code ?? 0).toString(16).toUpperCase()}`;
+            const decoded = decodedByKey.get(keyOf(h)) || null;
             EventModel.create({
               entity_type: "printer",
               entity_id: this.printerId,
               event_type: "printer.hms",
-              payload: { attr: h?.attr, code: h?.code, hms: hex, state: this.state }
+              payload: {
+                attr: h?.attr,
+                code: h?.code,
+                hms: decoded?.formatted,
+                severity: decoded?.severity,
+                message: decoded?.message,
+                category: decoded?.category,
+                wiki_url: decoded?.wiki_url,
+                state: this.state
+              }
             });
+            if (decoded) {
+              const line = `Printer ${this.printer.name}: HMS ${decoded.formatted} [${decoded.severity}] \u2014 ${decoded.message}`;
+              if (decoded.severity === "fatal" || decoded.severity === "serious") log5.warn(line);
+              else log5.info(line);
+            }
           }
         } catch {
         }
@@ -34511,6 +34810,7 @@ var init_PrinterWorker = __esm({
        * error clears so a later fault alerts again.
        */
       _checkForFailures() {
+        this._checkHmsFaults();
         const code = this.latestStatus?.print_error || 0;
         if (!code || !isBlockingError(code)) {
           this._alertedErrorCode = 0;
@@ -34564,6 +34864,54 @@ var init_PrinterWorker = __esm({
             }
           } catch (e) {
             log5.error(`Auto-cancel failed for ${this.printer.name}: ${e.message}`);
+          }
+        }
+      }
+      /**
+       * Alert on a new fatal/serious HMS fault during an active print. Deduped by
+       * the HMS code so one fault alerts once; the set resets as faults clear.
+       */
+      _checkHmsFaults() {
+        const decoded = Array.isArray(this.latestStatus?.hms_decoded) ? this.latestStatus.hms_decoded : [];
+        const serious = decoded.filter((h) => h.severity === "fatal" || h.severity === "serious");
+        if (!this._alertedHmsCodes) this._alertedHmsCodes = /* @__PURE__ */ new Set();
+        const active = new Set(serious.map((h) => h.formatted));
+        for (const key of [...this._alertedHmsCodes]) {
+          if (!active.has(key)) this._alertedHmsCodes.delete(key);
+        }
+        const activePrint = this.state === "printing" || this.state === "paused" || !!this.activeJobId;
+        if (!activePrint) return;
+        for (const fault of serious) {
+          if (this._alertedHmsCodes.has(fault.formatted)) continue;
+          this._alertedHmsCodes.add(fault.formatted);
+          const alert = {
+            printer_id: this.printerId,
+            printer_name: this.printer.name,
+            severity: fault.severity === "fatal" ? "critical" : "warning",
+            kind: "hms",
+            hms: fault.formatted,
+            category: fault.category,
+            message: fault.message,
+            wiki_url: fault.wiki_url,
+            job_id: this.activeJobId,
+            state: this.state,
+            at: (/* @__PURE__ */ new Date()).toISOString()
+          };
+          log5.warn(`Printer ${this.printer.name}: HMS fault during print \u2014 ${fault.formatted} (${fault.message})`);
+          try {
+            EventModel.create({
+              entity_type: "printer",
+              entity_id: this.printerId,
+              event_type: "printer.hms_fault",
+              payload: alert
+            });
+          } catch {
+          }
+          if (this.onAlert) {
+            try {
+              this.onAlert(alert);
+            } catch {
+            }
           }
         }
       }
@@ -45429,6 +45777,19 @@ function buildTelemetryView(status = {}, amsStatus = null) {
     print_error: num(status.print_error) || 0,
     hms_count: Array.isArray(status.hms_errors) ? status.hms_errors.length : 0
   };
+  if (Array.isArray(status.hms_decoded) && status.hms_decoded.length > 0) {
+    telemetry.hms = status.hms_decoded.slice(0, 8).map((h) => ({
+      code: h.formatted,
+      severity: h.severity,
+      message: h.message,
+      category: h.category
+    }));
+    telemetry.hms_worst_severity = status.hms_decoded[0]?.severity || null;
+  }
+  if (status.firmware && typeof status.firmware === "object") {
+    telemetry.firmware = status.firmware;
+  }
+  if (status.ai_monitoring !== void 0) telemetry.ai_monitoring = status.ai_monitoring;
   if (amsStatus && Array.isArray(amsStatus.units)) {
     const units = amsStatus.units.map((unit) => ({
       ams_id: num(unit.ams_id),
@@ -46757,6 +47118,27 @@ async function executePrinterAction(command, deps) {
       return worker._stopPrint();
     case "printer.gcode":
       return worker._sendGcode(requiredString(command.payload?.gcode, "payload.gcode"));
+    // Manual controls (light/fan/temps/home/move/filament/speed/z-offset),
+    // AI monitoring, and skip-objects all flow through the worker's unified,
+    // state-gated control path — so cloud-routed control has the same safety
+    // and parity as the local HTTP route.
+    case "printer.control":
+      return worker.manualControl({
+        ...isPlainObject(command.payload) ? command.payload : {},
+        action: requiredString(command.payload?.action, "payload.action")
+      });
+    case "printer.xcam":
+      return worker.manualControl({
+        action: "set_xcam",
+        module: command.payload?.module,
+        control: command.payload?.control,
+        print_halt: command.payload?.print_halt
+      });
+    case "printer.skip_objects":
+      return worker.manualControl({
+        action: "skip_objects",
+        obj_list: command.payload?.obj_list || command.payload?.objects
+      });
     default:
       throw new Error(`Unsupported printer command: ${command.command_type}`);
   }
@@ -76417,66 +76799,19 @@ var init_printers = __esm({
         const result = action === "pause" ? worker._pausePrint() : action === "resume" ? worker._resumePrint() : worker._stopPrint();
         return res.json({ ok: true, action, ...result });
       }
-      if (action === "clear_error") {
-        const ok2 = worker.clearPrintError();
-        return res.json({ ok: ok2 !== false, action });
+      try {
+        const result = worker.manualControl({ action, ...req.body });
+        return res.json(result);
+      } catch (err) {
+        const message = String(err.message || "control failed");
+        if (/Unknown control action|is required/.test(message)) {
+          return res.status(400).json({ error: message });
+        }
+        if (/while the printer is/.test(message)) {
+          return res.status(409).json({ error: message });
+        }
+        return res.status(503).json({ error: message });
       }
-      const mqtt2 = worker.mqttClient;
-      if (!mqtt2) return res.status(503).json({ error: "Printer MQTT not connected" });
-      let ok = false;
-      switch (action) {
-        case "light_on":
-          ok = mqtt2.setLight(true);
-          break;
-        case "light_off":
-          ok = mqtt2.setLight(false);
-          break;
-        case "set_fan":
-          ok = mqtt2.setFan(req.body.fan || 1, req.body.speed ?? 128);
-          break;
-        case "set_nozzle_temp":
-          ok = mqtt2.setNozzleTemp(req.body.temp ?? 0);
-          break;
-        case "set_bed_temp":
-          ok = mqtt2.setBedTemp(req.body.temp ?? 0);
-          break;
-        case "home":
-          ok = mqtt2.homeAxes(req.body.axes || "all");
-          break;
-        case "move":
-          ok = mqtt2.moveAxis({ x: req.body.x, y: req.body.y, z: req.body.z, speed: req.body.speed });
-          break;
-        case "bed_level":
-          ok = mqtt2.startBedLeveling();
-          break;
-        case "extrude":
-          ok = mqtt2.extrude(req.body.mm || 10, req.body.speed || 300);
-          break;
-        case "retract":
-          ok = mqtt2.retract(req.body.mm || 10, req.body.speed || 300);
-          break;
-        case "load_filament":
-          ok = mqtt2.loadFilament(req.body.temp || 220);
-          break;
-        case "unload_filament":
-          ok = mqtt2.unloadFilament(req.body.temp || 220);
-          break;
-        case "set_speed_profile":
-          ok = mqtt2.setSpeedProfile(req.body.level || 2);
-          break;
-        case "set_speed_override":
-          ok = mqtt2.setSpeedOverride(req.body.percent || 100);
-          break;
-        case "set_flow_override":
-          ok = mqtt2.setFlowOverride(req.body.percent || 100);
-          break;
-        case "set_z_offset":
-          ok = mqtt2.setZOffset(req.body.offset || 0);
-          break;
-        default:
-          return res.status(400).json({ error: `Unknown action: ${action}` });
-      }
-      res.json({ ok, action });
     }));
     router.get("/:id/overrides", requireAuth, asyncHandler(async (req, res) => {
       const { dbAll: dbAll2 } = await Promise.resolve().then(() => (init_database(), database_exports));

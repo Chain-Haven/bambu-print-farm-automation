@@ -410,3 +410,32 @@ describe('local cloud command executor', () => {
         }, { captureCameraFrame })).rejects.toThrow('Camera frame not yet available');
     });
 });
+
+describe('cloud manual control commands', () => {
+    it('routes printer.control / xcam / skip_objects through the worker manualControl', async () => {
+        const calls = [];
+        const worker = {
+            state: 'printing',
+            manualControl: (req) => { calls.push(req); return { ok: true, action: req.action }; },
+        };
+        const deps = { getWorker: async () => worker };
+
+        const control = await executeCloudCommand({
+            command_type: 'printer.control',
+            payload: { local_printer_id: 'p1', action: 'set_speed_override', percent: 80 },
+        }, deps);
+        expect(control).toMatchObject({ ok: true, action: 'set_speed_override' });
+
+        await executeCloudCommand({
+            command_type: 'printer.xcam',
+            payload: { local_printer_id: 'p1', control: true },
+        }, deps);
+        await executeCloudCommand({
+            command_type: 'printer.skip_objects',
+            payload: { local_printer_id: 'p1', obj_list: [3, 5] },
+        }, deps);
+
+        expect(calls.map((c) => c.action)).toEqual(['set_speed_override', 'set_xcam', 'skip_objects']);
+        expect(calls[2].obj_list).toEqual([3, 5]);
+    });
+});

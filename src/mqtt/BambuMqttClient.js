@@ -51,8 +51,9 @@ export class BambuMqttClient {
                     if (err) log.error(`Subscribe error: ${err.message}`);
                     else {
                         log.info(`Subscribed to ${topic}`);
-                        // Request full status dump
+                        // Request full status dump + the firmware/module versions.
                         this.requestStatus();
+                        this.requestVersion();
                     }
                 });
             });
@@ -122,6 +123,61 @@ export class BambuMqttClient {
     }
 
     /**
+     * Request the firmware/module version report. The printer replies on the
+     * report topic with { info: { command: 'get_version', module: [...] } },
+     * which PrinterWorker parses for firmware + OTA-available state.
+     */
+    requestVersion() {
+        return this.publish({
+            info: { sequence_id: '0', command: 'get_version' }
+        });
+    }
+
+    /**
+     * Toggle Bambu's on-device AI monitoring (xcam). Modules:
+     *   'printing'                   — spaghetti / print-failure detection
+     *   'first_layer_inspector'      — first-layer inspection
+     *   'buildplate_marker_detector' — plate marker / plate-present check
+     * control=true enables it; printHalt=true pauses the print when the module
+     * trips (vs. just flagging it).
+     */
+    setXcamControl({ module = 'printing', control = true, printHalt = true } = {}) {
+        log.info(`AI monitoring (${module}) → ${control ? 'ON' : 'OFF'}${control && printHalt ? ' (halt-on-detect)' : ''}`);
+        return this.publish({
+            xcam: {
+                sequence_id: String(Date.now()),
+                command: 'xcam_control_set',
+                module_name: module,
+                control: !!control,
+                print_halt: !!printHalt,
+            }
+        });
+    }
+
+    /**
+     * Abandon specific objects on a multi-part plate mid-print so the rest of
+     * the plate keeps printing (e.g. one part detached). objIds are the plate
+     * object ids the slicer assigned.
+     */
+    skipObjects(objIds = []) {
+        const list = (Array.isArray(objIds) ? objIds : [objIds])
+            .map((id) => Number.parseInt(id, 10))
+            .filter((id) => Number.isFinite(id));
+        if (list.length === 0) {
+            log.warn('skipObjects called with no valid object ids');
+            return false;
+        }
+        log.info(`Skipping ${list.length} object(s) on plate: ${list.join(', ')}`);
+        return this.publish({
+            print: {
+                sequence_id: String(Date.now()),
+                command: 'skip_objects',
+                obj_list: list,
+            }
+        });
+    }
+
+    /**
      * Clear a stale print_error from the printer.
      * Bambu printers can retain error codes even after the problem resolves.
      */
@@ -136,7 +192,7 @@ export class BambuMqttClient {
      * Send print start command (Bambu LAN protocol).
      * After uploading a .3mf to /cache/ via FTPS, this tells the printer to open it.
      */
-    startPrint({ filename, plateNumber = 1, useAms = true, amsMapping = [] }) {
+    startPrint({ filename, plateNumber = 1, useAms = true, amsMapping = [], aiMonitoring = false, timelapse = false } = {}) {
         const payload = {
             print: {
                 sequence_id: String(Date.now()),
@@ -145,11 +201,12 @@ export class BambuMqttClient {
                 subtask_name: filename.replace(/\.gcode\.3mf$/i, '').replace(/\.3mf$/i, ''),
                 url: `ftp:///sdcard/cache/${filename}`,
                 bed_type: 'auto',
-                timelapse: false,
+                timelapse: !!timelapse,
                 bed_leveling: true,
                 flow_cali: true,
                 vibration_cali: true,
-                layer_inspect: false,
+                // First-layer inspection: part of the project_file start payload.
+                layer_inspect: !!aiMonitoring,
                 use_ams: useAms,
                 ams_mapping: amsMapping,
                 profile_id: '0',
@@ -158,8 +215,14 @@ export class BambuMqttClient {
                 task_id: '0',
             }
         };
-        log.info(`Starting print: ${filename} (plate ${plateNumber})`);
-        return this.publish(payload);
+        log.info(`Starting print: ${filename} (plate ${plateNumber})${aiMonitoring ? ' + AI first-layer inspect' : ''}`);
+        const ok = this.publish(payload);
+        // Spaghetti / print-failure AI detection is a separate xcam module — enable
+        // it (with halt-on-detect) right after the start when requested.
+        if (ok && aiMonitoring) {
+            try { this.setXcamControl({ module: 'printing', control: true, printHalt: true }); } catch { /* best-effort */ }
+        }
+        return ok;
     }
 
     /**
