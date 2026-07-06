@@ -2701,6 +2701,8 @@ var require_adm_zip = __commonJS({
 var nodePackage_exports = {};
 __export(nodePackage_exports, {
   PORTABLE_BUNDLE_SUBDIR: () => PORTABLE_BUNDLE_SUBDIR,
+  PORTABLE_NODE_SHA256: () => PORTABLE_NODE_SHA256,
+  PORTABLE_NODE_VERSION: () => PORTABLE_NODE_VERSION,
   buildNodePackageManifest: () => buildNodePackageManifest,
   buildPortableNodePackage: () => buildPortableNodePackage,
   buildWindowsNodePackage: () => buildWindowsNodePackage,
@@ -2714,6 +2716,7 @@ __export(nodePackage_exports, {
   createNodePackageReadme: () => createNodePackageReadme,
   createPortableReadme: () => createPortableReadme,
   createStartFarmNodeSh: () => createStartFarmNodeSh,
+  generateNodeSecrets: () => generateNodeSecrets,
   getNodePackageFileName: () => getNodePackageFileName,
   hasPortableBundle: () => hasPortableBundle
 });
@@ -2756,6 +2759,20 @@ function sanitizeFileName(value) {
 function collectNodePackageFiles(rootDir) {
   return walkFiles(rootDir).sort((a, b) => a.localeCompare(b));
 }
+function generateNodeSecrets(randomBytes2 = import_node_crypto.default.randomBytes) {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = randomBytes2(20);
+  let adminPassword = "";
+  for (let i = 0; i < bytes.length; i += 1) {
+    adminPassword += alphabet[bytes[i] % alphabet.length];
+  }
+  return {
+    // 32 bytes hex = 64 chars — exactly what src/utils/crypto.js consumes.
+    encryptionKey: randomBytes2(32).toString("hex"),
+    jwtSecret: randomBytes2(32).toString("base64url"),
+    adminPassword
+  };
+}
 function createNodeEnv({
   cloudApiUrl,
   localNodeToken,
@@ -2769,19 +2786,28 @@ function createNodeEnv({
   resultOutboxPath = "./data/cloud-result-outbox.json",
   resultOutboxFlushLimit = 25,
   resultOutboxMaxEntries = 1e3,
-  mockMode = false
+  mockMode = false,
+  // Bind the local dashboard to loopback by default: printer control does not
+  // require the dashboard to be reachable from other machines, and exposing an
+  // admin login on the LAN is unnecessary attack surface. Operators who need
+  // LAN access can set HOST=0.0.0.0 deliberately after changing the password.
+  host = "127.0.0.1",
+  secrets = null,
+  adminUsername = "admin"
 } = {}) {
   const normalizedCloudApiUrl = normalizeRequiredString(cloudApiUrl, "cloud_api_url").replace(/\/+$/, "");
   const normalizedToken = normalizeRequiredString(localNodeToken, "local_node_token");
+  const { encryptionKey, jwtSecret, adminPassword } = secrets || generateNodeSecrets();
   return [
     "# PrintKinetix Windows node configuration",
+    "# Secrets below are UNIQUE to this download \u2014 keep this file private.",
     "PORT=3000",
-    "HOST=0.0.0.0",
-    "JWT_SECRET=change-me",
-    "ADMIN_USERNAME=admin",
-    "ADMIN_PASSWORD=antigravity",
+    `HOST=${host}`,
+    `JWT_SECRET=${jwtSecret}`,
+    `ADMIN_USERNAME=${adminUsername}`,
+    `ADMIN_PASSWORD=${adminPassword}`,
     "DB_PATH=./data/antigravity.db",
-    "ENCRYPTION_KEY=0123456789abcdef0123456789abcdef",
+    `ENCRYPTION_KEY=${encryptionKey}`,
     "LOG_LEVEL=info",
     "",
     `CLOUD_API_URL=${normalizedCloudApiUrl}`,
@@ -2804,7 +2830,7 @@ function createNodeEnv({
     ""
   ].join("\n");
 }
-function createNodePackageReadme({ nodeName = "Windows NUC", cloudApiUrl } = {}) {
+function createNodePackageReadme({ nodeName = "Windows NUC", cloudApiUrl, adminPassword = null } = {}) {
   return [
     "PrintKinetix Cloud Node",
     "=======================",
@@ -2812,11 +2838,23 @@ function createNodePackageReadme({ nodeName = "Windows NUC", cloudApiUrl } = {})
     `Node: ${nodeName || "Windows NUC"}`,
     `Cloud: ${cloudApiUrl || "configured in .env"}`,
     "",
+    "Local dashboard sign-in",
+    "-----------------------",
+    "  URL:      http://localhost:3000",
+    "  Username: admin",
+    `  Password: ${adminPassword || "(see ADMIN_PASSWORD in .env)"}`,
+    "This password is UNIQUE to this download and also stored in .env. Change it",
+    "after first sign-in if you like. The dashboard binds to localhost only by",
+    "default \u2014 set HOST=0.0.0.0 in .env only if you must reach it from another",
+    "machine, and change the password first.",
+    "",
     "Security model",
     "--------------",
     "- This node uses HTTPS outbound to reach the Vercel cloud API.",
     "- Do not open inbound firewall ports from the public internet to this computer.",
     "- Keep LOCAL_NODE_TOKEN private; it is the only cloud credential needed here.",
+    "- .env also holds this node's UNIQUE JWT_SECRET, ENCRYPTION_KEY (encrypts stored",
+    "  printer access codes), and ADMIN_PASSWORD. Never share or reuse them across nodes.",
     "- This package must not contain SUPABASE_SERVICE_ROLE_KEY, CLOUD_ADMIN_TOKEN, NODE_TOKEN_PEPPER, or merchant API key pepper values.",
     "- Printer control stays on the local network through Bambu MQTT and FTPS.",
     "- Cloud command results are spooled to ./data/cloud-result-outbox.json if Vercel or Supabase is temporarily unreachable.",
@@ -2865,16 +2903,19 @@ function buildSourceNodePackage({
   const files = collectNodePackageFiles(rootDir);
   const generatedAt = now().toISOString();
   const zip = new import_adm_zip.default();
+  const secrets = generateNodeSecrets();
   for (const relativePath of files) {
     zip.addFile(relativePath, import_node_fs.default.readFileSync(import_node_path.default.join(rootDir, relativePath)));
   }
   zip.addFile(".env", Buffer.from(createNodeEnv({
     cloudApiUrl: normalizedCloudApiUrl,
-    localNodeToken: normalizedToken
+    localNodeToken: normalizedToken,
+    secrets
   })));
   zip.addFile("README-FIRST.txt", Buffer.from(createNodePackageReadme({
     nodeName,
-    cloudApiUrl: normalizedCloudApiUrl
+    cloudApiUrl: normalizedCloudApiUrl,
+    adminPassword: secrets.adminPassword
   })));
   zip.addFile("node-package-manifest.json", Buffer.from(JSON.stringify(buildNodePackageManifest({
     files,
@@ -2959,18 +3000,28 @@ function createGetNodePs1() {
   return [
     '$ErrorActionPreference = "Stop"',
     "$dir = Split-Path -Parent $MyInvocation.MyCommand.Path",
-    '$ver = "v22.11.0"',
+    `$ver = "${PORTABLE_NODE_VERSION}"`,
     '$zip = "node-$ver-win-x64.zip"',
     '$url = "https://nodejs.org/dist/$ver/$zip"',
+    // Pinned integrity hash for node-<ver>-win-x64.zip.
+    `$expected = "${PORTABLE_NODE_SHA256["win-x64"]}"`,
     "$tmp = Join-Path $env:TEMP $zip",
     'Write-Host "Downloading $url"',
     "Invoke-WebRequest -Uri $url -OutFile $tmp",
+    'Write-Host "Verifying SHA-256..."',
+    "$actual = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash.ToLower()",
+    "if ($actual -ne $expected) {",
+    "  Remove-Item -Force $tmp",
+    '  throw "Node.js download failed integrity check. Expected $expected but got $actual. Aborting for safety."',
+    "}",
+    'Write-Host "Integrity OK"',
     '$extract = Join-Path $env:TEMP "pkx-node-$ver"',
     "if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }",
     "Expand-Archive -Path $tmp -DestinationPath $extract -Force",
     '$nodeDir = Join-Path $dir "node"',
     "if (Test-Path $nodeDir) { Remove-Item -Recurse -Force $nodeDir }",
     'Move-Item -Path (Join-Path $extract "node-$ver-win-x64") -Destination $nodeDir',
+    "Remove-Item -Force $tmp",
     'Write-Host "Portable Node installed to $nodeDir"'
   ].join("\r\n");
 }
@@ -3011,22 +3062,37 @@ function createGetNodeSh() {
     "set -euo pipefail",
     'cd "$(dirname "$0")"',
     "",
-    'VER="v22.11.0"',
+    `VER="${PORTABLE_NODE_VERSION}"`,
     'ARCH="$(uname -m)"',
     'case "$ARCH" in',
-    '  aarch64|arm64) NODE_ARCH="linux-arm64" ;;',
-    '  x86_64|amd64)  NODE_ARCH="linux-x64" ;;',
-    '  armv7l|armv6l) NODE_ARCH="linux-armv7l" ;;',
+    `  aarch64|arm64) NODE_ARCH="linux-arm64"; EXPECTED="${PORTABLE_NODE_SHA256["linux-arm64"]}" ;;`,
+    `  x86_64|amd64)  NODE_ARCH="linux-x64"; EXPECTED="${PORTABLE_NODE_SHA256["linux-x64"]}" ;;`,
+    `  armv7l|armv6l) NODE_ARCH="linux-armv7l"; EXPECTED="${PORTABLE_NODE_SHA256["linux-armv7l"]}" ;;`,
     '  *) echo "Unsupported architecture: $ARCH. Install Node 20+ manually."; exit 1 ;;',
     "esac",
     "",
     'TARBALL="node-$VER-$NODE_ARCH.tar.xz"',
     'URL="https://nodejs.org/dist/$VER/$TARBALL"',
+    // Private temp dir (mktemp) avoids a predictable /tmp path a local
+    // attacker could pre-create or symlink-swap.
+    'WORKDIR="$(mktemp -d)"',
+    `trap 'rm -rf "$WORKDIR"' EXIT`,
     'echo "Downloading $URL"',
-    'curl -fsSL "$URL" -o "/tmp/$TARBALL"',
+    'curl -fsSL "$URL" -o "$WORKDIR/$TARBALL"',
+    'echo "Verifying SHA-256..."',
+    // Prefer sha256sum; fall back to shasum -a 256 (macOS/BSD).
+    "if command -v sha256sum >/dev/null 2>&1; then",
+    `  ACTUAL="$(sha256sum "$WORKDIR/$TARBALL" | awk '{print $1}')"`,
+    "else",
+    `  ACTUAL="$(shasum -a 256 "$WORKDIR/$TARBALL" | awk '{print $1}')"`,
+    "fi",
+    'if [ "$ACTUAL" != "$EXPECTED" ]; then',
+    '  echo "Node.js download failed integrity check. Expected $EXPECTED but got $ACTUAL. Aborting for safety." >&2',
+    "  exit 1",
+    "fi",
+    'echo "Integrity OK"',
     "rm -rf ./node && mkdir -p ./node",
-    'tar -xJf "/tmp/$TARBALL" -C ./node --strip-components=1',
-    'rm -f "/tmp/$TARBALL"',
+    'tar -xJf "$WORKDIR/$TARBALL" -C ./node --strip-components=1',
     'echo "Portable Node installed to ./node"',
     ""
   ].join("\n");
@@ -3131,6 +3197,7 @@ function buildPortableNodePackage({
   const generatedAt = now().toISOString();
   const zip = new import_adm_zip.default();
   const files = [];
+  const portableSecrets = generateNodeSecrets();
   const addFile = (entryName, buffer) => {
     zip.addFile(entryName, buffer);
     files.push(entryName);
@@ -3155,11 +3222,13 @@ function buildPortableNodePackage({
   addFile("install-service.sh", Buffer.from(createInstallServiceSh(), "utf-8"));
   addFile("README-FIRST.txt", Buffer.from(createPortableReadme({
     nodeName,
-    cloudApiUrl: normalizedCloudApiUrl
+    cloudApiUrl: normalizedCloudApiUrl,
+    adminPassword: portableSecrets.adminPassword
   })));
   zip.addFile(".env", Buffer.from(createNodeEnv({
     cloudApiUrl: normalizedCloudApiUrl,
-    localNodeToken: normalizedToken
+    localNodeToken: normalizedToken,
+    secrets: portableSecrets
   })));
   zip.addFile("node-package-manifest.json", Buffer.from(JSON.stringify(buildNodePackageManifest({
     files,
@@ -3180,10 +3249,11 @@ function buildWindowsNodePackage(options = {}) {
 function getNodePackageFileName(nodeName) {
   return `${sanitizeFileName(nodeName || "printkinetix-node")}-cloud-node.zip`;
 }
-var import_adm_zip, import_node_fs, import_node_path, ROOT_FILES, ROOT_DIRS, NESTED_EXCLUDED_DIRS, ROOT_EXCLUDED_DIRS, EXCLUDED_FILES, PORTABLE_PUBLIC_EXCLUDES, EXCLUDED_PATHS, PORTABLE_BUNDLE_SUBDIR;
+var import_adm_zip, import_node_crypto, import_node_fs, import_node_path, ROOT_FILES, ROOT_DIRS, NESTED_EXCLUDED_DIRS, ROOT_EXCLUDED_DIRS, EXCLUDED_FILES, PORTABLE_PUBLIC_EXCLUDES, EXCLUDED_PATHS, PORTABLE_BUNDLE_SUBDIR, PORTABLE_NODE_VERSION, PORTABLE_NODE_SHA256;
 var init_nodePackage = __esm({
   "src/cloud/nodePackage.js"() {
     import_adm_zip = __toESM(require_adm_zip(), 1);
+    import_node_crypto = __toESM(require("node:crypto"), 1);
     import_node_fs = __toESM(require("node:fs"), 1);
     import_node_path = __toESM(require("node:path"), 1);
     ROOT_FILES = /* @__PURE__ */ new Set([
@@ -3226,6 +3296,13 @@ var init_nodePackage = __esm({
       "src/cloud/supabaseRest.js"
     ]);
     PORTABLE_BUNDLE_SUBDIR = import_node_path.default.join("dist", "windows-node");
+    PORTABLE_NODE_VERSION = "v22.11.0";
+    PORTABLE_NODE_SHA256 = Object.freeze({
+      "win-x64": "905373a059aecaf7f48c1ce10ffbd5334457ca00f678747f19db5ea7d256c236",
+      "linux-arm64": "6031d04b98f59ff0f7cb98566f65b115ecd893d3b7870821171708cdbaf7ae6e",
+      "linux-x64": "83bf07dd343002a26211cf1fcd46a9d9534219aad42ee02847816940bf610a72",
+      "linux-armv7l": "9de0fdcfb1cccbe03f72f939e4e6f03867aef3da8223f90606cd93757704dae0"
+    });
   }
 });
 
@@ -3303,7 +3380,7 @@ var require_main = __commonJS({
     var fs12 = require("fs");
     var path15 = require("path");
     var os7 = require("os");
-    var crypto5 = require("crypto");
+    var crypto6 = require("crypto");
     var packageJson = require_package();
     var version = packageJson.version;
     var LINE = /(?:^|^)\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?(?:$|$)/mg;
@@ -3522,7 +3599,7 @@ var require_main = __commonJS({
       const authTag = ciphertext.subarray(-16);
       ciphertext = ciphertext.subarray(12, -16);
       try {
-        const aesgcm = crypto5.createDecipheriv("aes-256-gcm", key, nonce);
+        const aesgcm = crypto6.createDecipheriv("aes-256-gcm", key, nonce);
         aesgcm.setAuthTag(authTag);
         return `${aesgcm.update(ciphertext)}${aesgcm.final()}`;
       } catch (error) {
@@ -6198,12 +6275,12 @@ function getKey() {
     return Buffer.from(envKey.slice(0, 64), "hex");
   }
   const seed = envKey || process.env.JWT_SECRET || "antigravity-dev-fallback-key";
-  return import_node_crypto.default.createHash("sha256").update(seed).digest();
+  return import_node_crypto2.default.createHash("sha256").update(seed).digest();
 }
 function encrypt(value) {
   const key = getKey();
-  const iv = import_node_crypto.default.randomBytes(IV_LEN);
-  const cipher = import_node_crypto.default.createCipheriv(ALGO, key, iv);
+  const iv = import_node_crypto2.default.randomBytes(IV_LEN);
+  const cipher = import_node_crypto2.default.createCipheriv(ALGO, key, iv);
   const plaintext = typeof value === "string" ? value : JSON.stringify(value);
   let encrypted = cipher.update(plaintext, "utf8", "hex");
   encrypted += cipher.final("hex");
@@ -6213,7 +6290,7 @@ function decrypt(encoded) {
   const key = getKey();
   const [ivHex, cipherHex] = encoded.split(":");
   const iv = Buffer.from(ivHex, "hex");
-  const decipher = import_node_crypto.default.createDecipheriv(ALGO, key, iv);
+  const decipher = import_node_crypto2.default.createDecipheriv(ALGO, key, iv);
   let decrypted = decipher.update(cipherHex, "hex", "utf8");
   decrypted += decipher.final("utf8");
   try {
@@ -6222,10 +6299,10 @@ function decrypt(encoded) {
     return decrypted;
   }
 }
-var import_node_crypto, ALGO, IV_LEN;
+var import_node_crypto2, ALGO, IV_LEN;
 var init_crypto = __esm({
   "src/utils/crypto.js"() {
-    import_node_crypto = __toESM(require("node:crypto"), 1);
+    import_node_crypto2 = __toESM(require("node:crypto"), 1);
     ALGO = "aes-256-cbc";
     IV_LEN = 16;
   }
@@ -14955,25 +15032,25 @@ var require_numbers = __commonJS({
         cache2[i] = generateBuffer(i);
       }
     }
-    function genBufVariableByteInt(num3) {
+    function genBufVariableByteInt(num4) {
       const maxLength = 4;
       let digit = 0;
       let pos = 0;
       const buffer = Buffer2.allocUnsafe(maxLength);
       do {
-        digit = num3 % 128 | 0;
-        num3 = num3 / 128 | 0;
-        if (num3 > 0) digit = digit | 128;
+        digit = num4 % 128 | 0;
+        num4 = num4 / 128 | 0;
+        if (num4 > 0) digit = digit | 128;
         buffer.writeUInt8(digit, pos++);
-      } while (num3 > 0 && pos < maxLength);
-      if (num3 > 0) {
+      } while (num4 > 0 && pos < maxLength);
+      if (num4 > 0) {
         pos = 0;
       }
       return SubOk ? buffer.subarray(0, pos) : buffer.slice(0, pos);
     }
-    function generate4ByteBuffer(num3) {
+    function generate4ByteBuffer(num4) {
       const buffer = Buffer2.allocUnsafe(4);
-      buffer.writeUInt32BE(num3, 0);
+      buffer.writeUInt32BE(num4, 0);
       return buffer;
     }
     module2.exports = {
@@ -15619,15 +15696,15 @@ var require_writeToStream = __commonJS({
       return true;
     }
     var varByteIntCache = {};
-    function writeVarByteInt(stream, num3) {
-      if (num3 > protocol.VARBYTEINT_MAX) {
-        stream.destroy(new Error(`Invalid variable byte integer: ${num3}`));
+    function writeVarByteInt(stream, num4) {
+      if (num4 > protocol.VARBYTEINT_MAX) {
+        stream.destroy(new Error(`Invalid variable byte integer: ${num4}`));
         return false;
       }
-      let buffer = varByteIntCache[num3];
+      let buffer = varByteIntCache[num4];
       if (!buffer) {
-        buffer = genBufVariableByteInt(num3);
-        if (num3 < 16384) varByteIntCache[num3] = buffer;
+        buffer = genBufVariableByteInt(num4);
+        if (num4 < 16384) varByteIntCache[num4] = buffer;
       }
       debug("writeVarByteInt: writing to stream: %o", buffer);
       return stream.write(buffer);
@@ -22055,51 +22132,51 @@ var require_number_allocator = __commonJS({
       const it = this.ss.begin();
       const low = it.pointer.low;
       const high = it.pointer.high;
-      const num3 = low;
-      if (num3 + 1 <= high) {
+      const num4 = low;
+      if (num4 + 1 <= high) {
         this.ss.updateKeyByIterator(it, new Interval(low + 1, high));
       } else {
         this.ss.eraseElementByPos(0);
       }
-      debugTrace("alloc():" + num3);
-      return num3;
+      debugTrace("alloc():" + num4);
+      return num4;
     };
-    NumberAllocator.prototype.use = function(num3) {
-      const key = new Interval(num3, num3);
+    NumberAllocator.prototype.use = function(num4) {
+      const key = new Interval(num4, num4);
       const it = this.ss.lowerBound(key);
       if (!it.equals(this.ss.end())) {
         const low = it.pointer.low;
         const high = it.pointer.high;
         if (it.pointer.equals(key)) {
           this.ss.eraseElementByIterator(it);
-          debugTrace("use():" + num3);
+          debugTrace("use():" + num4);
           return true;
         }
-        if (low > num3) return false;
-        if (low === num3) {
+        if (low > num4) return false;
+        if (low === num4) {
           this.ss.updateKeyByIterator(it, new Interval(low + 1, high));
-          debugTrace("use():" + num3);
+          debugTrace("use():" + num4);
           return true;
         }
-        if (high === num3) {
+        if (high === num4) {
           this.ss.updateKeyByIterator(it, new Interval(low, high - 1));
-          debugTrace("use():" + num3);
+          debugTrace("use():" + num4);
           return true;
         }
-        this.ss.updateKeyByIterator(it, new Interval(num3 + 1, high));
-        this.ss.insert(new Interval(low, num3 - 1));
-        debugTrace("use():" + num3);
+        this.ss.updateKeyByIterator(it, new Interval(num4 + 1, high));
+        this.ss.insert(new Interval(low, num4 - 1));
+        debugTrace("use():" + num4);
         return true;
       }
       debugTrace("use():failed");
       return false;
     };
-    NumberAllocator.prototype.free = function(num3) {
-      if (num3 < this.min || num3 > this.max) {
-        debugError("free():" + num3 + " is out of range");
+    NumberAllocator.prototype.free = function(num4) {
+      if (num4 < this.min || num4 > this.max) {
+        debugError("free():" + num4 + " is out of range");
         return;
       }
-      const key = new Interval(num3, num3);
+      const key = new Interval(num4, num4);
       const it = this.ss.upperBound(key);
       if (it.equals(this.ss.end())) {
         if (it.equals(this.ss.begin())) {
@@ -22109,16 +22186,16 @@ var require_number_allocator = __commonJS({
         it.pre();
         const low = it.pointer.high;
         const high = it.pointer.high;
-        if (high + 1 === num3) {
-          this.ss.updateKeyByIterator(it, new Interval(low, num3));
+        if (high + 1 === num4) {
+          this.ss.updateKeyByIterator(it, new Interval(low, num4));
         } else {
           this.ss.insert(key);
         }
       } else {
         if (it.equals(this.ss.begin())) {
-          if (num3 + 1 === it.pointer.low) {
+          if (num4 + 1 === it.pointer.low) {
             const high = it.pointer.high;
-            this.ss.updateKeyByIterator(it, new Interval(num3, high));
+            this.ss.updateKeyByIterator(it, new Interval(num4, high));
           } else {
             this.ss.insert(key);
           }
@@ -22128,24 +22205,24 @@ var require_number_allocator = __commonJS({
           it.pre();
           const lLow = it.pointer.low;
           const lHigh = it.pointer.high;
-          if (lHigh + 1 === num3) {
-            if (num3 + 1 === rLow) {
+          if (lHigh + 1 === num4) {
+            if (num4 + 1 === rLow) {
               this.ss.eraseElementByIterator(it);
               this.ss.updateKeyByIterator(it, new Interval(lLow, rHigh));
             } else {
-              this.ss.updateKeyByIterator(it, new Interval(lLow, num3));
+              this.ss.updateKeyByIterator(it, new Interval(lLow, num4));
             }
           } else {
-            if (num3 + 1 === rLow) {
+            if (num4 + 1 === rLow) {
               this.ss.eraseElementByIterator(it.next());
-              this.ss.insert(new Interval(num3, rHigh));
+              this.ss.insert(new Interval(num4, rHigh));
             } else {
               this.ss.insert(key);
             }
           }
         }
       }
-      debugTrace("free():" + num3);
+      debugTrace("free():" + num4);
     };
     NumberAllocator.prototype.clear = function() {
       debugTrace("clear()");
@@ -25215,26 +25292,26 @@ var require_permessage_deflate = __commonJS({
             value = value[0];
             if (key === "client_max_window_bits") {
               if (value !== true) {
-                const num3 = +value;
-                if (!Number.isInteger(num3) || num3 < 8 || num3 > 15) {
+                const num4 = +value;
+                if (!Number.isInteger(num4) || num4 < 8 || num4 > 15) {
                   throw new TypeError(
                     `Invalid value for parameter "${key}": ${value}`
                   );
                 }
-                value = num3;
+                value = num4;
               } else if (!this._isServer) {
                 throw new TypeError(
                   `Invalid value for parameter "${key}": ${value}`
                 );
               }
             } else if (key === "server_max_window_bits") {
-              const num3 = +value;
-              if (!Number.isInteger(num3) || num3 < 8 || num3 > 15) {
+              const num4 = +value;
+              if (!Number.isInteger(num4) || num4 < 8 || num4 > 15) {
                 throw new TypeError(
                   `Invalid value for parameter "${key}": ${value}`
                 );
               }
-              value = num3;
+              value = num4;
             } else if (key === "client_no_context_takeover" || key === "server_no_context_takeover") {
               if (value !== true) {
                 throw new TypeError(
@@ -25929,8 +26006,8 @@ var require_receiver = __commonJS({
           return;
         }
         const buf = this.consume(8);
-        const num3 = buf.readUInt32BE(0);
-        if (num3 > Math.pow(2, 53 - 32) - 1) {
+        const num4 = buf.readUInt32BE(0);
+        if (num4 > Math.pow(2, 53 - 32) - 1) {
           const error = this.createError(
             RangeError,
             "Unsupported WebSocket frame: payload length > 2^53 - 1",
@@ -25941,7 +26018,7 @@ var require_receiver = __commonJS({
           cb(error);
           return;
         }
-        this._payloadLength = num3 * Math.pow(2, 32) + buf.readUInt32BE(4);
+        this._payloadLength = num4 * Math.pow(2, 32) + buf.readUInt32BE(4);
         this.haveLength(cb);
       }
       /**
@@ -34332,13 +34409,23 @@ var init_PrinterWorker = __esm({
         if (print.bed_target_temper !== void 0) update.bed_target = Math.round(print.bed_target_temper * 10) / 10;
         if (print.nozzle_temper !== void 0) update.nozzle_temp = Math.round(print.nozzle_temper * 10) / 10;
         if (print.nozzle_target_temper !== void 0) update.nozzle_target = Math.round(print.nozzle_target_temper * 10) / 10;
+        if (print.chamber_temper !== void 0) update.chamber_temp = Math.round(print.chamber_temper * 10) / 10;
         if (print.mc_percent !== void 0) update.progress = print.mc_percent;
         if (print.mc_remaining_time !== void 0) update.remaining_time = print.mc_remaining_time;
         if (print.layer_num !== void 0) update.layer = print.layer_num;
         if (print.total_layer_num !== void 0) update.total_layers = print.total_layer_num;
         if (print.ams !== void 0) update.ams = print.ams;
         if (print.big_fan1_speed !== void 0) update.fan_speed = print.big_fan1_speed;
+        if (print.cooling_fan_speed !== void 0) update.aux_fan_speed = print.cooling_fan_speed;
+        if (print.big_fan2_speed !== void 0) update.chamber_fan_speed = print.big_fan2_speed;
+        if (print.heatbreak_fan_speed !== void 0) update.heatbreak_fan_speed = print.heatbreak_fan_speed;
         if (print.spd_lvl !== void 0) update.speed_level = print.spd_lvl;
+        if (print.spd_mag !== void 0) update.speed_percent = print.spd_mag;
+        if (print.nozzle_diameter !== void 0) update.nozzle_diameter = print.nozzle_diameter;
+        if (print.nozzle_type !== void 0) update.nozzle_type = print.nozzle_type;
+        if (print.mc_print_stage !== void 0) update.print_stage = print.mc_print_stage;
+        if (print.stg_cur !== void 0) update.stage_current = print.stg_cur;
+        if (print.home_flag !== void 0) update.home_flag = print.home_flag;
         if (print.wifi_signal !== void 0) update.wifi_signal = print.wifi_signal;
         if (print.lights_report !== void 0) update.lights = print.lights_report;
         if (print.hms !== void 0) update.hms_errors = print.hms;
@@ -35374,8 +35461,8 @@ var require_utils4 = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.convertHeaderBufferToObj = exports2.HEADER_LENGTH = void 0;
     exports2.HEADER_LENGTH = 6;
-    var toOctetStr = (num3) => {
-      let str = Number(num3).toString(2);
+    var toOctetStr = (num4) => {
+      let str = Number(num4).toString(2);
       while (str.length < 8) {
         str = `0${str}`;
       }
@@ -41189,7 +41276,7 @@ function buildGcode3mf(plates, meta = {}) {
   const plateBlocks = [];
   for (const { index, gcode } of plates) {
     const gbuf = Buffer.from(gcode, "utf-8");
-    const md5 = (0, import_node_crypto2.createHash)("md5").update(gbuf).digest("hex");
+    const md5 = (0, import_node_crypto3.createHash)("md5").update(gbuf).digest("hex");
     zip.addFile(`Metadata/plate_${index}.gcode`, gbuf);
     zip.addFile(`Metadata/plate_${index}.gcode.md5`, Buffer.from(md5, "utf-8"));
     plateBlocks.push(
@@ -41257,7 +41344,7 @@ function repack3mf(originalBuf, gcodeEntryName, newGcodeContent) {
         lastModDate: entry.lastModDate
       });
     } else if (entry.fileName === md5EntryName) {
-      const md5Hash = (0, import_node_crypto2.createHash)("md5").update(newGcodeBuf).digest("hex");
+      const md5Hash = (0, import_node_crypto3.createHash)("md5").update(newGcodeBuf).digest("hex");
       const md5Buf = Buffer.from(md5Hash, "utf-8");
       parts.push({
         fileName: entry.fileName,
@@ -41433,10 +41520,10 @@ function crc32(buf) {
   }
   return (crc ^ 4294967295) >>> 0;
 }
-var import_node_crypto2, import_node_zlib, import_adm_zip2, log15, CONTENT_TYPES_XML, RELS_XML, MODEL_XML, LOCAL_FILE_HEADER_SIG, CENTRAL_DIR_SIG, EOCD_SIG, CRC32_TABLE;
+var import_node_crypto3, import_node_zlib, import_adm_zip2, log15, CONTENT_TYPES_XML, RELS_XML, MODEL_XML, LOCAL_FILE_HEADER_SIG, CENTRAL_DIR_SIG, EOCD_SIG, CRC32_TABLE;
 var init_AutomatorZip = __esm({
   "src/gcode/AutomatorZip.js"() {
-    import_node_crypto2 = require("node:crypto");
+    import_node_crypto3 = require("node:crypto");
     import_node_zlib = require("node:zlib");
     import_adm_zip2 = __toESM(require_adm_zip(), 1);
     init_logger();
@@ -44842,7 +44929,18 @@ var init_AmsService = __esm({
         if (!ams) return { available: false, slots: [] };
         const units = ams.ams || [];
         const slots = [];
+        const unitEnv = [];
         for (const unit of units) {
+          const amsId = Number.parseInt(unit.id, 10);
+          const humidity = unit.humidity !== void 0 ? Number(unit.humidity) : null;
+          const temp = unit.temp !== void 0 ? Number(unit.temp) : null;
+          if (Number.isFinite(humidity) || Number.isFinite(temp)) {
+            unitEnv.push({
+              ams_id: Number.isFinite(amsId) ? amsId : unit.id,
+              humidity: Number.isFinite(humidity) ? humidity : null,
+              temp: Number.isFinite(temp) ? temp : null
+            });
+          }
           const trays = unit.tray || [];
           for (let i = 0; i < trays.length; i++) {
             const tray = trays[i];
@@ -44859,7 +44957,7 @@ var init_AmsService = __esm({
             });
           }
         }
-        return { available: true, slots };
+        return { available: true, slots, units: unitEnv };
       }
       // ─────────────────────────────────────────────
       //  DB-based AMS Configuration (user-managed)
@@ -44995,6 +45093,8 @@ var init_AmsService = __esm({
           printer_id: printerId,
           ams_available: live?.available ?? false,
           slots,
+          // Per-unit dry-box environment (humidity/temperature) for fleet health.
+          units: Array.isArray(live?.units) ? live.units : [],
           filament_types: FILAMENT_TYPES.map((f) => f.material),
           color_palette: COLOR_PALETTE
         };
@@ -45298,6 +45398,48 @@ function buildCurrentJobView(worker, activeJob, preview = null) {
     preview: typeof preview === "string" && preview.startsWith("data:") ? preview : null
   };
 }
+function num(value) {
+  if (value === null || value === void 0 || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function parseWifiDbm(value) {
+  if (value === null || value === void 0) return null;
+  const match = String(value).match(/-?\d+/);
+  return match ? Number(match[0]) : null;
+}
+function buildTelemetryView(status = {}, amsStatus = null) {
+  if (!status || typeof status !== "object") return null;
+  const telemetry = {
+    nozzle_temp: num(status.nozzle_temp),
+    nozzle_target: num(status.nozzle_target),
+    bed_temp: num(status.bed_temp),
+    bed_target: num(status.bed_target),
+    chamber_temp: num(status.chamber_temp),
+    part_fan_speed: num(status.fan_speed),
+    aux_fan_speed: num(status.aux_fan_speed),
+    chamber_fan_speed: num(status.chamber_fan_speed),
+    heatbreak_fan_speed: num(status.heatbreak_fan_speed),
+    speed_level: num(status.speed_level),
+    speed_percent: num(status.speed_percent),
+    nozzle_diameter: num(status.nozzle_diameter),
+    nozzle_type: typeof status.nozzle_type === "string" ? status.nozzle_type : null,
+    print_stage: num(status.print_stage ?? status.stage_current),
+    wifi_dbm: parseWifiDbm(status.wifi_signal),
+    print_error: num(status.print_error) || 0,
+    hms_count: Array.isArray(status.hms_errors) ? status.hms_errors.length : 0
+  };
+  if (amsStatus && Array.isArray(amsStatus.units)) {
+    const units = amsStatus.units.map((unit) => ({
+      ams_id: num(unit.ams_id),
+      humidity: num(unit.humidity),
+      temp: num(unit.temp)
+    })).filter((unit) => unit.humidity !== null || unit.temp !== null);
+    if (units.length > 0) telemetry.ams_environment = units;
+  }
+  const hasSignal = Object.entries(telemetry).some(([key, value]) => key !== "print_error" && key !== "hms_count" && value !== null);
+  return hasSignal || telemetry.print_error || telemetry.hms_count ? telemetry : null;
+}
 function buildSyncedPrinterRecord(printer, worker, options = {}, amsStatus = null) {
   const statusSnapshot = printer.status_snapshot && typeof printer.status_snapshot === "object" ? { ...printer.status_snapshot } : {};
   const liveState = worker?.state && worker.state !== "unknown" ? worker.state : statusSnapshot.state;
@@ -45322,7 +45464,9 @@ function buildSyncedPrinterRecord(printer, worker, options = {}, amsStatus = nul
     record.capabilities.auto_eject = true;
     record.capabilities.ejection = { enabled: true, strategy: "in_gcode_sweep" };
   }
-  if (options.sync_ams || options.sync_filament) {
+  const telemetry = buildTelemetryView(worker?.latestStatus || {}, amsStatus);
+  if (telemetry) statusSnapshot.telemetry = telemetry;
+  if (options.sync_ams || options.sync_filament || telemetry) {
     record.status_snapshot = statusSnapshot;
   }
   if (options.sync_ams) {
@@ -45381,6 +45525,100 @@ var init_localPrinterSnapshot = __esm({
       default: { x: 256, y: 256, z: 256 },
       mini: { x: 180, y: 180, z: 180 }
     };
+  }
+});
+
+// src/cloud/merchantApiV2.js
+function createHttpError(statusCode, code, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  PUBLIC_SAFE_ERRORS.add(error);
+  return error;
+}
+var PUBLIC_SAFE_ERRORS;
+var init_merchantApiV2 = __esm({
+  "src/cloud/merchantApiV2.js"() {
+    PUBLIC_SAFE_ERRORS = /* @__PURE__ */ new WeakSet();
+  }
+});
+
+// src/cloud/urlGuard.js
+function isPrivateIpv4(host) {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!match) return false;
+  const octets = match.slice(1).map(Number);
+  if (octets.some((n) => n > 255)) return true;
+  const [a, b] = octets;
+  if (a === 0) return true;
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  return false;
+}
+function isPrivateIpv6(rawHost) {
+  const host = rawHost.replace(/^\[|\]$/g, "").toLowerCase();
+  if (host === "::1" || host === "::") return true;
+  if (host.startsWith("fe80:")) return true;
+  if (host.startsWith("fc") || host.startsWith("fd")) return true;
+  const mapped = /::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(host);
+  if (mapped) return isPrivateIpv4(mapped[1]);
+  return false;
+}
+function isLoopbackHost(hostname) {
+  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+  return host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1" || /^127\./.test(host) || host === "::1";
+}
+function isBlockedHost(hostname) {
+  const host = hostname.toLowerCase();
+  if (!host) return true;
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (host.endsWith(".local") || host.endsWith(".internal")) return true;
+  if (host.includes(":")) return isPrivateIpv6(host);
+  return isPrivateIpv4(host);
+}
+function classifyNodeFetchUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(String(value));
+  } catch {
+    return { ok: false, reason: "invalid_url", loopback: false, url: null };
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return { ok: false, reason: "unsupported_protocol", loopback: false, url: parsed };
+  }
+  if (isLoopbackHost(parsed.hostname)) {
+    return { ok: true, reason: null, loopback: true, url: parsed };
+  }
+  if (parsed.protocol !== "https:") {
+    return { ok: false, reason: "http_not_allowed_for_remote_host", loopback: false, url: parsed };
+  }
+  if (isBlockedHost(parsed.hostname)) {
+    return { ok: false, reason: "blocked_internal_host", loopback: false, url: parsed };
+  }
+  return { ok: true, reason: null, loopback: false, url: parsed };
+}
+function assertSafeWebhookUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(String(value));
+  } catch {
+    throw createHttpError(400, "invalid_payload", "url must be a valid HTTPS URL");
+  }
+  if (parsed.protocol !== "https:") {
+    throw createHttpError(400, "invalid_payload", "url must use https");
+  }
+  if (isBlockedHost(parsed.hostname)) {
+    throw createHttpError(400, "invalid_payload", "url must not target an internal or private host");
+  }
+  return parsed.toString();
+}
+var init_urlGuard = __esm({
+  "src/cloud/urlGuard.js"() {
+    init_merchantApiV2();
   }
 });
 
@@ -45932,10 +46170,10 @@ __export(SliceService_exports, {
 });
 function orcaOverrides(settings = {}) {
   const process2 = {}, filament = {};
-  const num3 = (v) => Number.parseFloat(v);
+  const num4 = (v) => Number.parseFloat(v);
   const int = (v) => String(Math.round(Number.parseFloat(v)));
-  if (settings.layer_height != null && settings.layer_height !== "") process2.layer_height = String(num3(settings.layer_height));
-  if (settings.infill_density != null && settings.infill_density !== "") process2.sparse_infill_density = `${Math.round(num3(settings.infill_density))}%`;
+  if (settings.layer_height != null && settings.layer_height !== "") process2.layer_height = String(num4(settings.layer_height));
+  if (settings.infill_density != null && settings.infill_density !== "") process2.sparse_infill_density = `${Math.round(num4(settings.infill_density))}%`;
   if (settings.infill_pattern) process2.sparse_infill_pattern = String(settings.infill_pattern);
   if (settings.wall_loops != null && settings.wall_loops !== "") process2.wall_loops = int(settings.wall_loops);
   if (settings.top_layers != null && settings.top_layers !== "") process2.top_shell_layers = int(settings.top_layers);
@@ -46317,7 +46555,7 @@ function isPlainObject(value) {
 function buildGcode3mf2(gcode) {
   const zip = new import_adm_zip4.default();
   const gcodeBuffer = Buffer.from(gcode, "utf8");
-  const md5 = (0, import_node_crypto3.createHash)("md5").update(gcodeBuffer).digest("hex");
+  const md5 = (0, import_node_crypto4.createHash)("md5").update(gcodeBuffer).digest("hex");
   const contentTypes = `<?xml version="1.0" encoding="UTF-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
@@ -46557,12 +46795,62 @@ function assertPreflightOk(worker) {
     throw new Error(`Preflight failed: ${message}`);
   }
 }
-async function defaultDownloadArtifact(downloadUrl) {
-  const response = await fetch(downloadUrl);
-  if (!response.ok) {
-    throw new Error(`Artifact download failed (${response.status})`);
+async function readBodyWithCap(response, maxBytes) {
+  const declared = Number.parseInt(response.headers.get("content-length") || "", 10);
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new Error(`Artifact exceeds the ${maxBytes}-byte download limit (declared ${declared})`);
   }
-  return Buffer.from(await response.arrayBuffer());
+  if (!response.body || typeof response.body.getReader !== "function") {
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length > maxBytes) {
+      throw new Error(`Artifact exceeds the ${maxBytes}-byte download limit`);
+    }
+    return buffer;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (; ; ) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {
+      });
+      throw new Error(`Artifact exceeds the ${maxBytes}-byte download limit`);
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks);
+}
+async function defaultDownloadArtifact(downloadUrl, { fetchImpl = fetch } = {}) {
+  const classification = classifyNodeFetchUrl(downloadUrl);
+  if (!classification.ok) {
+    throw new Error(`Refusing to download artifact: ${classification.reason} (${downloadUrl})`);
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ARTIFACT_DOWNLOAD_TIMEOUT_MS);
+  try {
+    const response = await fetchImpl(classification.url.toString(), {
+      redirect: "error",
+      // a redirect could point back at an internal host
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      throw new Error(`Artifact download failed (${response.status})`);
+    }
+    return await readBodyWithCap(response, MAX_ARTIFACT_BYTES);
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`Artifact download timed out after ${ARTIFACT_DOWNLOAD_TIMEOUT_MS}ms`);
+    }
+    if (/redirect/i.test(String(error?.message))) {
+      throw new Error("Artifact download refused: the URL issued a redirect");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 async function defaultUploadToPrinter({ localPrinterId, buffer, remoteFileName }) {
   const [{ PrinterModel: PrinterModel2 }, { BambuFtpsClient: BambuFtpsClient2 }] = await Promise.all([
@@ -46941,13 +47229,16 @@ async function executeCloudCommand(command, deps = {}) {
   }
   throw new Error(`Unsupported cloud command: ${commandType}`);
 }
-var import_node_crypto3, import_adm_zip4;
+var import_node_crypto4, import_adm_zip4, MAX_ARTIFACT_BYTES, ARTIFACT_DOWNLOAD_TIMEOUT_MS;
 var init_localCommandExecutor = __esm({
   "src/cloud/localCommandExecutor.js"() {
-    import_node_crypto3 = require("node:crypto");
+    import_node_crypto4 = require("node:crypto");
     import_adm_zip4 = __toESM(require_adm_zip(), 1);
     init_localPrinterSnapshot();
     init_PrinterModels();
+    init_urlGuard();
+    MAX_ARTIFACT_BYTES = Number.parseInt(process.env.CLOUD_ARTIFACT_MAX_BYTES || "", 10) || 256 * 1024 * 1024;
+    ARTIFACT_DOWNLOAD_TIMEOUT_MS = Number.parseInt(process.env.CLOUD_ARTIFACT_TIMEOUT_MS || "", 10) || 12e4;
   }
 });
 
@@ -47080,8 +47371,22 @@ function requireValue(value, name) {
   }
   return value;
 }
+function isLoopbackUrl(parsed) {
+  const host = parsed.hostname.toLowerCase();
+  return host === "localhost" || host === "127.0.0.1" || /^127\./.test(host) || host === "::1";
+}
 function normalizeCloudUrl(url) {
-  return requireValue(url, "CLOUD_API_URL").replace(/\/+$/, "");
+  const raw = requireValue(url, "CLOUD_API_URL").replace(/\/+$/, "");
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error("CLOUD_API_URL must be a valid URL");
+  }
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && isLoopbackUrl(parsed))) {
+    throw new Error("CLOUD_API_URL must use https (http is only allowed for localhost)");
+  }
+  return raw;
 }
 function buildUrl(baseUrl, path15, query = null) {
   const url = new URL(`${baseUrl}${path15}`);
@@ -47228,7 +47533,7 @@ function createLocalResultOutbox({
   filePath = process.env.CLOUD_RESULT_OUTBOX_PATH || "./data/cloud-result-outbox.json",
   maxEntries = Number.parseInt(process.env.CLOUD_RESULT_OUTBOX_MAX_ENTRIES || "1000", 10),
   now = () => /* @__PURE__ */ new Date(),
-  idFactory = import_node_crypto4.randomUUID
+  idFactory = import_node_crypto5.randomUUID
 } = {}) {
   const normalizedPath = requireString(filePath, "filePath");
   const entryLimit = Math.max(1, Number.isFinite(maxEntries) ? maxEntries : 1e3);
@@ -47282,12 +47587,12 @@ function createLocalResultOutbox({
     filePath: normalizedPath
   };
 }
-var import_node_fs7, import_node_path9, import_node_crypto4;
+var import_node_fs7, import_node_path9, import_node_crypto5;
 var init_localResultOutbox = __esm({
   "src/cloud/localResultOutbox.js"() {
     import_node_fs7 = __toESM(require("node:fs"), 1);
     import_node_path9 = __toESM(require("node:path"), 1);
-    import_node_crypto4 = require("node:crypto");
+    import_node_crypto5 = require("node:crypto");
   }
 });
 
@@ -61743,14 +62048,14 @@ var require_object_inspect = __commonJS({
     var gPO = (typeof Reflect === "function" ? Reflect.getPrototypeOf : Object.getPrototypeOf) || ([].__proto__ === Array.prototype ? function(O) {
       return O.__proto__;
     } : null);
-    function addNumericSeparator(num3, str) {
-      if (num3 === Infinity || num3 === -Infinity || num3 !== num3 || num3 && num3 > -1e3 && num3 < 1e3 || $test.call(/e/, str)) {
+    function addNumericSeparator(num4, str) {
+      if (num4 === Infinity || num4 === -Infinity || num4 !== num4 || num4 && num4 > -1e3 && num4 < 1e3 || $test.call(/e/, str)) {
         return str;
       }
       var sepRegex = /[0-9](?=(?:[0-9]{3})+(?![0-9]))/g;
-      if (typeof num3 === "number") {
-        var int = num3 < 0 ? -$floor(-num3) : $floor(num3);
-        if (int !== num3) {
+      if (typeof num4 === "number") {
+        var int = num4 < 0 ? -$floor(-num4) : $floor(num4);
+        if (int !== num4) {
           var intStr = String(int);
           var dec = $slice.call(str, intStr.length + 1);
           return $replace.call(intStr, sepRegex, "$&_") + "." + $replace.call($replace.call(dec, /([0-9]{3})/g, "$&_"), /_$/, "");
@@ -65858,14 +66163,14 @@ var require_etag = __commonJS({
   "node_modules/etag/index.js"(exports2, module2) {
     "use strict";
     module2.exports = etag;
-    var crypto5 = require("crypto");
+    var crypto6 = require("crypto");
     var Stats = require("fs").Stats;
     var toString = Object.prototype.toString;
     function entitytag(entity) {
       if (entity.length === 0) {
         return '"0-2jmj7l5rSw0yVb/vlWAYkK/YBwk"';
       }
-      var hash = crypto5.createHash("sha1").update(entity, "utf8").digest("base64").substring(0, 27);
+      var hash = crypto6.createHash("sha1").update(entity, "utf8").digest("base64").substring(0, 27);
       var len = typeof entity === "string" ? Buffer.byteLength(entity, "utf8") : entity.length;
       return '"' + len.toString(16) + "-" + hash + '"';
     }
@@ -68757,11 +69062,11 @@ var require_request = __commonJS({
 // node_modules/cookie-signature/index.js
 var require_cookie_signature = __commonJS({
   "node_modules/cookie-signature/index.js"(exports2) {
-    var crypto5 = require("crypto");
+    var crypto6 = require("crypto");
     exports2.sign = function(val, secret) {
       if ("string" !== typeof val) throw new TypeError("Cookie value must be provided as a string.");
       if (null == secret) throw new TypeError("Secret key must be provided.");
-      return val + "." + crypto5.createHmac("sha256", secret).update(val).digest("base64").replace(/\=+$/, "");
+      return val + "." + crypto6.createHmac("sha256", secret).update(val).digest("base64").replace(/\=+$/, "");
     };
     exports2.unsign = function(val, secret) {
       if ("string" !== typeof val) throw new TypeError("Signed cookie string must be provided.");
@@ -68770,7 +69075,7 @@ var require_cookie_signature = __commonJS({
       return sha1(mac) == sha1(val) ? str : false;
     };
     function sha1(str) {
-      return crypto5.createHash("sha1").update(str).digest("hex");
+      return crypto6.createHash("sha1").update(str).digest("hex");
     }
   }
 });
@@ -71910,14 +72215,14 @@ var require_buffer_equal_constant_time = __commonJS({
 var require_jwa = __commonJS({
   "node_modules/jwa/index.js"(exports2, module2) {
     var Buffer2 = require_safe_buffer().Buffer;
-    var crypto5 = require("crypto");
+    var crypto6 = require("crypto");
     var formatEcdsa = require_ecdsa_sig_formatter();
     var util = require("util");
     var MSG_INVALID_ALGORITHM = '"%s" is not a valid algorithm.\n  Supported algorithms are:\n  "HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512" and "none".';
     var MSG_INVALID_SECRET = "secret must be a string or buffer";
     var MSG_INVALID_VERIFIER_KEY = "key must be a string or a buffer";
     var MSG_INVALID_SIGNER_KEY = "key must be a string, a buffer or an object";
-    var supportsKeyObjects = typeof crypto5.createPublicKey === "function";
+    var supportsKeyObjects = typeof crypto6.createPublicKey === "function";
     if (supportsKeyObjects) {
       MSG_INVALID_VERIFIER_KEY += " or a KeyObject";
       MSG_INVALID_SECRET += "or a KeyObject";
@@ -72007,17 +72312,17 @@ var require_jwa = __commonJS({
       return function sign(thing, secret) {
         checkIsSecretKey(secret);
         thing = normalizeInput(thing);
-        var hmac = crypto5.createHmac("sha" + bits, secret);
+        var hmac = crypto6.createHmac("sha" + bits, secret);
         var sig = (hmac.update(thing), hmac.digest("base64"));
         return fromBase64(sig);
       };
     }
     var bufferEqual;
-    var timingSafeEqual = "timingSafeEqual" in crypto5 ? function timingSafeEqual2(a, b) {
+    var timingSafeEqual = "timingSafeEqual" in crypto6 ? function timingSafeEqual2(a, b) {
       if (a.byteLength !== b.byteLength) {
         return false;
       }
-      return crypto5.timingSafeEqual(a, b);
+      return crypto6.timingSafeEqual(a, b);
     } : function timingSafeEqual2(a, b) {
       if (!bufferEqual) {
         bufferEqual = require_buffer_equal_constant_time();
@@ -72034,7 +72339,7 @@ var require_jwa = __commonJS({
       return function sign(thing, privateKey) {
         checkIsPrivateKey(privateKey);
         thing = normalizeInput(thing);
-        var signer = crypto5.createSign("RSA-SHA" + bits);
+        var signer = crypto6.createSign("RSA-SHA" + bits);
         var sig = (signer.update(thing), signer.sign(privateKey, "base64"));
         return fromBase64(sig);
       };
@@ -72044,7 +72349,7 @@ var require_jwa = __commonJS({
         checkIsPublicKey(publicKey);
         thing = normalizeInput(thing);
         signature = toBase64(signature);
-        var verifier = crypto5.createVerify("RSA-SHA" + bits);
+        var verifier = crypto6.createVerify("RSA-SHA" + bits);
         verifier.update(thing);
         return verifier.verify(publicKey, signature, "base64");
       };
@@ -72053,11 +72358,11 @@ var require_jwa = __commonJS({
       return function sign(thing, privateKey) {
         checkIsPrivateKey(privateKey);
         thing = normalizeInput(thing);
-        var signer = crypto5.createSign("RSA-SHA" + bits);
+        var signer = crypto6.createSign("RSA-SHA" + bits);
         var sig = (signer.update(thing), signer.sign({
           key: privateKey,
-          padding: crypto5.constants.RSA_PKCS1_PSS_PADDING,
-          saltLength: crypto5.constants.RSA_PSS_SALTLEN_DIGEST
+          padding: crypto6.constants.RSA_PKCS1_PSS_PADDING,
+          saltLength: crypto6.constants.RSA_PSS_SALTLEN_DIGEST
         }, "base64"));
         return fromBase64(sig);
       };
@@ -72067,12 +72372,12 @@ var require_jwa = __commonJS({
         checkIsPublicKey(publicKey);
         thing = normalizeInput(thing);
         signature = toBase64(signature);
-        var verifier = crypto5.createVerify("RSA-SHA" + bits);
+        var verifier = crypto6.createVerify("RSA-SHA" + bits);
         verifier.update(thing);
         return verifier.verify({
           key: publicKey,
-          padding: crypto5.constants.RSA_PKCS1_PSS_PADDING,
-          saltLength: crypto5.constants.RSA_PSS_SALTLEN_DIGEST
+          padding: crypto6.constants.RSA_PKCS1_PSS_PADDING,
+          saltLength: crypto6.constants.RSA_PSS_SALTLEN_DIGEST
         }, signature, "base64");
       };
     }
@@ -72810,9 +73115,9 @@ var require_semver = __commonJS({
         } else {
           this.prerelease = m[4].split(".").map((id) => {
             if (/^[0-9]+$/.test(id)) {
-              const num3 = +id;
-              if (num3 >= 0 && num3 < MAX_SAFE_INTEGER) {
-                return num3;
+              const num4 = +id;
+              if (num4 >= 0 && num4 < MAX_SAFE_INTEGER) {
+                return num4;
               }
             }
             return id;
@@ -75567,13 +75872,13 @@ var BambuClient_exports = {};
 __export(BambuClient_exports, {
   BambuClient: () => BambuClient
 });
-var import_mqtt, import_node_tls2, import_node_net, import_node_crypto5, log27, BambuClient;
+var import_mqtt, import_node_tls2, import_node_net, import_node_crypto6, log27, BambuClient;
 var init_BambuClient = __esm({
   "src/mqtt/BambuClient.js"() {
     import_mqtt = __toESM(require_build2(), 1);
     import_node_tls2 = __toESM(require("node:tls"), 1);
     import_node_net = __toESM(require("node:net"), 1);
-    import_node_crypto5 = __toESM(require("node:crypto"), 1);
+    import_node_crypto6 = __toESM(require("node:crypto"), 1);
     init_logger();
     init_Printer();
     log27 = createLogger("BambuClient");
@@ -75703,7 +76008,7 @@ var init_BambuClient = __esm({
       }
       _connectMqtt(expectedFingerprint) {
         return new Promise((resolve, reject) => {
-          const clientId = `antigravity_${import_node_crypto5.default.randomBytes(4).toString("hex")}`;
+          const clientId = `antigravity_${import_node_crypto6.default.randomBytes(4).toString("hex")}`;
           const opts = {
             clientId,
             username: "bblp",
@@ -78405,8 +78710,8 @@ var require_utils7 = __commonJS({
 var require_sbmh = __commonJS({
   "node_modules/streamsearch/lib/sbmh.js"(exports2, module2) {
     "use strict";
-    function memcmp(buf1, pos1, buf2, pos2, num3) {
-      for (let i = 0; i < num3; ++i) {
+    function memcmp(buf1, pos1, buf2, pos2, num4) {
+      for (let i = 0; i < num4; ++i) {
         if (buf1[pos1 + i] !== buf2[pos2 + i])
           return false;
       }
@@ -81062,10 +81367,10 @@ var require_disk = __commonJS({
     var fs12 = require("fs");
     var os7 = require("os");
     var path15 = require("path");
-    var crypto5 = require("crypto");
+    var crypto6 = require("crypto");
     var mkdirp = require_mkdirp();
     function getFilename(req, file, cb) {
-      crypto5.randomBytes(16, function(err, raw) {
+      crypto6.randomBytes(16, function(err, raw) {
         cb(err, err ? void 0 : raw.toString("hex"));
       });
     }
@@ -84726,7 +85031,7 @@ function transformGcode(content, profile, meta = {}) {
   if (loopCount > 1) {
     log30.info(`Loops: ${loopCount} copies with ${profile.inter_loop_dwell_sec || 2}s dwell`);
   }
-  const hash = import_node_crypto6.default.createHash("sha256").update(finalOutput).digest("hex");
+  const hash = import_node_crypto7.default.createHash("sha256").update(finalOutput).digest("hex");
   report.hash = `sha256:${hash}`;
   report.transformed_line_count = finalOutput.split("\n").length;
   report.transform_time_ms = Date.now() - startTime;
@@ -84792,10 +85097,10 @@ function verifyEMotionIntegrity(before, after, originalLines, transformedLines, 
   }
   return violations;
 }
-var import_node_crypto6, log30;
+var import_node_crypto7, log30;
 var init_GcodeTransformer = __esm({
   "src/gcode/GcodeTransformer.js"() {
-    import_node_crypto6 = __toESM(require("node:crypto"), 1);
+    import_node_crypto7 = __toESM(require("node:crypto"), 1);
     init_GcodeParser();
     init_RemovePrimeLine();
     init_InsertAutoEject();
@@ -85100,7 +85405,7 @@ var init_analytics = __esm({
 });
 
 // src/models/FilamentSpool.js
-function num(value, fallback = 0) {
+function num2(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
@@ -85113,8 +85418,8 @@ var init_FilamentSpool = __esm({
     FilamentSpoolModel = class {
       static create(input = {}) {
         const id = generateId();
-        const total = num(input.total_grams, 1e3);
-        const remaining = input.remaining_grams != null ? num(input.remaining_grams, total) : total;
+        const total = num2(input.total_grams, 1e3);
+        const remaining = input.remaining_grams != null ? num2(input.remaining_grams, total) : total;
         dbRun(
           `INSERT INTO filament_spools
                 (spool_id, name, material, color_hex, color_name, vendor, printer_id, ams_unit, ams_tray,
@@ -85128,11 +85433,11 @@ var init_FilamentSpool = __esm({
             input.color_name || "Unknown",
             input.vendor || null,
             input.printer_id || null,
-            input.ams_unit != null ? num(input.ams_unit) : null,
-            input.ams_tray != null ? num(input.ams_tray) : null,
+            input.ams_unit != null ? num2(input.ams_unit) : null,
+            input.ams_tray != null ? num2(input.ams_tray) : null,
             total,
             Math.max(0, remaining),
-            num(input.low_threshold_grams, 100)
+            num2(input.low_threshold_grams, 100)
           ]
         );
         return this.findById(id);
@@ -85168,7 +85473,7 @@ var init_FilamentSpool = __esm({
         for (const key of allowed) {
           if (patch[key] === void 0) continue;
           sets.push(`${key} = ?`);
-          vals.push(NUMERIC_FIELDS.has(key) ? num(patch[key]) : patch[key]);
+          vals.push(NUMERIC_FIELDS.has(key) ? num2(patch[key]) : patch[key]);
         }
         if (!sets.length) return this.findById(id);
         sets.push("updated_at = datetime('now')");
@@ -85186,8 +85491,8 @@ var init_FilamentSpool = __esm({
       static consume(id, grams, { jobId = null, note = null } = {}) {
         const spool = this.findById(id);
         if (!spool) throw new Error("spool not found");
-        const amount = Math.max(0, num(grams));
-        const before = num(spool.remaining_grams);
+        const amount = Math.max(0, num2(grams));
+        const before = num2(spool.remaining_grams);
         const after = Math.max(0, before - amount);
         const consumed = before - after;
         dbRun("UPDATE filament_spools SET remaining_grams = ?, updated_at = datetime('now') WHERE spool_id = ?", [after, id]);
@@ -85195,7 +85500,7 @@ var init_FilamentSpool = __esm({
           "INSERT INTO filament_consumption (id, spool_id, job_id, grams, note) VALUES (?, ?, ?, ?, ?)",
           [generateId(), id, jobId, consumed, note]
         );
-        const threshold = num(spool.low_threshold_grams);
+        const threshold = num2(spool.low_threshold_grams);
         return {
           spool: this.findById(id),
           consumed,
@@ -85211,11 +85516,11 @@ var init_FilamentSpool = __esm({
       static _parse(row) {
         return {
           ...row,
-          total_grams: num(row.total_grams),
-          remaining_grams: num(row.remaining_grams),
-          low_threshold_grams: num(row.low_threshold_grams),
+          total_grams: num2(row.total_grams),
+          remaining_grams: num2(row.remaining_grams),
+          low_threshold_grams: num2(row.low_threshold_grams),
           archived: !!row.archived,
-          low_stock: num(row.remaining_grams) <= num(row.low_threshold_grams)
+          low_stock: num2(row.remaining_grams) <= num2(row.low_threshold_grams)
         };
       }
     };
@@ -85295,13 +85600,13 @@ var init_filament = __esm({
 });
 
 // src/models/PrinterMaintenance.js
-function num2(value, fallback = 0) {
+function num3(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
 function round2(value, digits = 2) {
   const f = 10 ** digits;
-  return Math.round(num2(value) * f) / f;
+  return Math.round(num3(value) * f) / f;
 }
 var PrinterMaintenanceModel;
 var init_PrinterMaintenance = __esm({
@@ -85323,11 +85628,11 @@ var init_PrinterMaintenance = __esm({
         if (!printer_id) throw new Error("printer_id is required");
         if (!task) throw new Error("task is required");
         const id = generateId();
-        const baseline = hours_at_last_done != null ? num2(hours_at_last_done) : this.odometerHours(printer_id);
+        const baseline = hours_at_last_done != null ? num3(hours_at_last_done) : this.odometerHours(printer_id);
         dbRun(
           `INSERT INTO printer_maintenance (id, printer_id, task, interval_hours, hours_at_last_done, notes)
              VALUES (?, ?, ?, ?, ?, ?)`,
-          [id, printer_id, task, num2(interval_hours, 200), baseline, notes]
+          [id, printer_id, task, num3(interval_hours, 200), baseline, notes]
         );
         return this.findById(id);
       }
@@ -85353,7 +85658,7 @@ var init_PrinterMaintenance = __esm({
         for (const key of allowed) {
           if (patch[key] === void 0) continue;
           sets.push(`${key} = ?`);
-          vals.push(key === "interval_hours" || key === "hours_at_last_done" ? num2(patch[key]) : patch[key]);
+          vals.push(key === "interval_hours" || key === "hours_at_last_done" ? num3(patch[key]) : patch[key]);
         }
         if (!sets.length) return this.findById(id);
         sets.push("updated_at = datetime('now')");
@@ -85377,13 +85682,13 @@ var init_PrinterMaintenance = __esm({
       }
       static _withDue(row, odometer = null) {
         const odo = odometer != null ? odometer : this.odometerHours(row.printer_id);
-        const interval = num2(row.interval_hours, 200);
-        const hoursSinceDone = round2(odo - num2(row.hours_at_last_done), 2);
+        const interval = num3(row.interval_hours, 200);
+        const hoursSinceDone = round2(odo - num3(row.hours_at_last_done), 2);
         const hoursUntilDue = round2(interval - hoursSinceDone, 2);
         return {
           ...row,
           interval_hours: interval,
-          hours_at_last_done: num2(row.hours_at_last_done),
+          hours_at_last_done: num3(row.hours_at_last_done),
           odometer_hours: odo,
           hours_since_done: hoursSinceDone,
           hours_until_due: hoursUntilDue,
@@ -85525,75 +85830,6 @@ var init_NotificationChannel = __esm({
         };
       }
     };
-  }
-});
-
-// src/cloud/merchantApiV2.js
-function createHttpError(statusCode, code, message) {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  error.code = code;
-  PUBLIC_SAFE_ERRORS.add(error);
-  return error;
-}
-var PUBLIC_SAFE_ERRORS;
-var init_merchantApiV2 = __esm({
-  "src/cloud/merchantApiV2.js"() {
-    PUBLIC_SAFE_ERRORS = /* @__PURE__ */ new WeakSet();
-  }
-});
-
-// src/cloud/urlGuard.js
-function isPrivateIpv4(host) {
-  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (!match) return false;
-  const octets = match.slice(1).map(Number);
-  if (octets.some((n) => n > 255)) return true;
-  const [a, b] = octets;
-  if (a === 0) return true;
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  return false;
-}
-function isPrivateIpv6(rawHost) {
-  const host = rawHost.replace(/^\[|\]$/g, "").toLowerCase();
-  if (host === "::1" || host === "::") return true;
-  if (host.startsWith("fe80:")) return true;
-  if (host.startsWith("fc") || host.startsWith("fd")) return true;
-  const mapped = /::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(host);
-  if (mapped) return isPrivateIpv4(mapped[1]);
-  return false;
-}
-function isBlockedHost(hostname) {
-  const host = hostname.toLowerCase();
-  if (!host) return true;
-  if (host === "localhost" || host.endsWith(".localhost")) return true;
-  if (host.endsWith(".local") || host.endsWith(".internal")) return true;
-  if (host.includes(":")) return isPrivateIpv6(host);
-  return isPrivateIpv4(host);
-}
-function assertSafeWebhookUrl(value) {
-  let parsed;
-  try {
-    parsed = new URL(String(value));
-  } catch {
-    throw createHttpError(400, "invalid_payload", "url must be a valid HTTPS URL");
-  }
-  if (parsed.protocol !== "https:") {
-    throw createHttpError(400, "invalid_payload", "url must use https");
-  }
-  if (isBlockedHost(parsed.hostname)) {
-    throw createHttpError(400, "invalid_payload", "url must not target an internal or private host");
-  }
-  return parsed.toString();
-}
-var init_urlGuard = __esm({
-  "src/cloud/urlGuard.js"() {
-    init_merchantApiV2();
   }
 });
 
@@ -86014,13 +86250,13 @@ var init_websocket = __esm({
 
 // src/cloud/webhooks.js
 function signWebhookPayload({ secret, timestamp, body }) {
-  const digest = (0, import_node_crypto7.createHmac)("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
+  const digest = (0, import_node_crypto8.createHmac)("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
   return `v1=${digest}`;
 }
-var import_node_crypto7;
+var import_node_crypto8;
 var init_webhooks = __esm({
   "src/cloud/webhooks.js"() {
-    import_node_crypto7 = require("node:crypto");
+    import_node_crypto8 = require("node:crypto");
     init_urlGuard();
   }
 });

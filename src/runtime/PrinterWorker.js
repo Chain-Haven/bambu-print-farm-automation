@@ -288,13 +288,29 @@ export class PrinterWorker {
         if (print.bed_target_temper !== undefined) update.bed_target = Math.round(print.bed_target_temper * 10) / 10;
         if (print.nozzle_temper !== undefined) update.nozzle_temp = Math.round(print.nozzle_temper * 10) / 10;
         if (print.nozzle_target_temper !== undefined) update.nozzle_target = Math.round(print.nozzle_target_temper * 10) / 10;
+        // Chamber temperature (X1 / H2 / P2S enclosed models) — needed for
+        // ABS/ASA/PC enclosure safety and material-fit checks.
+        if (print.chamber_temper !== undefined) update.chamber_temp = Math.round(print.chamber_temper * 10) / 10;
         if (print.mc_percent !== undefined) update.progress = print.mc_percent;
         if (print.mc_remaining_time !== undefined) update.remaining_time = print.mc_remaining_time;
         if (print.layer_num !== undefined) update.layer = print.layer_num;
         if (print.total_layer_num !== undefined) update.total_layers = print.total_layer_num;
         if (print.ams !== undefined) update.ams = print.ams;
-        if (print.big_fan1_speed !== undefined) update.fan_speed = print.big_fan1_speed;
-        if (print.spd_lvl !== undefined) update.speed_level = print.spd_lvl;
+        if (print.big_fan1_speed !== undefined) update.fan_speed = print.big_fan1_speed; // part-cooling fan
+        // The other fans + the actual live speed % were previously dropped.
+        if (print.cooling_fan_speed !== undefined) update.aux_fan_speed = print.cooling_fan_speed;
+        if (print.big_fan2_speed !== undefined) update.chamber_fan_speed = print.big_fan2_speed;
+        if (print.heatbreak_fan_speed !== undefined) update.heatbreak_fan_speed = print.heatbreak_fan_speed;
+        if (print.spd_lvl !== undefined) update.speed_level = print.spd_lvl;   // preset (1-4)
+        if (print.spd_mag !== undefined) update.speed_percent = print.spd_mag; // live actual %
+        // Nozzle geometry: lets the platform reject a 0.4-sliced job sent to a
+        // 0.8 nozzle, or an abrasive filament on a non-hardened nozzle.
+        if (print.nozzle_diameter !== undefined) update.nozzle_diameter = print.nozzle_diameter;
+        if (print.nozzle_type !== undefined) update.nozzle_type = print.nozzle_type;
+        // Current stage (heating / bed-leveling / calibrating / filament change).
+        if (print.mc_print_stage !== undefined) update.print_stage = print.mc_print_stage;
+        if (print.stg_cur !== undefined) update.stage_current = print.stg_cur;
+        if (print.home_flag !== undefined) update.home_flag = print.home_flag;
         if (print.wifi_signal !== undefined) update.wifi_signal = print.wifi_signal;
         if (print.lights_report !== undefined) update.lights = print.lights_report;
         if (print.hms !== undefined) update.hms_errors = print.hms;

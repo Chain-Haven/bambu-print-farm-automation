@@ -9,6 +9,7 @@ import {
     collectNodePackageFiles,
     collectPortablePublicFiles,
     createFarmNodeLauncherBat,
+    createGetNodePs1,
     createGetNodeSh,
     createNodeEnv,
     createNodePackageReadme,
@@ -126,6 +127,51 @@ describe('Windows node package builder', () => {
         expect(env).not.toContain('SUPABASE_SERVICE_ROLE_KEY');
         expect(env).not.toContain('NODE_TOKEN_PEPPER');
         expect(env).not.toContain('CLOUD_ADMIN_TOKEN');
+    });
+
+    it('never ships the old static secrets and binds the dashboard to localhost by default', () => {
+        const env = createNodeEnv({
+            cloudApiUrl: 'https://farm.example.com',
+            localNodeToken: 'pkx_node_secret',
+        });
+
+        // The historically-shipped constants must never appear again.
+        expect(env).not.toContain('JWT_SECRET=change-me');
+        expect(env).not.toContain('ADMIN_PASSWORD=antigravity');
+        expect(env).not.toContain('ENCRYPTION_KEY=0123456789abcdef0123456789abcdef');
+        // Loopback bind by default — no LAN-exposed admin dashboard.
+        expect(env).toContain('HOST=127.0.0.1');
+        expect(env).not.toContain('HOST=0.0.0.0');
+
+        // A 32-byte (64 hex char) encryption key so src/utils/crypto.js uses it directly.
+        const encMatch = env.match(/^ENCRYPTION_KEY=([0-9a-f]{64})$/m);
+        expect(encMatch).not.toBeNull();
+        const jwtMatch = env.match(/^JWT_SECRET=(\S+)$/m);
+        expect(jwtMatch[1].length).toBeGreaterThanOrEqual(32);
+    });
+
+    it('generates a UNIQUE secret set for every package (no reuse across downloads)', () => {
+        const a = createNodeEnv({ cloudApiUrl: 'https://a.example.com', localNodeToken: 't1' });
+        const b = createNodeEnv({ cloudApiUrl: 'https://a.example.com', localNodeToken: 't1' });
+        const keyOf = (env, name) => env.match(new RegExp(`^${name}=(.*)$`, 'm'))[1];
+
+        expect(keyOf(a, 'ENCRYPTION_KEY')).not.toEqual(keyOf(b, 'ENCRYPTION_KEY'));
+        expect(keyOf(a, 'JWT_SECRET')).not.toEqual(keyOf(b, 'JWT_SECRET'));
+        expect(keyOf(a, 'ADMIN_PASSWORD')).not.toEqual(keyOf(b, 'ADMIN_PASSWORD'));
+    });
+
+    it('surfaces the generated dashboard password in the README so the operator can sign in', () => {
+        const env = createNodeEnv({ cloudApiUrl: 'https://farm.example.com', localNodeToken: 't', secrets: {
+            encryptionKey: 'a'.repeat(64), jwtSecret: 'jwt', adminPassword: 'Sh4reMe',
+        } });
+        expect(env).toContain('ADMIN_PASSWORD=Sh4reMe');
+        const readme = createNodePackageReadme({
+            nodeName: 'Print NUC 01',
+            cloudApiUrl: 'https://farm.example.com',
+            adminPassword: 'Sh4reMe',
+        });
+        expect(readme).toContain('Password: Sh4reMe');
+        expect(readme).toContain('localhost only');
     });
 
     it('documents the secure Windows node connection model', () => {
@@ -292,6 +338,22 @@ describe('Portable ("no install") node package', () => {
         expect(sh).toContain('aarch64|arm64) NODE_ARCH="linux-arm64"'); // Pi 5
         expect(sh).toContain('x86_64|amd64)  NODE_ARCH="linux-x64"');
         expect(sh).not.toContain('\r');
+    });
+
+    it('verifies the Node runtime SHA-256 before extracting it (supply-chain guard)', () => {
+        const sh = createGetNodeSh();
+        // Every supported arch carries a pinned expected hash and the script
+        // aborts on mismatch instead of extracting/running an unverified runtime.
+        expect(sh).toContain('EXPECTED="6031d04b98f59ff0f7cb98566f65b115ecd893d3b7870821171708cdbaf7ae6e"'); // arm64
+        expect(sh).toContain('EXPECTED="83bf07dd343002a26211cf1fcd46a9d9534219aad42ee02847816940bf610a72"'); // x64
+        expect(sh).toMatch(/Aborting for safety/);
+        expect(sh).toContain('mktemp -d'); // no predictable /tmp path
+        expect(sh).not.toContain('-o "/tmp/');
+
+        const ps1 = createGetNodePs1();
+        expect(ps1).toContain('$expected = "905373a059aecaf7f48c1ce10ffbd5334457ca00f678747f19db5ea7d256c236"'); // win-x64
+        expect(ps1).toContain('Get-FileHash -Algorithm SHA256');
+        expect(ps1).toMatch(/Aborting for safety/);
     });
 
     it('buildPortableNodePackage requires cloud url and token', () => {

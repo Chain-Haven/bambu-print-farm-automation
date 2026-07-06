@@ -89,6 +89,68 @@ export function buildCurrentJobView(worker, activeJob, preview = null) {
     };
 }
 
+function num(value) {
+    // Number(null) is 0 and Number('') is 0 — treat "not reported" as null so a
+    // missing field never masquerades as a real zero reading.
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseWifiDbm(value) {
+    if (value === null || value === undefined) return null;
+    const match = String(value).match(/-?\d+/);
+    return match ? Number(match[0]) : null;
+}
+
+/**
+ * Compact live-telemetry view mirrored to the cloud so the fleet board and
+ * fleet-health tooling can show temps, chamber, fans, actual speed, nozzle
+ * geometry, stage, and AMS dry-box humidity — the observability surface that
+ * was captured on the node but never forwarded. Rides inside status_snapshot
+ * (no new cloud_printers column). Every field is best-effort/nullable.
+ */
+export function buildTelemetryView(status = {}, amsStatus = null) {
+    if (!status || typeof status !== 'object') return null;
+    const telemetry = {
+        nozzle_temp: num(status.nozzle_temp),
+        nozzle_target: num(status.nozzle_target),
+        bed_temp: num(status.bed_temp),
+        bed_target: num(status.bed_target),
+        chamber_temp: num(status.chamber_temp),
+        part_fan_speed: num(status.fan_speed),
+        aux_fan_speed: num(status.aux_fan_speed),
+        chamber_fan_speed: num(status.chamber_fan_speed),
+        heatbreak_fan_speed: num(status.heatbreak_fan_speed),
+        speed_level: num(status.speed_level),
+        speed_percent: num(status.speed_percent),
+        nozzle_diameter: num(status.nozzle_diameter),
+        nozzle_type: typeof status.nozzle_type === 'string' ? status.nozzle_type : null,
+        print_stage: num(status.print_stage ?? status.stage_current),
+        wifi_dbm: parseWifiDbm(status.wifi_signal),
+        print_error: num(status.print_error) || 0,
+        hms_count: Array.isArray(status.hms_errors) ? status.hms_errors.length : 0,
+    };
+
+    // AMS dry-box humidity/temperature per unit (dropped by AmsService before).
+    if (amsStatus && Array.isArray(amsStatus.units)) {
+        const units = amsStatus.units
+            .map((unit) => ({
+                ams_id: num(unit.ams_id),
+                humidity: num(unit.humidity),
+                temp: num(unit.temp),
+            }))
+            .filter((unit) => unit.humidity !== null || unit.temp !== null);
+        if (units.length > 0) telemetry.ams_environment = units;
+    }
+
+    // Drop the record entirely if nothing meaningful was reported.
+    const hasSignal = Object.entries(telemetry).some(([key, value]) => (
+        key !== 'print_error' && key !== 'hms_count' && value !== null
+    ));
+    return hasSignal || telemetry.print_error || telemetry.hms_count ? telemetry : null;
+}
+
 export function buildSyncedPrinterRecord(printer, worker, options = {}, amsStatus = null) {
     const statusSnapshot = printer.status_snapshot && typeof printer.status_snapshot === 'object'
         ? { ...printer.status_snapshot }
@@ -130,7 +192,14 @@ export function buildSyncedPrinterRecord(printer, worker, options = {}, amsStatu
         record.capabilities.ejection = { enabled: true, strategy: 'in_gcode_sweep' };
     }
 
-    if (options.sync_ams || options.sync_filament) {
+    // Always mirror a compact live-telemetry view (temps/chamber/fans/speed/
+    // nozzle/stage/wifi/AMS humidity) so the cloud sees printer health, not just
+    // job progress. Rides in status_snapshot, which the heartbeat normalizer
+    // already forwards — no new cloud column.
+    const telemetry = buildTelemetryView(worker?.latestStatus || {}, amsStatus);
+    if (telemetry) statusSnapshot.telemetry = telemetry;
+
+    if (options.sync_ams || options.sync_filament || telemetry) {
         record.status_snapshot = statusSnapshot;
     }
 
@@ -196,4 +265,4 @@ export async function collectLocalPrinterRecords(options = {}) {
     });
 }
 
-export default { buildSyncedPrinterRecord, collectLocalPrinterRecords, getBuildVolumeForModel };
+export default { buildSyncedPrinterRecord, buildTelemetryView, collectLocalPrinterRecords, getBuildVolumeForModel };

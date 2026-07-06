@@ -5,8 +5,27 @@ function requireValue(value, name) {
     return value;
 }
 
+function isLoopbackUrl(parsed) {
+    const host = parsed.hostname.toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || /^127\./.test(host) || host === '::1';
+}
+
+// The node sends its LOCAL_NODE_TOKEN as a bearer on every request, so the
+// cloud transport MUST be encrypted. Reject a plaintext http:// CLOUD_API_URL
+// (which would leak the token on the wire) unless it targets loopback — the
+// self-hosted control plane and the offline tests run on http://127.0.0.1.
 function normalizeCloudUrl(url) {
-    return requireValue(url, 'CLOUD_API_URL').replace(/\/+$/, '');
+    const raw = requireValue(url, 'CLOUD_API_URL').replace(/\/+$/, '');
+    let parsed;
+    try {
+        parsed = new URL(raw);
+    } catch {
+        throw new Error('CLOUD_API_URL must be a valid URL');
+    }
+    if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLoopbackUrl(parsed))) {
+        throw new Error('CLOUD_API_URL must use https (http is only allowed for localhost)');
+    }
+    return raw;
 }
 
 function buildUrl(baseUrl, path, query = null) {

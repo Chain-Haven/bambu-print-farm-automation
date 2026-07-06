@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 
 // In-memory implementation of the cloud store contract used by the Vercel
 // handlers (see supabaseRest.js for the production implementation). It backs:
@@ -210,7 +210,14 @@ export function createMemoryCloudStore({ now = () => new Date() } = {}) {
             return clone(visible);
         },
         async findNodeByTokenHash(tokenHash) {
-            const row = db.nodes.find((node) => node.token_hash === tokenHash);
+            // Timing-safe hash comparison (parity with admin/merchant auth) so
+            // the lookup does not leak, via response time, how many leading
+            // characters of a guessed hash matched a stored token.
+            const candidate = Buffer.from(String(tokenHash || ''));
+            const row = db.nodes.find((node) => {
+                const stored = Buffer.from(String(node.token_hash || ''));
+                return stored.length === candidate.length && timingSafeEqual(stored, candidate);
+            });
             if (!row) return null;
             return {
                 node_id: row.node_id,

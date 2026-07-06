@@ -19,8 +19,21 @@ export class AmsService {
 
         const units = ams.ams || [];
         const slots = [];
+        // AMS dry-box environment per unit (humidity 1-5 scale + temperature) —
+        // useful for spotting a unit that needs drying before a hygroscopic print.
+        const unitEnv = [];
 
         for (const unit of units) {
+            const amsId = Number.parseInt(unit.id, 10);
+            const humidity = unit.humidity !== undefined ? Number(unit.humidity) : null;
+            const temp = unit.temp !== undefined ? Number(unit.temp) : null;
+            if (Number.isFinite(humidity) || Number.isFinite(temp)) {
+                unitEnv.push({
+                    ams_id: Number.isFinite(amsId) ? amsId : unit.id,
+                    humidity: Number.isFinite(humidity) ? humidity : null,
+                    temp: Number.isFinite(temp) ? temp : null,
+                });
+            }
             const trays = unit.tray || [];
             for (let i = 0; i < trays.length; i++) {
                 const tray = trays[i];
@@ -38,7 +51,7 @@ export class AmsService {
             }
         }
 
-        return { available: true, slots };
+        return { available: true, slots, units: unitEnv };
     }
 
     // ─────────────────────────────────────────────
@@ -198,6 +211,8 @@ export class AmsService {
             printer_id: printerId,
             ams_available: live?.available ?? false,
             slots,
+            // Per-unit dry-box environment (humidity/temperature) for fleet health.
+            units: Array.isArray(live?.units) ? live.units : [],
             filament_types: FILAMENT_TYPES.map(f => f.material),
             color_palette: COLOR_PALETTE,
         };

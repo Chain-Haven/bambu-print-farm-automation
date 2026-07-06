@@ -2,6 +2,13 @@ import { createHash } from 'node:crypto';
 import AdmZip from 'adm-zip';
 import { collectLocalPrinterRecords } from './localPrinterSnapshot.js';
 import { automatorModelKey, normalizeModel } from '../models/PrinterModels.js';
+import { classifyNodeFetchUrl } from './urlGuard.js';
+
+// Hard cap on a downloaded print artifact. Real .gcode.3mf / STL / STEP files
+// are well under this; the cap stops a malicious or misconfigured download_url
+// from exhausting node memory (unbounded-body DoS).
+const MAX_ARTIFACT_BYTES = Number.parseInt(process.env.CLOUD_ARTIFACT_MAX_BYTES || '', 10) || 256 * 1024 * 1024;
+const ARTIFACT_DOWNLOAD_TIMEOUT_MS = Number.parseInt(process.env.CLOUD_ARTIFACT_TIMEOUT_MS || '', 10) || 120000;
 
 function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -308,12 +315,72 @@ function assertPreflightOk(worker) {
     }
 }
 
-async function defaultDownloadArtifact(downloadUrl) {
-    const response = await fetch(downloadUrl);
-    if (!response.ok) {
-        throw new Error(`Artifact download failed (${response.status})`);
+// Read a fetch Response body with a hard byte cap, aborting the moment the cap
+// is exceeded so an oversized/slow body can never buffer unbounded into RAM.
+async function readBodyWithCap(response, maxBytes) {
+    const declared = Number.parseInt(response.headers.get('content-length') || '', 10);
+    if (Number.isFinite(declared) && declared > maxBytes) {
+        throw new Error(`Artifact exceeds the ${maxBytes}-byte download limit (declared ${declared})`);
     }
-    return Buffer.from(await response.arrayBuffer());
+    if (!response.body || typeof response.body.getReader !== 'function') {
+        // No stream (e.g. mocked fetch): fall back to arrayBuffer with a post-check.
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.length > maxBytes) {
+            throw new Error(`Artifact exceeds the ${maxBytes}-byte download limit`);
+        }
+        return buffer;
+    }
+    const reader = response.body.getReader();
+    const chunks = [];
+    let total = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.length;
+        if (total > maxBytes) {
+            await reader.cancel().catch(() => {});
+            throw new Error(`Artifact exceeds the ${maxBytes}-byte download limit`);
+        }
+        chunks.push(Buffer.from(value));
+    }
+    return Buffer.concat(chunks);
+}
+
+// SSRF- and size-guarded artifact download. The download_url comes from a cloud
+// command payload, and the node sits inside the printer LAN, so an unguarded
+// fetch is an SSRF pivot (router/metadata/LAN hosts) and an unbounded-memory
+// DoS. We validate the host (loopback or public HTTPS only — private/link-local
+// rejected), refuse redirects (a 3xx to an internal host would bypass the host
+// check), enforce a timeout, and cap the body size.
+async function defaultDownloadArtifact(downloadUrl, { fetchImpl = fetch } = {}) {
+    const classification = classifyNodeFetchUrl(downloadUrl);
+    if (!classification.ok) {
+        throw new Error(`Refusing to download artifact: ${classification.reason} (${downloadUrl})`);
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), ARTIFACT_DOWNLOAD_TIMEOUT_MS);
+    try {
+        const response = await fetchImpl(classification.url.toString(), {
+            redirect: 'error', // a redirect could point back at an internal host
+            signal: controller.signal,
+        });
+        if (!response.ok) {
+            throw new Error(`Artifact download failed (${response.status})`);
+        }
+        return await readBodyWithCap(response, MAX_ARTIFACT_BYTES);
+    } catch (error) {
+        if (error?.name === 'AbortError') {
+            throw new Error(`Artifact download timed out after ${ARTIFACT_DOWNLOAD_TIMEOUT_MS}ms`);
+        }
+        // fetch throws on a disallowed redirect (redirect:'error') — surface clearly.
+        if (/redirect/i.test(String(error?.message))) {
+            throw new Error('Artifact download refused: the URL issued a redirect');
+        }
+        throw error;
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 async function defaultUploadToPrinter({ localPrinterId, buffer, remoteFileName }) {
@@ -749,6 +816,9 @@ function getDefaultDeps() {
         sliceSourceModel: defaultSliceSourceModel,
     };
 }
+
+// Exposed for unit tests (SSRF/size guard on the artifact downloader).
+export const __testables = { defaultDownloadArtifact };
 
 export async function executeCloudCommand(command, deps = {}) {
     const effectiveDeps = { ...getDefaultDeps(), ...deps };

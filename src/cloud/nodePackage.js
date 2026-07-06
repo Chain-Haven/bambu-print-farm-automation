@@ -1,4 +1,5 @@
 import AdmZip from 'adm-zip';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -115,6 +116,33 @@ export function collectNodePackageFiles(rootDir) {
     return walkFiles(rootDir).sort((a, b) => a.localeCompare(b));
 }
 
+// Per-package secrets. Each downloaded node bundle gets a UNIQUE, random set —
+// never the old shipped constants. Rationale:
+//   - ENCRYPTION_KEY encrypts printer access codes at rest (src/utils/crypto.js).
+//     A shared constant made that encryption worthless; a per-node 32-byte key
+//     means a leaked node .env only exposes THAT node's stored codes.
+//   - JWT_SECRET signs the local dashboard's session cookies. A known secret let
+//     anyone forge an admin session; a per-node random secret prevents that.
+//   - ADMIN_PASSWORD is the local dashboard login. A shipped default ("antigravity")
+//     let anyone who could reach the port log in; a per-node random password does not.
+// The admin password is surfaced in README-FIRST.txt so the operator can sign in.
+export function generateNodeSecrets(randomBytes = crypto.randomBytes) {
+    // Ambiguous characters (0/O, 1/l/I) removed so the password is easy to
+    // transcribe from the README into the browser.
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    const bytes = randomBytes(20);
+    let adminPassword = '';
+    for (let i = 0; i < bytes.length; i += 1) {
+        adminPassword += alphabet[bytes[i] % alphabet.length];
+    }
+    return {
+        // 32 bytes hex = 64 chars — exactly what src/utils/crypto.js consumes.
+        encryptionKey: randomBytes(32).toString('hex'),
+        jwtSecret: randomBytes(32).toString('base64url'),
+        adminPassword,
+    };
+}
+
 export function createNodeEnv({
     cloudApiUrl,
     localNodeToken,
@@ -129,19 +157,28 @@ export function createNodeEnv({
     resultOutboxFlushLimit = 25,
     resultOutboxMaxEntries = 1000,
     mockMode = false,
+    // Bind the local dashboard to loopback by default: printer control does not
+    // require the dashboard to be reachable from other machines, and exposing an
+    // admin login on the LAN is unnecessary attack surface. Operators who need
+    // LAN access can set HOST=0.0.0.0 deliberately after changing the password.
+    host = '127.0.0.1',
+    secrets = null,
+    adminUsername = 'admin',
 } = {}) {
     const normalizedCloudApiUrl = normalizeRequiredString(cloudApiUrl, 'cloud_api_url').replace(/\/+$/, '');
     const normalizedToken = normalizeRequiredString(localNodeToken, 'local_node_token');
+    const { encryptionKey, jwtSecret, adminPassword } = secrets || generateNodeSecrets();
 
     return [
         '# PrintKinetix Windows node configuration',
+        '# Secrets below are UNIQUE to this download — keep this file private.',
         'PORT=3000',
-        'HOST=0.0.0.0',
-        'JWT_SECRET=change-me',
-        'ADMIN_USERNAME=admin',
-        'ADMIN_PASSWORD=antigravity',
+        `HOST=${host}`,
+        `JWT_SECRET=${jwtSecret}`,
+        `ADMIN_USERNAME=${adminUsername}`,
+        `ADMIN_PASSWORD=${adminPassword}`,
         'DB_PATH=./data/antigravity.db',
-        'ENCRYPTION_KEY=0123456789abcdef0123456789abcdef',
+        `ENCRYPTION_KEY=${encryptionKey}`,
         'LOG_LEVEL=info',
         '',
         `CLOUD_API_URL=${normalizedCloudApiUrl}`,
@@ -165,7 +202,7 @@ export function createNodeEnv({
     ].join('\n');
 }
 
-export function createNodePackageReadme({ nodeName = 'Windows NUC', cloudApiUrl } = {}) {
+export function createNodePackageReadme({ nodeName = 'Windows NUC', cloudApiUrl, adminPassword = null } = {}) {
     return [
         'PrintKinetix Cloud Node',
         '=======================',
@@ -173,11 +210,23 @@ export function createNodePackageReadme({ nodeName = 'Windows NUC', cloudApiUrl 
         `Node: ${nodeName || 'Windows NUC'}`,
         `Cloud: ${cloudApiUrl || 'configured in .env'}`,
         '',
+        'Local dashboard sign-in',
+        '-----------------------',
+        '  URL:      http://localhost:3000',
+        '  Username: admin',
+        `  Password: ${adminPassword || '(see ADMIN_PASSWORD in .env)'}`,
+        'This password is UNIQUE to this download and also stored in .env. Change it',
+        'after first sign-in if you like. The dashboard binds to localhost only by',
+        'default — set HOST=0.0.0.0 in .env only if you must reach it from another',
+        'machine, and change the password first.',
+        '',
         'Security model',
         '--------------',
         '- This node uses HTTPS outbound to reach the Vercel cloud API.',
         '- Do not open inbound firewall ports from the public internet to this computer.',
         '- Keep LOCAL_NODE_TOKEN private; it is the only cloud credential needed here.',
+        '- .env also holds this node\'s UNIQUE JWT_SECRET, ENCRYPTION_KEY (encrypts stored',
+        '  printer access codes), and ADMIN_PASSWORD. Never share or reuse them across nodes.',
         '- This package must not contain SUPABASE_SERVICE_ROLE_KEY, CLOUD_ADMIN_TOKEN, NODE_TOKEN_PEPPER, or merchant API key pepper values.',
         '- Printer control stays on the local network through Bambu MQTT and FTPS.',
         '- Cloud command results are spooled to ./data/cloud-result-outbox.json if Vercel or Supabase is temporarily unreachable.',
@@ -228,6 +277,9 @@ function buildSourceNodePackage({
     const files = collectNodePackageFiles(rootDir);
     const generatedAt = now().toISOString();
     const zip = new AdmZip();
+    // One random secret set per package, shared between .env and the README so
+    // the operator can read the generated dashboard password.
+    const secrets = generateNodeSecrets();
 
     for (const relativePath of files) {
         zip.addFile(relativePath, fs.readFileSync(path.join(rootDir, relativePath)));
@@ -236,10 +288,12 @@ function buildSourceNodePackage({
     zip.addFile('.env', Buffer.from(createNodeEnv({
         cloudApiUrl: normalizedCloudApiUrl,
         localNodeToken: normalizedToken,
+        secrets,
     })));
     zip.addFile('README-FIRST.txt', Buffer.from(createNodePackageReadme({
         nodeName,
         cloudApiUrl: normalizedCloudApiUrl,
+        adminPassword: secrets.adminPassword,
     })));
     zip.addFile('node-package-manifest.json', Buffer.from(JSON.stringify(buildNodePackageManifest({
         files,
@@ -341,22 +395,45 @@ export function createFarmNodeLauncherBat() {
     ].join('\r\n');
 }
 
+// Pinned Node runtime + its official SHA-256 (from nodejs.org/dist/<ver>/
+// SHASUMS256.txt). The launchers download this exact version and MUST verify
+// the archive hash before extracting/executing it — a TLS-MITM, a poisoned
+// mirror, or a tampered cache would otherwise yield arbitrary code execution as
+// the farm-node process. Bump both the version and the hashes together.
+export const PORTABLE_NODE_VERSION = 'v22.11.0';
+export const PORTABLE_NODE_SHA256 = Object.freeze({
+    'win-x64': '905373a059aecaf7f48c1ce10ffbd5334457ca00f678747f19db5ea7d256c236',
+    'linux-arm64': '6031d04b98f59ff0f7cb98566f65b115ecd893d3b7870821171708cdbaf7ae6e',
+    'linux-x64': '83bf07dd343002a26211cf1fcd46a9d9534219aad42ee02847816940bf610a72',
+    'linux-armv7l': '9de0fdcfb1cccbe03f72f939e4e6f03867aef3da8223f90606cd93757704dae0',
+});
+
 export function createGetNodePs1() {
     return [
         '$ErrorActionPreference = "Stop"',
         '$dir = Split-Path -Parent $MyInvocation.MyCommand.Path',
-        '$ver = "v22.11.0"',
+        `$ver = "${PORTABLE_NODE_VERSION}"`,
         '$zip = "node-$ver-win-x64.zip"',
         '$url = "https://nodejs.org/dist/$ver/$zip"',
+        // Pinned integrity hash for node-<ver>-win-x64.zip.
+        `$expected = "${PORTABLE_NODE_SHA256['win-x64']}"`,
         '$tmp = Join-Path $env:TEMP $zip',
         'Write-Host "Downloading $url"',
         'Invoke-WebRequest -Uri $url -OutFile $tmp',
+        'Write-Host "Verifying SHA-256..."',
+        '$actual = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash.ToLower()',
+        'if ($actual -ne $expected) {',
+        '  Remove-Item -Force $tmp',
+        '  throw "Node.js download failed integrity check. Expected $expected but got $actual. Aborting for safety."',
+        '}',
+        'Write-Host "Integrity OK"',
         '$extract = Join-Path $env:TEMP "pkx-node-$ver"',
         'if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }',
         'Expand-Archive -Path $tmp -DestinationPath $extract -Force',
         '$nodeDir = Join-Path $dir "node"',
         'if (Test-Path $nodeDir) { Remove-Item -Recurse -Force $nodeDir }',
         'Move-Item -Path (Join-Path $extract "node-$ver-win-x64") -Destination $nodeDir',
+        'Remove-Item -Force $tmp',
         'Write-Host "Portable Node installed to $nodeDir"',
     ].join('\r\n');
 }
@@ -403,22 +480,37 @@ export function createGetNodeSh() {
         'set -euo pipefail',
         'cd "$(dirname "$0")"',
         '',
-        'VER="v22.11.0"',
+        `VER="${PORTABLE_NODE_VERSION}"`,
         'ARCH="$(uname -m)"',
         'case "$ARCH" in',
-        '  aarch64|arm64) NODE_ARCH="linux-arm64" ;;',
-        '  x86_64|amd64)  NODE_ARCH="linux-x64" ;;',
-        '  armv7l|armv6l) NODE_ARCH="linux-armv7l" ;;',
+        `  aarch64|arm64) NODE_ARCH="linux-arm64"; EXPECTED="${PORTABLE_NODE_SHA256['linux-arm64']}" ;;`,
+        `  x86_64|amd64)  NODE_ARCH="linux-x64"; EXPECTED="${PORTABLE_NODE_SHA256['linux-x64']}" ;;`,
+        `  armv7l|armv6l) NODE_ARCH="linux-armv7l"; EXPECTED="${PORTABLE_NODE_SHA256['linux-armv7l']}" ;;`,
         '  *) echo "Unsupported architecture: $ARCH. Install Node 20+ manually."; exit 1 ;;',
         'esac',
         '',
         'TARBALL="node-$VER-$NODE_ARCH.tar.xz"',
         'URL="https://nodejs.org/dist/$VER/$TARBALL"',
+        // Private temp dir (mktemp) avoids a predictable /tmp path a local
+        // attacker could pre-create or symlink-swap.
+        'WORKDIR="$(mktemp -d)"',
+        'trap \'rm -rf "$WORKDIR"\' EXIT',
         'echo "Downloading $URL"',
-        'curl -fsSL "$URL" -o "/tmp/$TARBALL"',
+        'curl -fsSL "$URL" -o "$WORKDIR/$TARBALL"',
+        'echo "Verifying SHA-256..."',
+        // Prefer sha256sum; fall back to shasum -a 256 (macOS/BSD).
+        'if command -v sha256sum >/dev/null 2>&1; then',
+        '  ACTUAL="$(sha256sum "$WORKDIR/$TARBALL" | awk \'{print $1}\')"',
+        'else',
+        '  ACTUAL="$(shasum -a 256 "$WORKDIR/$TARBALL" | awk \'{print $1}\')"',
+        'fi',
+        'if [ "$ACTUAL" != "$EXPECTED" ]; then',
+        '  echo "Node.js download failed integrity check. Expected $EXPECTED but got $ACTUAL. Aborting for safety." >&2',
+        '  exit 1',
+        'fi',
+        'echo "Integrity OK"',
         'rm -rf ./node && mkdir -p ./node',
-        'tar -xJf "/tmp/$TARBALL" -C ./node --strip-components=1',
-        'rm -f "/tmp/$TARBALL"',
+        'tar -xJf "$WORKDIR/$TARBALL" -C ./node --strip-components=1',
         'echo "Portable Node installed to ./node"',
         '',
     ].join('\n');
@@ -528,6 +620,7 @@ export function buildPortableNodePackage({
     const generatedAt = now().toISOString();
     const zip = new AdmZip();
     const files = [];
+    const portableSecrets = generateNodeSecrets();
 
     const addFile = (entryName, buffer) => {
         zip.addFile(entryName, buffer);
@@ -563,10 +656,12 @@ export function buildPortableNodePackage({
     addFile('README-FIRST.txt', Buffer.from(createPortableReadme({
         nodeName,
         cloudApiUrl: normalizedCloudApiUrl,
+        adminPassword: portableSecrets.adminPassword,
     })));
     zip.addFile('.env', Buffer.from(createNodeEnv({
         cloudApiUrl: normalizedCloudApiUrl,
         localNodeToken: normalizedToken,
+        secrets: portableSecrets,
     })));
     zip.addFile('node-package-manifest.json', Buffer.from(JSON.stringify(buildNodePackageManifest({
         files,

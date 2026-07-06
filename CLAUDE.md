@@ -121,6 +121,58 @@ Full write-up is in `DIAGNOSIS.md`.
  updated. Internal identifiers (package name, DB paths, `AG_` gcode markers)
  intentionally unchanged.
 
+## Changes already made (July 2026 session — node security hardening + printer telemetry)
+
+Security audit of the farm-node ↔ cloud path and the Windows package, plus a
+printer-observability pass. Headlines:
+
+1. **Node package no longer ships static secrets (CRITICAL fix).** `createNodeEnv`
+   (`src/cloud/nodePackage.js`) previously baked `ENCRYPTION_KEY=0123…` (the key
+   that encrypts stored printer access codes), `JWT_SECRET=change-me`,
+   `ADMIN_PASSWORD=antigravity`, and `HOST=0.0.0.0` into EVERY download — so any
+   node's stored credentials were decryptable with a repo-visible key and its
+   dashboard was LAN-exposed with default creds. Now `generateNodeSecrets()`
+   mints a UNIQUE random ENCRYPTION_KEY (32-byte hex), JWT_SECRET, and
+   ADMIN_PASSWORD per package, defaults `HOST=127.0.0.1` (loopback), and the
+   README surfaces the generated password. `farmNodeEntry.js` inherits this.
+2. **Artifact download is SSRF- and size-guarded.** `defaultDownloadArtifact`
+   (`src/cloud/localCommandExecutor.js`) took a bare `fetch(download_url)` from a
+   cloud command — an SSRF pivot into the printer LAN + unbounded-memory DoS. Now
+   it validates the host via `classifyNodeFetchUrl` (`urlGuard.js`: loopback or
+   public HTTPS only; private/link-local/metadata rejected), refuses redirects
+   (`redirect:'error'`), enforces a timeout, and streams with a hard byte cap
+   (`CLOUD_ARTIFACT_MAX_BYTES`, default 256 MiB).
+3. **Node runtime download integrity (supply-chain).** `get-node.ps1`/`get-node.sh`
+   fetched Node with no verification. Now the official SHA-256 for the pinned
+   `PORTABLE_NODE_VERSION` is baked in per arch (`PORTABLE_NODE_SHA256`) and the
+   launchers abort if the downloaded archive's hash doesn't match; the shell
+   script uses `mktemp -d` instead of a predictable `/tmp` path. Bump the version
+   and hashes together.
+4. **Defense-in-depth.** Timing-safe node-token hash compare in
+   `memoryCloudStore.findNodeByTokenHash`; `authenticateNode` rejects a
+   `revoked`/`disabled` node status (soft-disable without deleting the row);
+   best-effort per-IP rate limiter on all `/api/agent/*` endpoints
+   (`AGENT_RATE_LIMIT_RPM`, default 600 → 429); `localNodeClient.normalizeCloudUrl`
+   refuses a plaintext `http://` CLOUD_API_URL for non-loopback hosts (the token
+   is a bearer). Cross-node/-org authz was already correctly scoped.
+   NOTE: the Bambu LAN clients (MQTT/FTPS/CameraProxy) use `rejectUnauthorized:false`
+   by design — Bambu printers present self-signed certs pinned by the LAN access
+   code; that is inherent to the protocol, not a fixable flaw.
+5. **Richer printer telemetry.** `PrinterWorker._handleStatus` now captures fields
+   Bambu emits but the code dropped: chamber temp, aux/chamber/heatbreak fan
+   speeds, live speed % (`spd_mag`), nozzle diameter+type, print stage, home flag.
+   `AmsService.getLiveTrays/getFullStatus` now expose per-unit dry-box
+   humidity/temperature. `localPrinterSnapshot.buildTelemetryView` packages a
+   compact view into `status_snapshot.telemetry` (rides the existing heartbeat
+   normalizer — no new cloud column), and the fleet cards render a live-health
+   strip (temps/chamber/speed + weak-wifi/high-humidity/HMS/error warnings).
+   Tests: `artifactDownloadGuard`, `agentHardening`, `printerTelemetry`, extended
+   `nodePackage` + `dashboardAssets`. Full suite 610 green.
+   REMAINING high-value integration ideas (not yet done, see audit): enable
+   Bambu AI failure detection (`xcam_control_set`), an HMS code→message
+   dictionary, firmware/version read via the `info` command, "skip objects" for
+   multi-part plates, and routing manual controls through the CommandBus.
+
 ## Changes already made (July 2026 session — admin backend + console overhaul)
 
 1. **Platform-wide Jobs admin API** — `GET/POST /api/cloud/jobs`: list every

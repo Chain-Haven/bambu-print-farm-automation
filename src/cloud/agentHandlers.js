@@ -18,6 +18,21 @@ import { planAutoEjectCommands } from './farmAutomation.js';
 import { redispatchWaitingJobs } from './printDispatch.js';
 import { deliverMerchantWebhook } from './webhooks.js';
 import { deliverMerchantWebhookEvent } from './merchantWebhookDelivery.js';
+import { createRpmLimiter } from '../utils/rateLimiter.js';
+
+// Best-effort throttle on the unauthenticated agent surface: every request does
+// a store lookup for the token, so an unbounded flood (valid or bogus token) is
+// a cost-amplification / DoS vector. Keyed by source IP so one host cannot
+// exhaust the backend; exact on a long-running node, per-instance on serverless.
+// A busy node makes well under this (heartbeat + ~1s command poll + results).
+const AGENT_RATE_LIMIT_RPM = Number.parseInt(process.env.AGENT_RATE_LIMIT_RPM || '600', 10);
+const defaultAgentRateLimiter = AGENT_RATE_LIMIT_RPM > 0 ? createRpmLimiter(AGENT_RATE_LIMIT_RPM) : null;
+
+function clientKey(req) {
+    const forwarded = req.headers?.['x-forwarded-for'];
+    if (typeof forwarded === 'string' && forwarded.trim()) return forwarded.split(',')[0].trim();
+    return req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
+}
 
 const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
 const FARM_AUTOMATION_POLICY_KEY = 'farm_automation_policy';
@@ -181,7 +196,18 @@ async function maybeQueueAutoEjectCommands({ store, node, printers, now }) {
     return { queued };
 }
 
-async function authenticateNode(req, res, { store, pepper, requestId }) {
+async function authenticateNode(req, res, { store, pepper, requestId, rateLimiter = defaultAgentRateLimiter }) {
+    if (rateLimiter) {
+        const verdict = rateLimiter.check(clientKey(req));
+        if (!verdict.allowed) {
+            if (typeof res.setHeader === 'function') {
+                res.setHeader('Retry-After', String(Math.ceil(verdict.retryAfterMs / 1000)));
+            }
+            sendClientError(res, 429, 'rate_limited', 'Too many agent requests', requestId);
+            return null;
+        }
+    }
+
     const token = getBearerToken(req.headers || {});
     if (!token) {
         sendClientError(res, 401, 'missing_agent_token', 'Agent bearer token is required', requestId);
@@ -196,6 +222,13 @@ async function authenticateNode(req, res, { store, pepper, requestId }) {
     const node = await store.findNodeByTokenHash(tokenHash);
     if (!node) {
         sendClientError(res, 403, 'unknown_agent_token', 'Unknown agent token', requestId);
+        return null;
+    }
+    // A node can be soft-disabled without deleting its row: a revoked/disabled
+    // token stops authenticating immediately (parity with admin sessions).
+    const status = String(node.status || '').toLowerCase();
+    if (status === 'revoked' || status === 'disabled') {
+        sendClientError(res, 403, 'agent_token_revoked', 'Agent token has been revoked', requestId);
         return null;
     }
 

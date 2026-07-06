@@ -1676,3 +1676,38 @@ time {
   font-size: 19px;
   line-height: 30px;
 }
+
+/* Live-health telemetry strip on fleet cards */
+.printer-telemetry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.telem-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.telem-chip b {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.telem-chip.warn {
+  background: #fff4df;
+  color: var(--warn);
+}
+
+.telem-chip.error {
+  background: #fff0ef;
+  color: var(--danger);
+}

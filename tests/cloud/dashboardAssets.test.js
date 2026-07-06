@@ -410,9 +410,15 @@ describe('cloud dashboard assets', () => {
             'live_remaining',
             'remaining_minutes',
             'job-preview',
+            // Live-health telemetry strip (temps / chamber / speed / HMS / AMS humidity).
+            'telemetryHtml',
+            'status_snapshot?.telemetry',
+            'printer-telemetry',
         ]) {
             expect(fleet).toContain(marker);
         }
+        expect(css).toContain('.printer-telemetry');
+        expect(css).toContain('.telem-chip');
 
         for (const selector of [
             '.fleet-grid',

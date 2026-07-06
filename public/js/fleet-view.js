@@ -186,6 +186,51 @@ function currentJobOf(printer) {
   return job && typeof job === 'object' ? job : null;
 }
 
+function telemetryOf(printer) {
+  const telemetry = printer.status_snapshot?.telemetry;
+  return telemetry && typeof telemetry === 'object' ? telemetry : null;
+}
+
+function tempChip(label, value, target) {
+  if (value === null || value === undefined) return '';
+  const rounded = Math.round(Number(value));
+  const suffix = (target !== null && target !== undefined && Number(target) > 0)
+    ? `/${Math.round(Number(target))}` : '';
+  return `<span class="telem-chip" title="${label}"><b>${label}</b> ${rounded}${suffix}°</span>`;
+}
+
+// Compact live-health strip under each printer card: nozzle / bed / chamber
+// temps, live speed %, weak-wifi + HMS/error warnings, and the driest AMS unit.
+// Reads the telemetry the node now mirrors in status_snapshot.telemetry.
+function telemetryHtml(printer) {
+  const telemetry = telemetryOf(printer);
+  if (!telemetry) return '';
+  const chips = [
+    tempChip('N', telemetry.nozzle_temp, telemetry.nozzle_target),
+    tempChip('Bed', telemetry.bed_temp, telemetry.bed_target),
+    tempChip('Cham', telemetry.chamber_temp, null),
+  ];
+  if (Number.isFinite(Number(telemetry.speed_percent)) && telemetry.speed_percent > 0) {
+    chips.push(`<span class="telem-chip" title="Live speed"><b>⏩</b> ${Math.round(telemetry.speed_percent)}%</span>`);
+  }
+  if (Number.isFinite(Number(telemetry.wifi_dbm)) && telemetry.wifi_dbm <= -70) {
+    chips.push(`<span class="telem-chip warn" title="Weak Wi-Fi">📶 ${telemetry.wifi_dbm}dBm</span>`);
+  }
+  const driest = Array.isArray(telemetry.ams_environment)
+    ? telemetry.ams_environment.filter((u) => Number.isFinite(Number(u.humidity))).sort((a, b) => b.humidity - a.humidity)[0]
+    : null;
+  if (driest && driest.humidity >= 4) {
+    chips.push(`<span class="telem-chip warn" title="AMS humidity high — dry filament">💧 AMS ${driest.humidity}/5</span>`);
+  }
+  if (Number(telemetry.print_error) > 0) {
+    chips.push('<span class="telem-chip error" title="Printer error">⚠ error</span>');
+  } else if (Number(telemetry.hms_count) > 0) {
+    chips.push(`<span class="telem-chip warn" title="HMS notices">⚠ ${telemetry.hms_count} HMS</span>`);
+  }
+  const rendered = chips.filter(Boolean).join('');
+  return rendered ? `<div class="printer-telemetry">${rendered}</div>` : '';
+}
+
 export function createFleetView(deps) {
   const {
     $,
@@ -291,6 +336,8 @@ export function createFleetView(deps) {
           </div>
         `}
       </div>
+
+      ${telemetryHtml(printer)}
 
       <footer class="printer-actions">
         <button type="button" data-fleet-action="camera" title="Remote camera">📷 Camera</button>

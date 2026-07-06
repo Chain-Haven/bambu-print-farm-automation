@@ -38,13 +38,54 @@ function isPrivateIpv6(rawHost) {
     return false;
 }
 
-function isBlockedHost(hostname) {
+function isLoopbackHost(hostname) {
+    const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+    return host === 'localhost'
+        || host.endsWith('.localhost')
+        || host === '127.0.0.1'
+        || /^127\./.test(host)
+        || host === '::1';
+}
+
+export function isBlockedHost(hostname) {
     const host = hostname.toLowerCase();
     if (!host) return true;
     if (host === 'localhost' || host.endsWith('.localhost')) return true;
     if (host.endsWith('.local') || host.endsWith('.internal')) return true;
     if (host.includes(':')) return isPrivateIpv6(host);
     return isPrivateIpv4(host);
+}
+
+/**
+ * Classify a URL the FARM NODE is about to fetch (print artifact download).
+ * The node lives inside the printer LAN, so a download_url from a command
+ * payload is an SSRF vector: it could point at a router admin page, the cloud
+ * metadata endpoint (169.254.169.254), or another LAN host. Policy:
+ *   - Loopback (the self-hosted artifact server) is allowed over http or https.
+ *   - Any other host must be public HTTPS — private / link-local / CGNAT /
+ *     .local / .internal are rejected as SSRF targets.
+ * Returns { ok, reason, loopback, url } — never throws.
+ */
+export function classifyNodeFetchUrl(value) {
+    let parsed;
+    try {
+        parsed = new URL(String(value));
+    } catch {
+        return { ok: false, reason: 'invalid_url', loopback: false, url: null };
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+        return { ok: false, reason: 'unsupported_protocol', loopback: false, url: parsed };
+    }
+    if (isLoopbackHost(parsed.hostname)) {
+        return { ok: true, reason: null, loopback: true, url: parsed };
+    }
+    if (parsed.protocol !== 'https:') {
+        return { ok: false, reason: 'http_not_allowed_for_remote_host', loopback: false, url: parsed };
+    }
+    if (isBlockedHost(parsed.hostname)) {
+        return { ok: false, reason: 'blocked_internal_host', loopback: false, url: parsed };
+    }
+    return { ok: true, reason: null, loopback: false, url: parsed };
 }
 
 // Validates a merchant-supplied webhook URL and returns its normalized string.
