@@ -1,6 +1,7 @@
-import { AdminAuthError, authenticateCloudAdmin } from './adminAuth.js';
 import { parseJsonBody } from './agentProtocol.js';
 import { createRequestId } from './httpServerUtils.js';
+import { authenticateAdmin } from './adminHandlers.js';
+import { recordAdminAudit } from './adminAudit.js';
 import { normalizeUpload } from './merchantPrintHandlers.js';
 import { normalizeRoutingStrategy } from './printIntake.js';
 import {
@@ -42,27 +43,6 @@ function methodNotAllowed(res, methods, requestId = createRequestId()) {
     });
 }
 
-async function authenticateAdmin(req, res, adminToken, store) {
-    if (!adminToken) {
-        sendJson(res, 500, { ok: false, error: 'cloud_not_configured' });
-        return false;
-    }
-    try {
-        await authenticateCloudAdmin(req, {
-            store,
-            bootstrapToken: adminToken,
-            pepper: process.env.ADMIN_SESSION_PEPPER || process.env.NODE_TOKEN_PEPPER,
-        });
-        return true;
-    } catch (error) {
-        if (error instanceof AdminAuthError) {
-            sendJson(res, error.statusCode, { ok: false, error: error.code });
-            return false;
-        }
-        throw error;
-    }
-}
-
 export function createCloudPrintFilesHandler({
     store,
     adminToken = process.env.CLOUD_ADMIN_TOKEN,
@@ -76,7 +56,8 @@ export function createCloudPrintFilesHandler({
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+            const auth = await authenticateAdmin(req, res, adminToken, store);
+            if (!auth) return null;
 
             const body = parseJsonBody(req.body);
             const upload = normalizeUpload(body);
@@ -174,6 +155,20 @@ export function createCloudPrintFilesHandler({
                 });
             }
 
+            await recordAdminAudit({
+                store,
+                actor: auth,
+                action: 'print_file.drop',
+                targetType: 'job',
+                targetId: job.job_id,
+                detail: {
+                    name: upload.name,
+                    original_name: upload.file.originalName,
+                    file_mode: upload.file.fileMode,
+                    routing_status: route.status,
+                },
+                now,
+            });
             return sendJson(res, 201, {
                 ok: true,
                 file,

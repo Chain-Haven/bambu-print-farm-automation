@@ -250,6 +250,12 @@ describe('cloud admin migration database execution', () => {
                 name: 'merchant_api_key_scopes',
                 status: 'applied',
             },
+            {
+                filename: '20260706090000_admin_audit_log.sql',
+                version: '20260706090000',
+                name: 'admin_audit_log',
+                status: 'applied',
+            },
         ]);
     });
 

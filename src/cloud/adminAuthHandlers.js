@@ -15,6 +15,7 @@ import {
     hashAdminSecret,
     normalizeAdminEmail,
 } from './adminAuth.js';
+import { recordAdminAudit } from './adminAudit.js';
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -646,6 +647,15 @@ export function createCloudAdminUsersHandler({
             const body = parseJsonBody(req.body);
             const action = requiredString(body.action, 'action');
             const email = normalizeAdminEmail(body.email);
+            const audit = (detail = {}) => recordAdminAudit({
+                store,
+                actor: { type: context.type, adminUser: context.adminUser },
+                action: `admin_user.${action}`,
+                targetType: 'admin_user',
+                targetId: email,
+                detail,
+                now,
+            });
 
             if (action === 'create') {
                 const role = body.role === 'super_admin' ? 'super_admin' : 'admin';
@@ -659,6 +669,7 @@ export function createCloudAdminUsersHandler({
                     status: 'active',
                 });
                 const invite = await issueResetLink({ req, admin });
+                await audit({ role, email_sent: invite.email_sent });
                 return sendJson(res, 201, {
                     ok: true,
                     admin: redactAdmin(admin),
@@ -676,6 +687,7 @@ export function createCloudAdminUsersHandler({
                     return sendJson(res, 403, { ok: false, error: 'admin_not_active' });
                 }
                 const reset = await issueResetLink({ req, admin });
+                await audit({ email_sent: reset.email_sent });
                 return sendJson(res, 201, {
                     ok: true,
                     admin: redactAdmin(admin),
@@ -694,11 +706,13 @@ export function createCloudAdminUsersHandler({
                 if (typeof store.revokeAdminSessions === 'function') {
                     await store.revokeAdminSessions(admin.admin_user_id, now().toISOString());
                 }
+                await audit();
                 return sendJson(res, 200, { ok: true, admin: redactAdmin(updated || admin) });
             }
 
             if (action === 'enable') {
                 const updated = await store.updatePlatformAdminStatus(admin.admin_user_id, 'active');
+                await audit();
                 return sendJson(res, 200, { ok: true, admin: redactAdmin(updated || admin) });
             }
 

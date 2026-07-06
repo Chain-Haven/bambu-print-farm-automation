@@ -177,12 +177,12 @@ describe('cloud dashboard assets', () => {
         expect(js).toContain('handleDownloadExe');
     });
 
-    it('ships the tabbed console: fleet/merchants/nodes/automation with setup at the bottom', () => {
+    it('ships the tabbed console: fleet/jobs/merchants/nodes/automation/activity with setup at the bottom', () => {
         const html = fs.readFileSync('public/cloud.html', 'utf8');
         const js = fs.readFileSync('public/js/cloud-dashboard.js', 'utf8');
         const css = fs.readFileSync('public/css/cloud.css', 'utf8');
 
-        for (const id of ['console-tabs', 'tab-fleet', 'tab-merchants', 'tab-nodes', 'tab-automation', 'setup-banner']) {
+        for (const id of ['console-tabs', 'tab-fleet', 'tab-jobs', 'tab-merchants', 'tab-nodes', 'tab-automation', 'tab-activity', 'setup-banner']) {
             expect(html).toContain(`id="${id}"`);
         }
 
@@ -226,6 +226,85 @@ describe('cloud dashboard assets', () => {
         }
         expect(css).toContain('.drop-zone');
         expect(css).toContain('.drop-status-row');
+    });
+
+    it('ships the platform Jobs tab: filters, search, cancel, redispatch, paging', () => {
+        const html = fs.readFileSync('public/cloud.html', 'utf8');
+        const js = fs.readFileSync('public/js/cloud-dashboard.js', 'utf8');
+        const css = fs.readFileSync('public/css/cloud.css', 'utf8');
+
+        for (const id of [
+            'jobs-status-chips',
+            'jobs-search',
+            'jobs-admin-table',
+            'jobs-redispatch-all',
+            'jobs-prev',
+            'jobs-next',
+            'admin-job-count',
+        ]) {
+            expect(html).toContain(`id="${id}"`);
+        }
+
+        for (const marker of [
+            '/api/cloud/jobs',
+            'refreshAdminJobs',
+            'renderAdminJobs',
+            'handleCancelJob',
+            'handleRedispatchJob',
+            'handleRedispatchAll',
+            'bindJobsTab',
+        ]) {
+            expect(js).toContain(marker);
+        }
+
+        expect(css).toContain('.chip-row');
+        expect(css).toContain('.jobs-toolbar');
+        expect(css).toContain('.jobs-paging');
+    });
+
+    it('ships the Activity tab: audit log + node event feed', () => {
+        const html = fs.readFileSync('public/cloud.html', 'utf8');
+        const js = fs.readFileSync('public/js/cloud-dashboard.js', 'utf8');
+
+        for (const id of ['audit-table', 'audit-search', 'audit-count', 'activity-events-table']) {
+            expect(html).toContain(`id="${id}"`);
+        }
+        for (const marker of ['/api/cloud/audit', 'refreshAudit', 'renderAudit', 'renderActivityEvents', 'bindActivityTab']) {
+            expect(js).toContain(marker);
+        }
+    });
+
+    it('ships the UX upgrades: stats tiles, sortable tables, confirm dialog, toast variants, id chips', () => {
+        const html = fs.readFileSync('public/cloud.html', 'utf8');
+        const js = fs.readFileSync('public/js/cloud-dashboard.js', 'utf8');
+        const css = fs.readFileSync('public/css/cloud.css', 'utf8');
+
+        expect(html).toContain('id="confirm-modal"');
+        expect(html).toContain('id="confirm-accept"');
+
+        for (const marker of [
+            '/api/cloud/stats',
+            'refreshStats',
+            'confirmDialog',
+            'timeAgo',
+            'makeIdChip',
+            'tableUiState',
+        ]) {
+            expect(js).toContain(marker);
+        }
+        // window.confirm is fully replaced by the accessible confirm dialog.
+        expect(js).not.toContain('window.confirm(`');
+
+        for (const selector of [
+            '.confirm-modal',
+            '.toast.error',
+            '.toast.ok',
+            'th.sortable',
+            'button.id-chip',
+            'button.metric',
+        ]) {
+            expect(css).toContain(selector);
+        }
     });
 
     it('keeps browser controller scripts parseable', () => {

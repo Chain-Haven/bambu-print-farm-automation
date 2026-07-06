@@ -1456,3 +1456,223 @@ th {
     flex-direction: column;
   }
 }
+
+/* ===================== Console overhaul: metric tiles, jobs tab,
+   activity tab, sortable tables, id chips, toast variants, confirm ===== */
+
+/* Metric tiles are now buttons that deep-link into a tab. */
+button.metric {
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+button.metric:hover {
+  background: var(--panel-soft);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+
+.metric span {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.metric.metric-alert {
+  border-top-color: var(--warn);
+}
+
+.metric.metric-alert strong {
+  color: var(--warn);
+}
+
+/* Jobs tab */
+.jobs-admin-section .panel-heading {
+  align-items: flex-start;
+}
+
+.jobs-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.jobs-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+button.chip {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+button.chip:hover {
+  border-color: var(--accent);
+  background: var(--panel-soft);
+  color: var(--accent-strong);
+}
+
+button.chip.active {
+  border-color: var(--accent-strong);
+  background: var(--accent);
+  color: #fff;
+}
+
+input.table-search {
+  min-width: min(320px, 100%);
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #fff;
+}
+
+input.table-search:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.jobs-paging {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Activity tab */
+.activity-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+/* Sortable table headers */
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+th.sortable:hover {
+  color: var(--accent-strong);
+}
+
+th.sortable.sorted-asc::after {
+  content: " ▲";
+  font-size: 9px;
+}
+
+th.sortable.sorted-desc::after {
+  content: " ▼";
+  font-size: 9px;
+}
+
+/* Sticky header inside scrollable table shells */
+.table-shell {
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+.table-shell thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+  box-shadow: 0 1px 0 var(--line);
+}
+
+/* Click-to-copy short-ID chips */
+button.id-chip {
+  min-height: 22px;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fbfcfb;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+button.id-chip:hover {
+  border-color: var(--accent);
+  background: var(--panel-soft);
+  color: var(--accent-strong);
+}
+
+/* Relative timestamps keep the absolute value in the tooltip */
+time {
+  cursor: help;
+  border-bottom: 1px dotted var(--line);
+}
+
+/* Toast variants */
+.toast.ok {
+  background: var(--accent-strong);
+}
+
+.toast.error {
+  background: var(--danger);
+}
+
+.toast.warn {
+  background: var(--warn);
+}
+
+/* Confirm dialog */
+.confirm-modal {
+  width: min(440px, 100%);
+}
+
+.confirm-message {
+  margin: 10px 0 16px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.confirm-buttons {
+  grid-template-columns: 1fr 1fr;
+}
+
+@media (max-width: 720px) {
+  .jobs-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* Status pills read as words, not broken identifiers */
+.status {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+/* Long metric values (e.g. "12 (3 pending)") shrink instead of overflowing */
+.metric strong.long-value {
+  font-size: 19px;
+  line-height: 30px;
+}

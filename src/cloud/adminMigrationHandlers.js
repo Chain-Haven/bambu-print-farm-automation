@@ -8,6 +8,7 @@ export const ALLOWED_SUPABASE_MIGRATION_FILES = Object.freeze([
     '20260701153253_merchant_shipping_claims.sql',
     '20260702080000_merchant_user_auth.sql',
     '20260702090000_merchant_api_key_scopes.sql',
+    '20260706090000_admin_audit_log.sql',
 ]);
 
 const DISALLOWED_SQL_BODY_KEYS = ['sql', 'query', 'statement', 'statements'];

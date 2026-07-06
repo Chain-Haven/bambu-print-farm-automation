@@ -17,6 +17,7 @@ import { redactPublicValue } from './merchantPublicProjections.js';
 import { redactWebhookConfig } from './webhooks.js';
 import { buildWindowsNodePackage, getNodePackageFileName, PORTABLE_BUNDLE_SUBDIR } from './nodePackage.js';
 import { buildFarmAutomationPlan, normalizeFarmAutomationSettings } from './farmAutomation.js';
+import { recordAdminAudit } from './adminAudit.js';
 
 const FARM_AUTOMATION_POLICY_KEY = 'farm_automation_policy';
 const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
@@ -402,19 +403,22 @@ function buildSetupEnvStatus(env, adminToken) {
     ];
 }
 
-async function authenticateAdmin(req, res, adminToken, store) {
+// Authenticates the request and returns the auth context ({ type, adminUser })
+// so handlers can attribute mutations in the audit log; returns false after
+// writing the error response when authentication fails. Exported for the
+// admin ops handlers (jobs/stats/audit) which share the same gate.
+export async function authenticateAdmin(req, res, adminToken, store) {
     if (!adminToken) {
         sendJson(res, 500, { ok: false, error: 'cloud_not_configured' });
         return false;
     }
 
     try {
-        await authenticateCloudAdmin(req, {
+        return await authenticateCloudAdmin(req, {
             store,
             bootstrapToken: adminToken,
             pepper: process.env.ADMIN_SESSION_PEPPER || process.env.NODE_TOKEN_PEPPER,
         });
-        return true;
     } catch (error) {
         if (error instanceof AdminAuthError) {
             sendJson(res, error.statusCode, { ok: false, error: error.code });
@@ -507,10 +511,21 @@ export function createCloudCommandHandler({ store, adminToken = process.env.CLOU
         // GET ?command_id= — direct command lookup so the console can poll a
         // specific command result (camera frames, adoption, scans) instead of
         // scanning the capped overview list, which loses results on busy farms.
+        // GET ?node_id=[&command_type=] — per-node command history drill-down.
         if (req.method === 'GET') {
             try {
                 if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
-                const commandId = normalizeRequiredString((req.query || {}).command_id, 'command_id');
+                const query = req.query || {};
+                const nodeId = normalizeOptionalString(query.node_id);
+                if (nodeId && typeof store.listNodeCommands === 'function') {
+                    const commands = await store.listNodeCommands({
+                        nodeId,
+                        commandType: normalizeOptionalString(query.command_type),
+                        limit: parseLimit(query),
+                    });
+                    return sendJson(res, 200, { ok: true, commands });
+                }
+                const commandId = normalizeRequiredString(query.command_id, 'command_id');
                 const command = typeof store.getNodeCommandById === 'function'
                     ? await store.getNodeCommandById(commandId)
                     : null;
@@ -532,9 +547,23 @@ export function createCloudCommandHandler({ store, adminToken = process.env.CLOU
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+            const auth = await authenticateAdmin(req, res, adminToken, store);
+            if (!auth) return null;
 
             const command = await store.createNodeCommand(normalizeCloudCommand(parseJsonBody(req.body)));
+            await recordAdminAudit({
+                store,
+                actor: auth,
+                action: 'command.queue',
+                targetType: 'node',
+                targetId: command.node_id,
+                detail: {
+                    command_id: command.command_id,
+                    command_type: command.command_type,
+                    printer_id: command.printer_id,
+                    job_id: command.job_id,
+                },
+            });
             return sendJson(res, 201, { ok: true, command });
         } catch (error) {
             return sendJson(res, 400, {
@@ -555,9 +584,18 @@ export function createCloudOrganizationHandler({ store, adminToken = process.env
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+            const auth = await authenticateAdmin(req, res, adminToken, store);
+            if (!auth) return null;
 
             const organization = await store.createOrganization(normalizeOrganization(parseJsonBody(req.body)));
+            await recordAdminAudit({
+                store,
+                actor: auth,
+                action: 'organization.create',
+                targetType: 'organization',
+                targetId: organization.org_id,
+                detail: { name: organization.name },
+            });
             return sendJson(res, 201, { ok: true, organization });
         } catch (error) {
             return sendJson(res, 400, {
@@ -583,7 +621,8 @@ export function createCloudNodeProvisionHandler({
         // queued commands (jobs/events keep their rows with node_id nulled).
         if (req.method === 'DELETE') {
             try {
-                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+                const auth = await authenticateAdmin(req, res, adminToken, store);
+                if (!auth) return null;
 
                 const body = parseJsonBody(req.body);
                 const query = req.query || {};
@@ -614,6 +653,19 @@ export function createCloudNodeProvisionHandler({
                     return sendJson(res, 404, { ok: false, error: 'node_not_found' });
                 }
 
+                await recordAdminAudit({
+                    store,
+                    actor: auth,
+                    action: 'node.delete',
+                    targetType: 'node',
+                    targetId: nodeId,
+                    detail: {
+                        name: deleted.name,
+                        forced: force,
+                        active_jobs: summary?.active_jobs ?? null,
+                        pending_commands: summary?.pending_commands ?? null,
+                    },
+                });
                 return sendJson(res, 200, { ok: true, node: deleted });
             } catch (error) {
                 return sendJson(res, 400, {
@@ -629,7 +681,8 @@ export function createCloudNodeProvisionHandler({
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+            const auth = await authenticateAdmin(req, res, adminToken, store);
+            if (!auth) return null;
             if (!pepper) {
                 return sendJson(res, 500, { ok: false, error: 'cloud_not_configured' });
             }
@@ -643,6 +696,14 @@ export function createCloudNodeProvisionHandler({
                 capabilities: provision.capabilities,
             });
 
+            await recordAdminAudit({
+                store,
+                actor: auth,
+                action: 'node.provision',
+                targetType: 'node',
+                targetId: node.node_id,
+                detail: { name: node.name, org_id: node.org_id },
+            });
             return sendJson(res, 201, {
                 ok: true,
                 node,
@@ -773,7 +834,8 @@ export function createCloudFarmAutomationHandler({
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+            const auth = await authenticateAdmin(req, res, adminToken, store);
+            if (!auth) return null;
             const body = parseJsonBody(req.body);
             const current = await loadAutomation({
                 orgId: normalizeOptionalString((req.query || {}).org_id),
@@ -795,6 +857,16 @@ export function createCloudFarmAutomationHandler({
                 await store.upsertPlatformSetting(FARM_INTEGRATIONS_KEY, nextSettings.integrations);
             }
 
+            await recordAdminAudit({
+                store,
+                actor: auth,
+                action: 'automation.update',
+                targetType: 'platform_settings',
+                targetId: 'farm_automation',
+                detail: {
+                    updated: ['policy', 'inventory', 'integrations'].filter((key) => isPlainObject(body[key])).join(','),
+                },
+            });
             const automation = await loadAutomation({
                 orgId: normalizeOptionalString((req.query || {}).org_id),
                 limit: parseLimit(req.query || {}),
@@ -838,7 +910,8 @@ export function createCloudMerchantsHandler({
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+            const auth = await authenticateAdmin(req, res, adminToken, store);
+            if (!auth) return null;
 
             const action = normalizeMerchantAction(parseJsonBody(req.body));
             const timestamp = now().toISOString();
@@ -861,6 +934,20 @@ export function createCloudMerchantsHandler({
                 approvedAt,
                 rejectedAt,
                 metadata: action.metadata,
+            });
+
+            await recordAdminAudit({
+                store,
+                actor: auth,
+                action: `merchant.${action.action}`,
+                targetType: 'merchant',
+                targetId: action.merchantId,
+                detail: {
+                    status,
+                    company_name: merchant?.company_name,
+                    setup_token_issued: action.issueSetupToken,
+                },
+                now,
             });
 
             if (action.issueSetupToken) {
@@ -905,7 +992,8 @@ export function createCloudMerchantSetupTokenHandler({
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+            const auth = await authenticateAdmin(req, res, adminToken, store);
+            if (!auth) return null;
             const body = parseJsonBody(req.body);
             const merchantId = normalizeRequiredString(body.merchant_id, 'merchant_id');
             const merchant = await store.findMerchantById(merchantId);
@@ -917,6 +1005,15 @@ export function createCloudMerchantSetupTokenHandler({
                 now,
             });
 
+            await recordAdminAudit({
+                store,
+                actor: auth,
+                action: 'merchant.setup_token.issue',
+                targetType: 'merchant',
+                targetId: merchant.merchant_id,
+                detail: { expires_at: setupToken.expires_at },
+                now,
+            });
             return sendJson(res, 201, {
                 ok: true,
                 merchant_id: merchant.merchant_id,
@@ -963,7 +1060,8 @@ export function createCloudMerchantApiKeysHandler({
 
         if (req.method === 'POST') {
             try {
-                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+                const auth = await authenticateAdmin(req, res, adminToken, store);
+                if (!auth) return null;
                 const request = normalizeMerchantKeyRequest(parseJsonBody(req.body), req.query || {});
                 const merchant = await store.findMerchantById(request.merchantId);
                 const apiKey = await issueMerchantApiKey({
@@ -975,6 +1073,15 @@ export function createCloudMerchantApiKeysHandler({
                     scopes: request.scopes,
                 });
 
+                await recordAdminAudit({
+                    store,
+                    actor: auth,
+                    action: 'merchant.api_key.create',
+                    targetType: 'merchant',
+                    targetId: merchant.merchant_id,
+                    detail: { key_id: apiKey.record?.key_id, name: request.name },
+                    now,
+                });
                 return sendJson(res, 201, {
                     ok: true,
                     api_key: redactMerchantApiKey(apiKey.record),
@@ -991,7 +1098,8 @@ export function createCloudMerchantApiKeysHandler({
 
         if (req.method === 'DELETE') {
             try {
-                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+                const auth = await authenticateAdmin(req, res, adminToken, store);
+                if (!auth) return null;
                 const request = normalizeMerchantKeyRequest(parseJsonBody(req.body), req.query || {});
                 if (!request.keyId) throw new Error('key_id is required');
                 const revoked = await store.revokeMerchantApiKey({
@@ -1004,6 +1112,15 @@ export function createCloudMerchantApiKeysHandler({
                     return sendJson(res, 404, { ok: false, error: 'api_key_not_found' });
                 }
 
+                await recordAdminAudit({
+                    store,
+                    actor: auth,
+                    action: 'merchant.api_key.revoke',
+                    targetType: 'merchant',
+                    targetId: request.merchantId,
+                    detail: { key_id: request.keyId },
+                    now,
+                });
                 return sendJson(res, 200, {
                     ok: true,
                     api_key: redactMerchantApiKey(revoked),
@@ -1046,7 +1163,8 @@ export function createCloudMerchantSettingsHandler({
         }
 
         try {
-            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+            const auth = await authenticateAdmin(req, res, adminToken, store);
+            if (!auth) return null;
             const body = parseJsonBody(req.body);
             const enabled = normalizeBoolean(
                 body.full_auto_merchant_mode ?? body.enabled,
@@ -1054,6 +1172,14 @@ export function createCloudMerchantSettingsHandler({
             );
             const row = await store.upsertPlatformSetting('full_auto_merchant_mode', { enabled });
 
+            await recordAdminAudit({
+                store,
+                actor: auth,
+                action: 'merchant_settings.update',
+                targetType: 'platform_settings',
+                targetId: 'full_auto_merchant_mode',
+                detail: { enabled },
+            });
             return sendJson(res, 200, {
                 ok: true,
                 settings: { full_auto_merchant_mode: row?.value || { enabled } },

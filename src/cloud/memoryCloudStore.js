@@ -43,6 +43,7 @@ export function createMemoryCloudStore({ now = () => new Date() } = {}) {
         usageEvents: [],
         merchantWebhookEndpoints: [],
         merchantWebhookDeliveries: [],
+        auditLog: [],
         artifacts: new Map(),
     };
     let publicBaseUrl = '';
@@ -295,6 +296,87 @@ export function createMemoryCloudStore({ now = () => new Date() } = {}) {
                     db.printers.push({ printer_id: randomUUID(), created_at: lastSeenAt, ...fields });
                 }
             }
+        },
+
+        // -- admin audit log -----------------------------------------------------
+        async recordAuditLogEntry(entry) {
+            const row = {
+                audit_id: randomUUID(),
+                actor_email: 'unknown',
+                actor_role: null,
+                auth_type: null,
+                target_type: null,
+                target_id: null,
+                detail: {},
+                created_at: ts(),
+                ...clone(entry),
+            };
+            db.auditLog.push(row);
+            return clone(row);
+        },
+        async listAuditLogEntries({
+            limit = 50, action = null, targetType = null, targetId = null, actorEmail = null,
+        } = {}) {
+            const rows = db.auditLog.filter((row) => (
+                (!action || row.action === action)
+                && (!targetType || row.target_type === targetType)
+                && (!targetId || row.target_id === targetId)
+                && (!actorEmail || row.actor_email === actorEmail)
+            ));
+            return clone(latest(rows, limit));
+        },
+
+        // -- platform-wide job listing + aggregate stats ---------------------------
+        async listPrintJobsAdmin({
+            orgId = null, merchantId = null, statuses = [], search = null, limit = 50, offset = 0,
+        } = {}) {
+            const wanted = new Set((statuses || []).map((status) => String(status).toLowerCase()));
+            const needle = search ? String(search).toLowerCase() : null;
+            const rows = db.printJobs.filter((job) => (
+                (!orgId || job.org_id === orgId)
+                && (!merchantId || job.merchant_id === merchantId)
+                && (wanted.size === 0 || wanted.has(String(job.status || '').toLowerCase()))
+                && (!needle
+                    || String(job.name || '').toLowerCase().includes(needle)
+                    || String(job.job_id || '').toLowerCase().includes(needle))
+            ));
+            const newestFirst = [...rows].reverse();
+            const start = Math.max(0, Number.parseInt(offset, 10) || 0);
+            const size = Math.max(1, Math.min(Number.parseInt(limit, 10) || 50, 100));
+            return clone(newestFirst.slice(start, start + size));
+        },
+        async getCloudStats({ orgId = null } = {}) {
+            const countBy = (rows, key) => rows.reduce((acc, row) => {
+                const value = String(row[key] || 'unknown').toLowerCase();
+                acc[value] = (acc[value] || 0) + 1;
+                return acc;
+            }, {});
+            const nodes = byOrg(db.nodes, orgId);
+            const printers = byOrg(db.printers, orgId);
+            const jobs = byOrg(db.printJobs, orgId);
+            const commands = byOrg(db.commands, orgId);
+            const merchants = orgId ? db.merchants.filter((m) => m.org_id === orgId) : db.merchants;
+            const dayAgo = now().getTime() - 24 * 60 * 60 * 1000;
+            const pendingStatuses = new Set(['queued', 'claimed', 'running']);
+
+            return clone({
+                nodes: { total: nodes.length, by_status: countBy(nodes, 'status') },
+                printers: { total: printers.length, by_status: countBy(printers, 'status') },
+                jobs: {
+                    total: jobs.length,
+                    by_status: countBy(jobs, 'status'),
+                    created_last_24h: jobs.filter((job) => (
+                        job.created_at && new Date(job.created_at).getTime() >= dayAgo
+                    )).length,
+                },
+                commands: {
+                    total: commands.length,
+                    pending: commands.filter((command) => pendingStatuses.has(String(command.status || '').toLowerCase())).length,
+                    by_status: countBy(commands, 'status'),
+                },
+                merchants: { total: merchants.length, by_status: countBy(merchants, 'status') },
+                sampled: false,
+            });
         },
 
         // -- overview ------------------------------------------------------------

@@ -15,14 +15,23 @@ import {
     createCloudCommandHandler,
     createCloudSetupStatusHandler,
     createCloudFarmAutomationHandler,
+    createCloudMerchantApiKeysHandler,
+    createCloudMerchantJobsHandler,
     createCloudMerchantSettingsHandler,
     createCloudMerchantSetupTokenHandler,
+    createCloudMerchantUsageHandler,
+    createCloudMerchantV2Handler,
     createCloudMerchantsHandler,
     createCloudNodePackageHandler,
     createCloudNodeProvisionHandler,
     createCloudOrganizationHandler,
     createCloudOverviewHandler,
 } from './adminHandlers.js';
+import {
+    createCloudAuditLogHandler,
+    createCloudJobsHandler,
+    createCloudStatsHandler,
+} from './adminOpsHandlers.js';
 import {
     createClaimCommandsHandler,
     createCommandResultHandler,
@@ -103,6 +112,16 @@ export function createLocalCloudApp({
     app.all('/api/cloud/merchants', wire(createCloudMerchantsHandler({ store, adminToken, merchantPepper: pepper })));
     app.all('/api/cloud/merchant-settings', wire(createCloudMerchantSettingsHandler({ store, adminToken })));
     app.all('/api/cloud/merchant-setup-token', wire(createCloudMerchantSetupTokenHandler({ store, adminToken, merchantPepper: pepper })));
+    app.all('/api/cloud/merchant-api-keys', wire(createCloudMerchantApiKeysHandler({ store, adminToken, merchantPepper: pepper, now })));
+    app.all('/api/cloud/merchant-jobs', wire(createCloudMerchantJobsHandler({ store, adminToken })));
+    app.all('/api/cloud/merchant-usage', wire(createCloudMerchantUsageHandler({ store, adminToken })));
+    app.all('/api/cloud/merchant-v2', wire(createCloudMerchantV2Handler({ store, adminToken })));
+
+    // Platform-wide operations: job list/cancel/redispatch, dashboard stats,
+    // and the admin audit trail.
+    app.all('/api/cloud/jobs', wire(createCloudJobsHandler({ store, adminToken, now })));
+    app.all('/api/cloud/stats', wire(createCloudStatsHandler({ store, adminToken, now })));
+    app.all('/api/cloud/audit', wire(createCloudAuditLogHandler({ store, adminToken })));
 
     // Agent (edge node) endpoints.
     app.all('/api/agent/heartbeat', wire(createHeartbeatHandler({ store, pepper, now })));

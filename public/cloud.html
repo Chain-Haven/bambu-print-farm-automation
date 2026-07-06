@@ -98,9 +98,11 @@
       <div class="console-toolbar">
         <nav id="console-tabs" class="console-tabs" aria-label="Console sections">
           <button type="button" class="tab-btn active" data-tab="fleet">Fleet</button>
+          <button type="button" class="tab-btn" data-tab="jobs">Jobs</button>
           <button type="button" class="tab-btn" data-tab="merchants">Merchants</button>
           <button type="button" class="tab-btn" data-tab="nodes">Nodes &amp; Setup</button>
           <button type="button" class="tab-btn" data-tab="automation">Automation</button>
+          <button type="button" class="tab-btn" data-tab="activity">Activity</button>
         </nav>
         <button id="refresh" type="button" class="ghost-button">↻ Refresh</button>
       </div>
@@ -172,6 +174,51 @@
       </div>
 
       </div><!-- /tab-fleet -->
+
+      <!-- ============================================================= -->
+      <!-- TAB: JOBS — every print job on the platform                   -->
+      <!-- ============================================================= -->
+      <div id="tab-jobs" class="tab-panel" data-tab-panel="jobs" hidden>
+
+      <section class="panel jobs-admin-section" aria-label="All print jobs">
+        <div class="panel-heading">
+          <div>
+            <h2>Print Jobs</h2>
+            <span>Every job on the platform — filter, cancel, redispatch</span>
+          </div>
+          <div class="jobs-actions">
+            <button id="jobs-redispatch-all" type="button" class="ghost-button">⟳ Redispatch waiting</button>
+            <button id="jobs-refresh" type="button" class="ghost-button">↻ Refresh</button>
+          </div>
+        </div>
+        <div class="jobs-toolbar">
+          <div id="jobs-status-chips" class="chip-row" role="group" aria-label="Filter by status">
+            <button type="button" class="chip active" data-jobs-status="">All</button>
+            <button type="button" class="chip" data-jobs-status="printing">Printing</button>
+            <button type="button" class="chip" data-jobs-status="queued,assigned,transforming,uploading">Queued</button>
+            <button type="button" class="chip" data-jobs-status="waiting_for_capacity">Waiting</button>
+            <button type="button" class="chip" data-jobs-status="needs_approval,reprint_requested">Needs attention</button>
+            <button type="button" class="chip" data-jobs-status="completed">Completed</button>
+            <button type="button" class="chip" data-jobs-status="failed">Failed</button>
+            <button type="button" class="chip" data-jobs-status="canceled">Canceled</button>
+          </div>
+          <input id="jobs-search" type="search" class="table-search" placeholder="Search by name or job ID…" autocomplete="off">
+        </div>
+        <div class="table-panel">
+          <div class="panel-heading">
+            <h2>Results</h2>
+            <span id="admin-job-count">0</span>
+          </div>
+          <div id="jobs-admin-table"></div>
+          <div class="jobs-paging">
+            <button id="jobs-prev" type="button" class="ghost-button" disabled>← Newer</button>
+            <span id="jobs-page-label">Page 1</span>
+            <button id="jobs-next" type="button" class="ghost-button" disabled>Older →</button>
+          </div>
+        </div>
+      </section>
+
+      </div><!-- /tab-jobs -->
 
       <!-- ============================================================= -->
       <!-- TAB: MERCHANTS — one workspace instead of six panels          -->
@@ -776,6 +823,40 @@
         </section>
 
       </div><!-- /tab-automation -->
+
+      <!-- ============================================================= -->
+      <!-- TAB: ACTIVITY — audit trail + platform event feed             -->
+      <!-- ============================================================= -->
+      <div id="tab-activity" class="tab-panel" data-tab-panel="activity" hidden>
+
+      <section class="table-stack" aria-label="Audit trail and events">
+        <div class="table-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Audit Log</h2>
+              <span>Every privileged admin action — who, what, when</span>
+            </div>
+            <span id="audit-count">0</span>
+          </div>
+          <div class="activity-toolbar">
+            <input id="audit-search" type="search" class="table-search" placeholder="Filter by action, actor, or target…" autocomplete="off">
+            <button id="audit-refresh" type="button" class="ghost-button">↻ Refresh</button>
+          </div>
+          <div id="audit-table"></div>
+        </div>
+        <div class="table-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Node Events</h2>
+              <span>Latest events reported by the farm nodes</span>
+            </div>
+            <span id="activity-event-count">0</span>
+          </div>
+          <div id="activity-events-table"></div>
+        </div>
+      </section>
+
+      </div><!-- /tab-activity -->
     </div><!-- /#console-view -->
   </main>
 
@@ -848,6 +929,21 @@
       <button type="submit" class="primary-btn">Adopt into farm</button>
       <p id="adopt-status" class="field-hint" hidden></p>
     </form>
+  </div>
+
+  <!-- Promise-based confirm dialog (replaces window.confirm): destructive
+       actions state exactly what will happen and require an explicit click. -->
+  <div id="confirm-modal" class="modal-backdrop" hidden>
+    <div class="modal confirm-modal" role="alertdialog" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+      <div class="panel-heading">
+        <h2 id="confirm-title">Are you sure?</h2>
+      </div>
+      <p id="confirm-message" class="confirm-message"></p>
+      <div class="button-row confirm-buttons">
+        <button id="confirm-cancel" type="button" class="ghost-button">Cancel</button>
+        <button id="confirm-accept" type="button" class="danger-button">Confirm</button>
+      </div>
+    </div>
   </div>
 
   <div id="toast" class="toast" hidden></div>

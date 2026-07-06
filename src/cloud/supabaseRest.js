@@ -242,6 +242,18 @@ const PRINT_JOB_SELECT = [
     'updated_at',
 ].join(',');
 
+const ADMIN_AUDIT_LOG_SELECT = [
+    'audit_id',
+    'actor_email',
+    'actor_role',
+    'auth_type',
+    'action',
+    'target_type',
+    'target_id',
+    'detail',
+    'created_at',
+].join(',');
+
 const ROUTING_DECISION_SELECT = [
     'decision_id',
     'org_id',
@@ -1043,6 +1055,88 @@ export function createSupabaseRestClient({
             };
         },
 
+        // Aggregate dashboard counts. Computed over the most recent STATS_SAMPLE
+        // rows per table (id-free status projections) — exact for farms below the
+        // sample size, and `sampled: true` flags when a table hit the cap.
+        async getCloudStats({ orgId = null } = {}) {
+            const STATS_SAMPLE = 1000;
+            const orgFilter = orgId ? `&org_id=eq.${encodeURIComponent(orgId)}` : '';
+            const [nodes, printers, jobs, commands, merchants] = await Promise.all([
+                request(`/rest/v1/farm_nodes?select=status${orgFilter}&limit=${STATS_SAMPLE}`),
+                request(`/rest/v1/cloud_printers?select=status${orgFilter}&limit=${STATS_SAMPLE}`),
+                request(`/rest/v1/print_jobs?select=status,created_at&order=created_at.desc${orgFilter}&limit=${STATS_SAMPLE}`),
+                request(`/rest/v1/node_commands?select=status&order=created_at.desc${orgFilter}&limit=${STATS_SAMPLE}`),
+                request(`/rest/v1/merchants?select=status${orgFilter}&limit=${STATS_SAMPLE}`),
+            ]);
+
+            const asRows = (value) => (Array.isArray(value) ? value : []);
+            const countBy = (rows) => rows.reduce((acc, row) => {
+                const value = String(row.status || 'unknown').toLowerCase();
+                acc[value] = (acc[value] || 0) + 1;
+                return acc;
+            }, {});
+            const pendingStatuses = new Set(['queued', 'claimed', 'running']);
+            const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+            const jobRows = asRows(jobs);
+            const commandRows = asRows(commands);
+
+            return {
+                nodes: { total: asRows(nodes).length, by_status: countBy(asRows(nodes)) },
+                printers: { total: asRows(printers).length, by_status: countBy(asRows(printers)) },
+                jobs: {
+                    total: jobRows.length,
+                    by_status: countBy(jobRows),
+                    created_last_24h: jobRows.filter((job) => (
+                        job.created_at && new Date(job.created_at).getTime() >= dayAgo
+                    )).length,
+                },
+                commands: {
+                    total: commandRows.length,
+                    pending: commandRows.filter((command) => pendingStatuses.has(String(command.status || '').toLowerCase())).length,
+                    by_status: countBy(commandRows),
+                },
+                merchants: { total: asRows(merchants).length, by_status: countBy(asRows(merchants)) },
+                sampled: [nodes, printers, jobs, commands, merchants]
+                    .some((rows) => asRows(rows).length >= STATS_SAMPLE),
+            };
+        },
+
+        // -- admin audit log (table ships in migration 20260706090000) ----------
+        async recordAuditLogEntry(entry) {
+            try {
+                const rows = await request(
+                    `/rest/v1/admin_audit_log?select=${ADMIN_AUDIT_LOG_SELECT}`,
+                    {
+                        method: 'POST',
+                        headers: { Prefer: 'return=representation' },
+                        body: entry,
+                    },
+                );
+                return firstRow(rows);
+            } catch (error) {
+                rethrowMissingTableError(error, 'admin_audit_log');
+            }
+        },
+
+        async listAuditLogEntries({
+            limit = 50, action = null, targetType = null, targetId = null, actorEmail = null,
+        } = {}) {
+            try {
+                const params = new URLSearchParams();
+                if (action) params.set('action', `eq.${action}`);
+                if (targetType) params.set('target_type', `eq.${targetType}`);
+                if (targetId) params.set('target_id', `eq.${targetId}`);
+                if (actorEmail) params.set('actor_email', `eq.${actorEmail}`);
+                params.set('select', ADMIN_AUDIT_LOG_SELECT);
+                params.set('order', 'created_at.desc');
+                params.set('limit', String(boundedLimit(limit)));
+                const rows = await request(`/rest/v1/admin_audit_log?${params.toString()}`);
+                return Array.isArray(rows) ? rows : [];
+            } catch (error) {
+                rethrowMissingTableError(error, 'admin_audit_log');
+            }
+        },
+
         async createNodeCommand(command) {
             const rows = await request(
                 '/rest/v1/node_commands?select=command_id,org_id,node_id,printer_id,job_id,command_type,status,payload,result,error,claimed_at,finished_at,created_at,updated_at',
@@ -1127,6 +1221,28 @@ export function createSupabaseRestClient({
             // Oldest first: the job that has waited longest dispatches first.
             params.set('order', 'created_at.asc');
             params.set('limit', String(Math.max(1, Math.min(limit, 100))));
+            const rows = await request(`/rest/v1/print_jobs?${params.toString()}`);
+            return Array.isArray(rows) ? rows : [];
+        },
+
+        // Platform-wide job listing for the operator console: status/merchant/
+        // org filters, name search, offset pagination, newest first.
+        async listPrintJobsAdmin({
+            orgId = null, merchantId = null, statuses = [], search = null, limit = 50, offset = 0,
+        } = {}) {
+            const params = new URLSearchParams();
+            if (orgId) params.set('org_id', `eq.${orgId}`);
+            if (merchantId) params.set('merchant_id', `eq.${merchantId}`);
+            const statusList = (Array.isArray(statuses) ? statuses : [])
+                .map((status) => String(status || '').trim())
+                .filter(Boolean);
+            if (statusList.length > 0) params.set('status', statusInFilter(statusList));
+            if (search) params.set('name', `ilike.*${String(search).replace(/[*,()]/g, ' ').trim()}*`);
+            params.set('select', PRINT_JOB_SELECT);
+            params.set('order', 'created_at.desc');
+            params.set('limit', String(boundedLimit(limit)));
+            const boundedOffset = Math.max(0, Number.parseInt(offset, 10) || 0);
+            if (boundedOffset > 0) params.set('offset', String(boundedOffset));
             const rows = await request(`/rest/v1/print_jobs?${params.toString()}`);
             return Array.isArray(rows) ? rows : [];
         },

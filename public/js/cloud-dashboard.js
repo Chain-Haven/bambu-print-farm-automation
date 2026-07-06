@@ -48,7 +48,17 @@ const state = {
   provisionedNode: null,
   admin: null,
   adminUsers: [],
+  stats: null,
+  adminJobs: [],
+  jobsFilter: { status: '', q: '', offset: 0 },
+  auditEntries: [],
+  auditFilter: '',
 };
+
+const JOBS_PAGE_SIZE = 50;
+const ACTIVE_JOB_STATUSES = new Set([
+  'queued', 'assigned', 'transforming', 'uploading', 'printing', 'waiting_for_capacity',
+]);
 
 let farmAutomationRequestSequence = 0;
 
@@ -274,10 +284,27 @@ const elements = {
   dropZone: $('#drop-zone'),
   dropFileInput: $('#drop-file-input'),
   dropStatus: $('#drop-status'),
+  // Jobs tab
+  jobsStatusChips: $('#jobs-status-chips'),
+  jobsSearch: $('#jobs-search'),
+  jobsRefresh: $('#jobs-refresh'),
+  jobsRedispatchAll: $('#jobs-redispatch-all'),
+  jobsPrev: $('#jobs-prev'),
+  jobsNext: $('#jobs-next'),
+  jobsPageLabel: $('#jobs-page-label'),
+  // Activity tab
+  auditSearch: $('#audit-search'),
+  auditRefresh: $('#audit-refresh'),
+  // Confirm dialog
+  confirmModal: $('#confirm-modal'),
+  confirmTitle: $('#confirm-title'),
+  confirmMessage: $('#confirm-message'),
+  confirmAccept: $('#confirm-accept'),
+  confirmCancel: $('#confirm-cancel'),
 };
 
 // ===== Tabbed console =====
-const TAB_NAMES = ['fleet', 'merchants', 'nodes', 'automation'];
+const TAB_NAMES = ['fleet', 'jobs', 'merchants', 'nodes', 'automation', 'activity'];
 
 function activeTab() {
   const fromHash = (window.location.hash.match(/tab=([a-z]+)/) || [])[1];
@@ -295,6 +322,12 @@ function showTab(name) {
   const nextHash = `#tab=${tab}`;
   if (window.location.hash !== nextHash) {
     window.history.replaceState(null, '', nextHash);
+  }
+  // Lazy-load tab data so switching always shows fresh rows (once signed in
+  // and the console is visible — never during the pre-login boot).
+  if (getAdminToken() && elements.consoleView && !elements.consoleView.hidden) {
+    if (tab === 'jobs') refreshAdminJobs().catch(() => {});
+    if (tab === 'activity') refreshAudit().catch(() => {});
   }
 }
 
@@ -324,13 +357,49 @@ function setAdminAuthState(label, mode = '') {
   elements.adminAuthState.className = mode;
 }
 
-function showToast(message) {
+// mode: '' (info), 'ok', 'error', 'warn' — colors the toast so failures are
+// visually distinct from confirmations.
+function showToast(message, mode = '') {
   elements.toast.textContent = message;
+  elements.toast.className = `toast ${mode}`.trim();
   elements.toast.hidden = false;
   window.clearTimeout(showToast.timeoutId);
   showToast.timeoutId = window.setTimeout(() => {
     elements.toast.hidden = true;
-  }, 4500);
+  }, mode === 'error' ? 7000 : 4500);
+}
+
+// Promise-based confirm dialog replacing window.confirm: destructive actions
+// state exactly what will happen and require an explicit click.
+function confirmDialog({ title = 'Are you sure?', message = '', confirmLabel = 'Confirm', danger = true } = {}) {
+  const modal = elements.confirmModal;
+  if (!modal) return Promise.resolve(window.confirm(message || title));
+
+  elements.confirmTitle.textContent = title;
+  elements.confirmMessage.textContent = message;
+  elements.confirmAccept.textContent = confirmLabel;
+  elements.confirmAccept.className = danger ? 'danger-button' : 'primary-btn';
+  modal.hidden = false;
+  elements.confirmAccept.focus();
+
+  return new Promise((resolve) => {
+    const settle = (result) => {
+      modal.hidden = true;
+      elements.confirmAccept.removeEventListener('click', onAccept);
+      elements.confirmCancel.removeEventListener('click', onCancel);
+      modal.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    };
+    const onAccept = () => settle(true);
+    const onCancel = () => settle(false);
+    const onBackdrop = (event) => { if (event.target === modal) settle(false); };
+    const onKey = (event) => { if (event.key === 'Escape') settle(false); };
+    elements.confirmAccept.addEventListener('click', onAccept);
+    elements.confirmCancel.addEventListener('click', onCancel);
+    modal.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+  });
 }
 
 function getAdminToken() {
@@ -469,9 +538,56 @@ function formatDate(value) {
   return date.toLocaleString();
 }
 
+// "3m ago" / "2h ago" — tables show relative age (with the absolute timestamp
+// in the tooltip) so the operator can scan freshness at a glance.
+function timeAgo(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const seconds = Math.round((Date.now() - date.getTime()) / 1000);
+  if (seconds < 0) return formatDate(value);
+  if (seconds < 45) return 'just now';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 14) return `${days}d ago`;
+  return date.toLocaleDateString();
+}
+
+function makeTime(value) {
+  if (!value) return '-';
+  const el = document.createElement('time');
+  el.dateTime = String(value);
+  el.textContent = timeAgo(value);
+  el.title = formatDate(value);
+  return el;
+}
+
 function shortId(value) {
   if (!value) return '-';
   return String(value).slice(0, 8);
+}
+
+// Clickable short-ID chip: shows the 8-char prefix, click copies the full ID.
+function makeIdChip(value) {
+  if (!value) return '-';
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.className = 'id-chip';
+  chip.textContent = shortId(value);
+  chip.title = `${value} — click to copy`;
+  chip.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(String(value));
+      showToast('ID copied to clipboard', 'ok');
+    } catch {
+      showToast(String(value));
+    }
+  });
+  return chip;
 }
 
 function jsonSummary(value, length = 110) {
@@ -497,7 +613,8 @@ function formatMoney(value, currency = 'USD') {
 function makeStatus(value) {
   const span = document.createElement('span');
   span.className = `status ${String(value || 'unknown').toLowerCase()}`;
-  span.textContent = value || 'unknown';
+  // Humanize snake_case for display; the class keeps the raw value for color.
+  span.textContent = String(value || 'unknown').replace(/_/g, ' ');
   return span;
 }
 
@@ -592,38 +709,99 @@ async function refreshSetupStatus() {
   return payload.setup;
 }
 
+// Dashboard tiles prefer the server-side /api/cloud/stats aggregates (exact,
+// not capped by the overview row limit); the overview arrays remain the
+// fallback for deployments that predate the stats endpoint. Tiles deep-link
+// into the tab that answers "why is this number what it is".
 function renderMetrics() {
   const overview = state.overview;
-  const pendingCommands = overview.commands.filter((command) => ['queued', 'claimed', 'running'].includes(command.status)).length;
-  const onlineNodes = overview.nodes.filter((node) => node.status === 'online').length;
-  const onlinePrinters = overview.printers.filter((printer) => printer.status === 'online').length;
-  const usageQuantity = state.merchantUsage.reduce((sum, event) => sum + (Number(event.quantity) || 0), 0);
+  const stats = state.stats;
+
+  const onlineNodes = stats?.nodes?.by_status?.online ?? overview.nodes.filter((node) => node.status === 'online').length;
+  const totalNodes = stats?.nodes?.total ?? overview.nodes.length;
+  const onlinePrinters = stats?.printers?.by_status?.online ?? overview.printers.filter((printer) => printer.status === 'online').length;
+  const totalPrinters = stats?.printers?.total ?? overview.printers.length;
+  const jobsByStatus = stats?.jobs?.by_status || null;
+  const activeJobs = jobsByStatus
+    ? Object.entries(jobsByStatus).reduce((sum, [status, count]) => (ACTIVE_JOB_STATUSES.has(status) ? sum + count : sum), 0)
+    : overview.jobs.filter((job) => ACTIVE_JOB_STATUSES.has(String(job.status || '').toLowerCase())).length;
+  const waitingJobs = jobsByStatus?.waiting_for_capacity
+    ?? overview.jobs.filter((job) => String(job.status || '').toLowerCase() === 'waiting_for_capacity').length;
+  const failedJobs = jobsByStatus?.failed
+    ?? overview.jobs.filter((job) => String(job.status || '').toLowerCase() === 'failed').length;
+  const jobs24h = stats?.jobs?.created_last_24h ?? null;
+  const pendingCommands = stats?.commands?.pending
+    ?? overview.commands.filter((command) => ['queued', 'claimed', 'running'].includes(command.status)).length;
+  const pendingMerchants = stats?.merchants?.by_status?.pending ?? null;
+  const totalMerchants = stats?.merchants?.total ?? state.merchants.length;
   const automationAlerts = state.farmAutomation.plan?.alerts?.length || 0;
+
   const metrics = [
-    ['Nodes Online', `${onlineNodes}/${overview.nodes.length}`],
-    ['Printers Online', `${onlinePrinters}/${overview.printers.length}`],
-    ['Print Jobs', overview.jobs.length],
-    ['Pending Commands', pendingCommands],
-    ['Merchants', state.merchants.length],
-    ['Usage Units', formatNumber(usageQuantity)],
-    ['Auto Alerts', automationAlerts],
+    { label: 'Nodes Online', value: `${onlineNodes}/${totalNodes}`, tab: 'nodes', alert: totalNodes > 0 && onlineNodes === 0 },
+    { label: 'Printers Online', value: `${onlinePrinters}/${totalPrinters}`, tab: 'fleet' },
+    { label: 'Active Jobs', value: activeJobs, tab: 'jobs' },
+    { label: 'Waiting Jobs', value: waitingJobs, tab: 'jobs', alert: waitingJobs > 0 },
+    { label: 'Failed Jobs', value: failedJobs, tab: 'jobs', alert: failedJobs > 0 },
+    ...(jobs24h === null ? [] : [{ label: 'Jobs (24h)', value: jobs24h, tab: 'jobs' }]),
+    { label: 'Pending Commands', value: pendingCommands, tab: 'automation' },
+    {
+      label: 'Merchants',
+      value: pendingMerchants ? `${totalMerchants} (${pendingMerchants} pending)` : totalMerchants,
+      tab: 'merchants',
+      alert: Boolean(pendingMerchants),
+    },
+    { label: 'Auto Alerts', value: automationAlerts, tab: 'automation', alert: automationAlerts > 0 },
   ];
 
-  elements.metrics.replaceChildren(...metrics.map(([label, count]) => {
-    const item = document.createElement('div');
-    item.className = 'metric';
+  elements.metrics.replaceChildren(...metrics.map(({ label, value, tab, alert }) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = `metric${alert ? ' metric-alert' : ''}`;
+    item.title = `Open ${tab}`;
+    item.addEventListener('click', () => showTab(tab));
 
     const name = document.createElement('span');
     name.textContent = label;
 
-    const value = document.createElement('strong');
-    value.textContent = String(count);
+    const count = document.createElement('strong');
+    count.textContent = String(value);
+    if (String(value).length > 6) count.classList.add('long-value');
 
-    item.append(name, value);
+    item.append(name, count);
     return item;
   }));
 }
 
+async function refreshStats() {
+  try {
+    const payload = await apiRequest('/api/cloud/stats');
+    state.stats = payload.stats || null;
+  } catch {
+    state.stats = null; // older deployments: tiles fall back to overview counts
+  }
+  renderMetrics();
+  return state.stats;
+}
+
+// Per-table UI state (sort column/direction) preserved across re-renders.
+const tableUiState = new Map();
+
+function columnSortValue(column, row) {
+  if (typeof column.sort === 'function') return column.sort(row);
+  const value = column.value(row);
+  return value instanceof Node ? value.textContent : value;
+}
+
+function compareSortValues(a, b) {
+  const aNum = Number(a);
+  const bNum = Number(b);
+  if (Number.isFinite(aNum) && Number.isFinite(bNum)) return aNum - bNum;
+  return String(a ?? '').localeCompare(String(b ?? ''), undefined, { sensitivity: 'base' });
+}
+
+// Every console table gets sortable headers (click to toggle) for free.
+// Columns can supply a raw `sort(row)` accessor; otherwise the rendered text
+// is compared (numeric when both sides parse as numbers).
 function renderTable(target, columns, rows, emptyText) {
   const container = $(target);
   if (!rows.length) {
@@ -634,6 +812,17 @@ function renderTable(target, columns, rows, emptyText) {
     return;
   }
 
+  const uiState = tableUiState.get(target) || { sortIndex: -1, sortDir: 1 };
+  tableUiState.set(target, uiState);
+
+  let sortedRows = rows;
+  if (uiState.sortIndex >= 0 && uiState.sortIndex < columns.length) {
+    const column = columns[uiState.sortIndex];
+    sortedRows = [...rows].sort((a, b) => (
+      uiState.sortDir * compareSortValues(columnSortValue(column, a), columnSortValue(column, b))
+    ));
+  }
+
   const shell = document.createElement('div');
   shell.className = 'table-shell';
 
@@ -641,15 +830,30 @@ function renderTable(target, columns, rows, emptyText) {
   const thead = document.createElement('thead');
   const headRow = document.createElement('tr');
 
-  columns.forEach((column) => {
+  columns.forEach((column, index) => {
     const th = document.createElement('th');
     th.textContent = column.label;
+    if (column.label) {
+      th.classList.add('sortable');
+      if (uiState.sortIndex === index) {
+        th.classList.add(uiState.sortDir === 1 ? 'sorted-asc' : 'sorted-desc');
+      }
+      th.addEventListener('click', () => {
+        if (uiState.sortIndex === index) {
+          uiState.sortDir = -uiState.sortDir;
+        } else {
+          uiState.sortIndex = index;
+          uiState.sortDir = 1;
+        }
+        renderTable(target, columns, rows, emptyText);
+      });
+    }
     headRow.append(th);
   });
   thead.append(headRow);
 
   const tbody = document.createElement('tbody');
-  rows.forEach((row) => {
+  sortedRows.forEach((row) => {
     const tr = document.createElement('tr');
     columns.forEach((column) => {
       const td = document.createElement('td');
@@ -739,7 +943,7 @@ function selectMerchant(merchant) {
     window.localStorage.setItem(storageKeys.orgId, merchant.org_id);
   }
   if (merchantId) {
-    refreshMerchantOperationalData(merchantId).catch((error) => showToast(error.message));
+    refreshMerchantOperationalData(merchantId).catch((error) => showToast(error.message, 'error'));
   }
 }
 
@@ -1083,7 +1287,7 @@ async function handleAmsApply(event) {
 
   const material = row.querySelector('select[data-role="material"]').value;
   if (!material) {
-    showToast('Pick a material for the slot first');
+    showToast('Pick a material for the slot first', 'warn');
     return;
   }
   const colorHex = row.querySelector('select[data-role="color"]').value;
@@ -1130,12 +1334,13 @@ function renderOverview() {
     { label: 'Version', value: (row) => row.agent_version || '-' },
     { label: 'Host', value: (row) => row.host_info?.hostname || '-' },
     { label: 'Slicer', value: (row) => (row.capabilities?.can_slice === true ? 'yes' : '-') },
-    { label: 'Last seen', value: (row) => formatDate(row.last_seen_at) },
+    { label: 'Last seen', value: (row) => makeTime(row.last_seen_at), sort: (row) => row.last_seen_at || '' },
+    { label: 'ID', value: (row) => makeIdChip(row.node_id), sort: (row) => row.node_id || '' },
     { label: 'Detail', value: (row) => makeDetailButton('Open', `Node ${shortId(row.node_id)}`, row) },
     {
       label: 'Actions',
       value: (row) => makeButton('Delete', () => {
-        handleDeleteNode(row).catch((error) => showToast(error.message));
+        handleDeleteNode(row).catch((error) => showToast(error.message, 'error'));
       }, 'ghost-button small-button danger-button'),
     },
   ], overview.nodes, 'No nodes found.');
@@ -1144,9 +1349,9 @@ function renderOverview() {
     { label: 'Printer', value: (row) => row.name || row.local_printer_id || '-' },
     { label: 'Status', value: (row) => makeStatus(row.status) },
     { label: 'Model', value: (row) => row.model || '-' },
-    { label: 'Node', value: (row) => shortId(row.node_id) },
+    { label: 'Node', value: (row) => (row.node_id ? makeIdChip(row.node_id) : '-') },
     { label: 'Local ID', value: (row) => row.local_printer_id || '-' },
-    { label: 'Last seen', value: (row) => formatDate(row.last_seen_at) },
+    { label: 'Last seen', value: (row) => makeTime(row.last_seen_at), sort: (row) => row.last_seen_at || '' },
     { label: 'Snapshot', value: (row) => jsonSummary(row.status_snapshot) },
     { label: 'Detail', value: (row) => makeDetailButton('Open', `Printer ${shortId(row.printer_id)}`, row) },
   ], overview.printers, 'No printers found.');
@@ -1154,9 +1359,9 @@ function renderOverview() {
   renderTable('#jobs-table', [
     { label: 'Job', value: (row) => row.name || shortId(row.job_id) },
     { label: 'Status', value: (row) => makeStatus(row.status) },
-    { label: 'Node', value: (row) => shortId(row.node_id) },
-    { label: 'Printer', value: (row) => shortId(row.printer_id) },
-    { label: 'Created', value: (row) => formatDate(row.created_at) },
+    { label: 'Node', value: (row) => (row.node_id ? makeIdChip(row.node_id) : '-') },
+    { label: 'Printer', value: (row) => row.routing_summary?.selected_local_printer_id || (row.printer_id ? shortId(row.printer_id) : '-') },
+    { label: 'Created', value: (row) => makeTime(row.created_at), sort: (row) => row.created_at || '' },
     { label: 'Options', value: (row) => jsonSummary(row.options) },
     { label: 'Detail', value: (row) => makeDetailButton('Open', `Job ${shortId(row.job_id)}`, row) },
   ], overview.jobs, 'No jobs found.');
@@ -1164,19 +1369,19 @@ function renderOverview() {
   renderTable('#commands-table', [
     { label: 'Command', value: (row) => row.command_type || shortId(row.command_id) },
     { label: 'Status', value: (row) => makeStatus(row.status) },
-    { label: 'Node', value: (row) => shortId(row.node_id) },
-    { label: 'Created', value: (row) => formatDate(row.created_at) },
-    { label: 'Finished', value: (row) => formatDate(row.finished_at) },
+    { label: 'Node', value: (row) => (row.node_id ? makeIdChip(row.node_id) : '-') },
+    { label: 'Created', value: (row) => makeTime(row.created_at), sort: (row) => row.created_at || '' },
+    { label: 'Finished', value: (row) => makeTime(row.finished_at), sort: (row) => row.finished_at || '' },
     { label: 'Error', value: (row) => row.error || '-' },
     { label: 'Detail', value: (row) => makeDetailButton('Open', `Command ${shortId(row.command_id)}`, row) },
   ], overview.commands, 'No commands found.');
 
   renderTable('#events-table', [
     { label: 'Event', value: (row) => row.event_type || shortId(row.event_id) },
-    { label: 'Node', value: (row) => shortId(row.node_id) },
+    { label: 'Node', value: (row) => (row.node_id ? makeIdChip(row.node_id) : '-') },
     { label: 'Printer', value: (row) => shortId(row.printer_id) },
     { label: 'Command', value: (row) => shortId(row.command_id) },
-    { label: 'Created', value: (row) => formatDate(row.created_at) },
+    { label: 'Created', value: (row) => makeTime(row.created_at), sort: (row) => row.created_at || '' },
     { label: 'Payload', value: (row) => jsonSummary(row.payload) },
     { label: 'Detail', value: (row) => makeDetailButton('Open', `Event ${shortId(row.event_id)}`, row) },
   ], overview.events, 'No events found.');
@@ -1184,15 +1389,19 @@ function renderOverview() {
   renderMerchants();
   renderMerchantOperationalTables();
   renderFarmAutomation();
+  renderActivityEvents();
   updateCounts();
   renderMetrics();
 }
 
 async function handleDeleteNode(node) {
   const label = node.name || shortId(node.node_id);
-  if (!window.confirm(`Delete node "${label}"? Its token stops working immediately and its mirrored printers leave the fleet.`)) {
-    return;
-  }
+  const accepted = await confirmDialog({
+    title: `Delete node "${label}"?`,
+    message: 'Its token stops working immediately and its mirrored printers leave the fleet. Jobs and events keep their history.',
+    confirmLabel: 'Delete node',
+  });
+  if (!accepted) return;
 
   async function requestDelete(force) {
     const params = new URLSearchParams({ node_id: node.node_id });
@@ -1209,7 +1418,12 @@ async function handleDeleteNode(node) {
   let result = await requestDelete(false);
   if (result.status === 409 && result.payload.error === 'node_has_active_work') {
     const detail = `${result.payload.active_jobs || 0} active job(s), ${result.payload.pending_commands || 0} pending command(s)`;
-    if (!window.confirm(`"${label}" still has ${detail}. Delete anyway?`)) return;
+    const forceAccepted = await confirmDialog({
+      title: 'Node still has active work',
+      message: `"${label}" still has ${detail}. Delete anyway?`,
+      confirmLabel: 'Delete anyway',
+    });
+    if (!forceAccepted) return;
     result = await requestDelete(true);
   }
 
@@ -1217,8 +1431,215 @@ async function handleDeleteNode(node) {
     throw new Error(result.payload.message || result.payload.error || `Delete failed with ${result.status}`);
   }
 
-  showToast(`Node "${label}" deleted`);
+  showToast(`Node "${label}" deleted`, 'ok');
   await refreshOverview();
+}
+
+// ===== Jobs tab (platform-wide job list + cancel / redispatch) =====
+let jobsSearchDebounce = 0;
+
+function jobStatusIsCancelable(status) {
+  return !['completed', 'failed', 'canceled'].includes(String(status || '').toLowerCase());
+}
+
+async function refreshAdminJobs() {
+  const params = new URLSearchParams();
+  if (state.jobsFilter.status) params.set('status', state.jobsFilter.status);
+  if (state.jobsFilter.q) params.set('q', state.jobsFilter.q);
+  const orgId = getOrgId();
+  if (orgId) params.set('org_id', orgId);
+  params.set('limit', String(JOBS_PAGE_SIZE));
+  if (state.jobsFilter.offset > 0) params.set('offset', String(state.jobsFilter.offset));
+
+  const payload = await apiRequest(`/api/cloud/jobs?${params.toString()}`);
+  state.adminJobs = payload.jobs || [];
+  renderAdminJobs();
+  return state.adminJobs;
+}
+
+async function handleCancelJob(job) {
+  const label = job.name || shortId(job.job_id);
+  const accepted = await confirmDialog({
+    title: 'Cancel this print job?',
+    message: `"${label}" (${job.status}) will be marked canceled and, if it is on a printer, the printer will be told to stop.`,
+    confirmLabel: 'Cancel job',
+  });
+  if (!accepted) return;
+
+  const payload = await apiRequest('/api/cloud/jobs', {
+    method: 'POST',
+    body: { action: 'cancel', job_id: job.job_id, reason: 'operator console' },
+  });
+  showToast(payload.stop_dispatched
+    ? `"${label}" canceled — stop sent to the printer`
+    : `"${label}" canceled`, 'ok');
+  await Promise.all([refreshAdminJobs(), refreshStats()]);
+}
+
+async function handleRedispatchJob(job) {
+  const payload = await apiRequest('/api/cloud/jobs', {
+    method: 'POST',
+    body: { action: 'redispatch', job_id: job.job_id },
+  });
+  showToast(payload.dispatched > 0
+    ? `Redispatched — ${payload.dispatched} job(s) placed`
+    : 'No free printer yet — the job stays queued for the next heartbeat', payload.dispatched > 0 ? 'ok' : 'warn');
+  await refreshAdminJobs();
+}
+
+async function handleRedispatchAll() {
+  const payload = await apiRequest('/api/cloud/jobs', {
+    method: 'POST',
+    body: { action: 'redispatch' },
+  });
+  showToast(payload.dispatched > 0
+    ? `Redispatched ${payload.dispatched} waiting job(s)`
+    : 'No waiting jobs could be placed right now', payload.dispatched > 0 ? 'ok' : 'warn');
+  await Promise.all([refreshAdminJobs(), refreshStats()]);
+}
+
+function renderAdminJobs() {
+  setText('#admin-job-count', state.adminJobs.length);
+  const page = Math.floor(state.jobsFilter.offset / JOBS_PAGE_SIZE) + 1;
+  if (elements.jobsPageLabel) elements.jobsPageLabel.textContent = `Page ${page}`;
+  if (elements.jobsPrev) elements.jobsPrev.disabled = state.jobsFilter.offset === 0;
+  if (elements.jobsNext) elements.jobsNext.disabled = state.adminJobs.length < JOBS_PAGE_SIZE;
+
+  renderTable('#jobs-admin-table', [
+    { label: 'Job', value: (row) => row.name || shortId(row.job_id) },
+    { label: 'ID', value: (row) => makeIdChip(row.job_id), sort: (row) => row.job_id || '' },
+    { label: 'Status', value: (row) => makeStatus(row.status), sort: (row) => row.status || '' },
+    { label: 'Merchant', value: (row) => (row.merchant_id ? makeIdChip(row.merchant_id) : 'operator'), sort: (row) => row.merchant_id || '' },
+    { label: 'Printer', value: (row) => row.routing_summary?.selected_local_printer_id || (row.printer_id ? shortId(row.printer_id) : '-') },
+    { label: 'Created', value: (row) => makeTime(row.created_at), sort: (row) => row.created_at || '' },
+    { label: 'Updated', value: (row) => makeTime(row.updated_at), sort: (row) => row.updated_at || '' },
+    {
+      label: 'Actions',
+      value: (row) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'row-actions';
+        if (String(row.status || '').toLowerCase() === 'waiting_for_capacity') {
+          wrap.append(makeButton('Redispatch', () => {
+            handleRedispatchJob(row).catch((error) => showToast(error.message, 'error'));
+          }, 'ghost-button small-button'));
+        }
+        if (jobStatusIsCancelable(row.status)) {
+          wrap.append(makeButton('Cancel', () => {
+            handleCancelJob(row).catch((error) => showToast(error.message, 'error'));
+          }, 'ghost-button small-button danger-button'));
+        }
+        wrap.append(makeDetailButton('Detail', `Job ${shortId(row.job_id)}`, row));
+        return wrap;
+      },
+    },
+  ], state.adminJobs, 'No jobs match this filter.');
+}
+
+function bindJobsTab() {
+  if (elements.jobsStatusChips) {
+    elements.jobsStatusChips.addEventListener('click', (event) => {
+      const chip = event.target.closest('[data-jobs-status]');
+      if (!chip) return;
+      elements.jobsStatusChips.querySelectorAll('.chip').forEach((button) => {
+        button.classList.toggle('active', button === chip);
+      });
+      state.jobsFilter.status = chip.dataset.jobsStatus;
+      state.jobsFilter.offset = 0;
+      refreshAdminJobs().catch((error) => showToast(error.message, 'error'));
+    });
+  }
+  if (elements.jobsSearch) {
+    elements.jobsSearch.addEventListener('input', () => {
+      window.clearTimeout(jobsSearchDebounce);
+      jobsSearchDebounce = window.setTimeout(() => {
+        state.jobsFilter.q = elements.jobsSearch.value.trim();
+        state.jobsFilter.offset = 0;
+        refreshAdminJobs().catch((error) => showToast(error.message, 'error'));
+      }, 300);
+    });
+  }
+  if (elements.jobsRefresh) {
+    elements.jobsRefresh.addEventListener('click', () => {
+      refreshAdminJobs().catch((error) => showToast(error.message, 'error'));
+    });
+  }
+  if (elements.jobsRedispatchAll) {
+    elements.jobsRedispatchAll.addEventListener('click', () => {
+      handleRedispatchAll().catch((error) => showToast(error.message, 'error'));
+    });
+  }
+  if (elements.jobsPrev) {
+    elements.jobsPrev.addEventListener('click', () => {
+      state.jobsFilter.offset = Math.max(0, state.jobsFilter.offset - JOBS_PAGE_SIZE);
+      refreshAdminJobs().catch((error) => showToast(error.message, 'error'));
+    });
+  }
+  if (elements.jobsNext) {
+    elements.jobsNext.addEventListener('click', () => {
+      state.jobsFilter.offset += JOBS_PAGE_SIZE;
+      refreshAdminJobs().catch((error) => showToast(error.message, 'error'));
+    });
+  }
+}
+
+// ===== Activity tab (audit log + node event feed) =====
+async function refreshAudit() {
+  const payload = await apiRequest(`/api/cloud/audit?limit=${getRowLimit()}`);
+  state.auditEntries = payload.entries || [];
+  state.auditPendingMigration = payload.pending_migration === true;
+  renderAudit();
+  renderActivityEvents();
+  return state.auditEntries;
+}
+
+function auditMatchesFilter(entry, needle) {
+  if (!needle) return true;
+  return [entry.action, entry.actor_email, entry.target_type, entry.target_id]
+    .some((field) => String(field || '').toLowerCase().includes(needle));
+}
+
+function renderAudit() {
+  const needle = state.auditFilter.toLowerCase();
+  const rows = state.auditEntries.filter((entry) => auditMatchesFilter(entry, needle));
+  setText('#audit-count', rows.length);
+
+  renderTable('#audit-table', [
+    { label: 'When', value: (row) => makeTime(row.created_at), sort: (row) => row.created_at || '' },
+    { label: 'Actor', value: (row) => row.actor_email || '-' },
+    { label: 'Action', value: (row) => makeStatus(row.action), sort: (row) => row.action || '' },
+    { label: 'Target', value: (row) => [row.target_type, row.target_id ? shortId(row.target_id) : null].filter(Boolean).join(' ') || '-' },
+    { label: 'Detail', value: (row) => jsonSummary(row.detail, 120) },
+    { label: 'Open', value: (row) => makeDetailButton('Open', `Audit ${row.action || ''}`.trim(), row) },
+  ], rows, state.auditPendingMigration
+    ? 'Audit log table not migrated yet — run the admin_audit_log migration to start recording.'
+    : 'No admin actions recorded yet.');
+}
+
+function renderActivityEvents() {
+  const events = state.overview.events || [];
+  setText('#activity-event-count', events.length);
+  renderTable('#activity-events-table', [
+    { label: 'When', value: (row) => makeTime(row.created_at), sort: (row) => row.created_at || '' },
+    { label: 'Event', value: (row) => makeStatus(row.event_type), sort: (row) => row.event_type || '' },
+    { label: 'Node', value: (row) => (row.node_id ? makeIdChip(row.node_id) : '-') },
+    { label: 'Printer', value: (row) => (row.printer_id ? shortId(row.printer_id) : '-') },
+    { label: 'Payload', value: (row) => jsonSummary(row.payload, 110) },
+    { label: 'Open', value: (row) => makeDetailButton('Open', `Event ${row.event_type || ''}`.trim(), row) },
+  ], events, 'No node events yet.');
+}
+
+function bindActivityTab() {
+  if (elements.auditSearch) {
+    elements.auditSearch.addEventListener('input', () => {
+      state.auditFilter = elements.auditSearch.value.trim();
+      renderAudit();
+    });
+  }
+  if (elements.auditRefresh) {
+    elements.auditRefresh.addEventListener('click', () => {
+      refreshAudit().catch((error) => showToast(error.message, 'error'));
+    });
+  }
 }
 
 // ===== Drop-in printing =====
@@ -1440,7 +1861,7 @@ async function refreshMerchantOperationalData(merchantId) {
     refreshMerchantUsage(id),
     refreshMerchantV2(id),
   ]);
-  showToast('Merchant data loaded');
+  showToast('Merchant data loaded', 'ok');
 }
 
 async function refreshDashboard() {
@@ -1453,10 +1874,13 @@ async function refreshDashboard() {
   }
   await Promise.all([
     refreshOverview(),
+    refreshStats(),
     refreshMerchantSettings(),
     refreshFarmAutomation(),
     refreshMerchants(),
     refreshAdminUsers(),
+    refreshAdminJobs().catch(() => {}), // older deployments may lack /jobs
+    refreshAudit().catch(() => {}), //    …and /audit
   ]);
   setApiState('Connected', 'online');
 }
@@ -1480,7 +1904,7 @@ async function handleAdminLogin(event) {
     setSignedInAdmin(payload.admin);
     setAdminAuthState(payload.admin?.email || 'Signed in', 'ready-label');
     showConsole(payload.admin?.email || email);
-    showToast('Signed in');
+    showToast('Signed in', 'ok');
     await refreshDashboard();
   } catch (error) {
     if (elements.loginError) {
@@ -1493,7 +1917,7 @@ async function handleAdminLogin(event) {
         elements.loginError.textContent = error.message;
       }
     } else {
-      showToast(error.message);
+      showToast(error.message, 'error');
     }
   }
 }
@@ -1579,7 +2003,7 @@ async function handleFirstSetup(event) {
       setSignedInAdmin(payload.admin);
       setAdminAuthState(payload.admin?.email || email, 'ready-label');
       showConsole(payload.admin?.email || email);
-      showToast('Account ready — signed in');
+      showToast('Account ready — signed in', 'ok');
       await refreshDashboard();
       return;
     }
@@ -1587,7 +2011,7 @@ async function handleFirstSetup(event) {
     showToast('Account created — sign in now');
   } catch (error) {
     if (out) { out.hidden = false; out.textContent = `Setup failed: ${error.message}`; }
-    showToast(error.message);
+    showToast(error.message, 'error');
   }
 }
 
@@ -1616,7 +2040,7 @@ async function handleAdminResetRequest(event) {
       `EXPIRES_AT=${payload.expires_at}`,
       payload.email_sent ? 'EMAIL_SENT=yes' : 'EMAIL_SENT=no (share the link manually)',
     ].join('\n');
-    showToast('Admin reset link issued');
+    showToast('Admin reset link issued', 'ok');
   } else {
     elements.adminResetOutput.textContent = payload.message
       || 'If that email belongs to an operator account, a reset link has been sent.';
@@ -1679,7 +2103,7 @@ async function handleAdminUserCreate(event) {
   elements.adminUserEmail.value = '';
   showAdminUserResult(payload);
   await refreshAdminUsers();
-  showToast('Admin account created');
+  showToast('Admin account created', 'ok');
 }
 
 function renderAdminUsers() {
@@ -1694,15 +2118,15 @@ function renderAdminUsers() {
         const wrap = document.createElement('div');
         wrap.className = 'row-actions';
         wrap.append(makeButton('Reset link', () => {
-          handleAdminUserAction('reset_link', row.email).catch((error) => showToast(error.message));
+          handleAdminUserAction('reset_link', row.email).catch((error) => showToast(error.message, 'error'));
         }, 'ghost-button small-button'));
         if (row.status === 'active') {
           wrap.append(makeButton('Disable', () => {
-            handleAdminUserAction('disable', row.email).catch((error) => showToast(error.message));
+            handleAdminUserAction('disable', row.email).catch((error) => showToast(error.message, 'error'));
           }, 'ghost-button small-button'));
         } else {
           wrap.append(makeButton('Enable', () => {
-            handleAdminUserAction('enable', row.email).catch((error) => showToast(error.message));
+            handleAdminUserAction('enable', row.email).catch((error) => showToast(error.message, 'error'));
           }, 'ghost-button small-button'));
         }
         return wrap;
@@ -1749,7 +2173,7 @@ async function handleCreateOrganization(event) {
     `ORG_ID=${organization.org_id}`,
     `NAME=${organization.name}`,
   ].join('\n');
-  showToast('Organization created');
+  showToast('Organization created', 'ok');
   await refreshOverview();
 }
 
@@ -1810,7 +2234,7 @@ async function handleProvisionNode(event) {
     capabilities,
   });
   elements.downloadButtons.hidden = false;
-  showToast('Node provisioned');
+  showToast('Node provisioned', 'ok');
   await refreshOverview();
 }
 
@@ -1896,7 +2320,7 @@ async function handleDownloadExe() {
   // Self-hosted case: the server streamed a locally-built farm-node.exe.
   const blob = await response.blob();
   triggerBlobDownload(blob, 'farm-node.exe');
-  showToast('Windows .exe downloaded');
+  showToast('Windows .exe downloaded', 'ok');
 }
 
 async function handleNodeQuickstart(event) {
@@ -1938,7 +2362,7 @@ async function handleNodeQuickstart(event) {
     await handleDownloadPortable();
   }
 
-  showToast('Windows manager ready');
+  showToast('Windows manager ready', 'ok');
   await refreshOverview();
 }
 
@@ -1981,7 +2405,7 @@ async function handleQueueCommand(event) {
     payload: parseJsonField(elements.commandPayload.value, {}),
   });
 
-  showToast('Command queued');
+  showToast('Command queued', 'ok');
   await refreshOverview();
 }
 
@@ -2015,7 +2439,7 @@ async function handleMerchantSettingsSubmit(event) {
     body: { full_auto_merchant_mode: elements.fullAutoMode.checked },
   });
   renderMerchantSettings(payload.settings);
-  showToast('Merchant mode saved');
+  showToast('Merchant mode saved', 'ok');
 }
 
 async function handleFarmAutomationSubmit(event) {
@@ -2036,7 +2460,7 @@ async function handleFarmAutomationSubmit(event) {
   if (mutationSequence === farmAutomationRequestSequence) {
     renderFarmAutomation(payload.automation);
   }
-  showToast('Farm automation policy saved');
+  showToast('Farm automation policy saved', 'ok');
 }
 
 async function handleFilamentInventorySubmit(event) {
@@ -2050,7 +2474,7 @@ async function handleFilamentInventorySubmit(event) {
   if (mutationSequence === farmAutomationRequestSequence) {
     renderFarmAutomation(payload.automation);
   }
-  showToast('Filament inventory saved');
+  showToast('Filament inventory saved', 'ok');
 }
 
 async function handleIntegrationsSubmit(event) {
@@ -2064,7 +2488,7 @@ async function handleIntegrationsSubmit(event) {
   if (mutationSequence === farmAutomationRequestSequence) {
     renderFarmAutomation(payload.automation);
   }
-  showToast('Farm integrations saved');
+  showToast('Farm integrations saved', 'ok');
 }
 
 async function handleMerchantAction(event) {
@@ -2089,7 +2513,7 @@ async function handleMerchantAction(event) {
     result.setup_token_expires_at ? `SETUP_TOKEN_EXPIRES_AT=${result.setup_token_expires_at}` : '',
   ].filter(Boolean).join('\n');
   syncMerchantFields(merchantId);
-  showToast('Merchant action applied');
+  showToast('Merchant action applied', 'ok');
   await refreshMerchants();
 }
 
@@ -2106,7 +2530,7 @@ async function handleIssueSetupToken() {
     `MERCHANT_SETUP_TOKEN=${result.merchant_setup_token}`,
     `SETUP_TOKEN_EXPIRES_AT=${result.setup_token_expires_at}`,
   ].join('\n');
-  showToast('Setup token issued');
+  showToast('Setup token issued', 'ok');
 }
 
 async function handleMerchantKeySubmit(event) {
@@ -2125,7 +2549,7 @@ async function handleMerchantKeySubmit(event) {
     `API_KEY_ID=${result.api_key?.key_id || '-'}`,
     `API_KEY_SECRET=${result.api_key_secret}`,
   ].join('\n');
-  showToast('Live API key issued');
+  showToast('Live API key issued', 'ok');
   await refreshMerchantApiKeys(merchantId);
 }
 
@@ -2140,7 +2564,7 @@ async function handleRevokeMerchantKey() {
       key_id: keyId,
     },
   });
-  showToast('API key revoked');
+  showToast('API key revoked', 'ok');
   await refreshMerchantApiKeys(merchantId);
 }
 
@@ -2166,6 +2590,8 @@ function bindEvents() {
   bindFarmAutomationEditorGuards();
   bindTabs();
   bindDropZone();
+  bindJobsTab();
+  bindActivityTab();
   fleetView.bind();
 
   if (elements.amsPrinter) {
@@ -2173,7 +2599,7 @@ function bindEvents() {
   }
   if (elements.amsSlots) {
     elements.amsSlots.addEventListener('click', (event) => {
-      handleAmsApply(event).catch((error) => showToast(error.message));
+      handleAmsApply(event).catch((error) => showToast(error.message, 'error'));
     });
   }
 
@@ -2181,7 +2607,7 @@ function bindEvents() {
     handleAdminLogin(event).catch((error) => {
       setAdminAuthState('Login failed', 'missing-label');
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
 
@@ -2189,21 +2615,21 @@ function bindEvents() {
     handleAdminMe().catch((error) => {
       setAdminAuthState('Check failed', 'missing-label');
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
 
   elements.adminResetRequestForm.addEventListener('submit', (event) => {
     handleAdminResetRequest(event).catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
 
   if (elements.logoutBtn) elements.logoutBtn.addEventListener('click', handleLogout);
   if (elements.firstSetupForm) {
     elements.firstSetupForm.addEventListener('submit', (event) => {
-      handleFirstSetup(event).catch((error) => showToast(error.message));
+      handleFirstSetup(event).catch((error) => showToast(error.message, 'error'));
     });
   }
   if (elements.toggleFirstSetup) {
@@ -2218,7 +2644,7 @@ function bindEvents() {
   }
   if (elements.adminUserCreateForm) {
     elements.adminUserCreateForm.addEventListener('submit', (event) => {
-      handleAdminUserCreate(event).catch((error) => showToast(error.message));
+      handleAdminUserCreate(event).catch((error) => showToast(error.message, 'error'));
     });
   }
 
@@ -2232,7 +2658,7 @@ function bindEvents() {
   elements.refresh.addEventListener('click', () => {
     refreshDashboard().catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
 
@@ -2254,117 +2680,117 @@ function bindEvents() {
   elements.merchantSettingsForm.addEventListener('submit', (event) => {
     handleMerchantSettingsSubmit(event).catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.farmAutomationForm.addEventListener('submit', (event) => {
     handleFarmAutomationSubmit(event).catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.filamentInventoryForm.addEventListener('submit', (event) => {
     handleFilamentInventorySubmit(event).catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.integrationsForm.addEventListener('submit', (event) => {
     handleIntegrationsSubmit(event).catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.refreshMerchantSettings.addEventListener('click', () => {
     refreshMerchantSettings().catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.nodeQuickstartForm.addEventListener('submit', (event) => {
     handleNodeQuickstart(event).catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.organizationForm.addEventListener('submit', (event) => {
     handleCreateOrganization(event).catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.nodeForm.addEventListener('submit', (event) => {
     handleProvisionNode(event).catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.downloadNodePortable.addEventListener('click', () => {
     handleDownloadPortable().catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.downloadNodeExe.addEventListener('click', () => {
     handleDownloadExe().catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.printerSyncForm.addEventListener('submit', (event) => {
     handlePrinterSync(event).catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.commandForm.addEventListener('submit', (event) => {
     handleQueueCommand(event).catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.merchantListForm.addEventListener('submit', (event) => {
     event.preventDefault();
     refreshMerchants().catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.merchantActionForm.addEventListener('submit', (event) => {
     handleMerchantAction(event).catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.issueSetupToken.addEventListener('click', () => {
     handleIssueSetupToken().catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.merchantKeyForm.addEventListener('submit', (event) => {
     handleMerchantKeySubmit(event).catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.listMerchantKeys.addEventListener('click', () => {
     refreshMerchantApiKeys().catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.revokeMerchantKey.addEventListener('click', () => {
     handleRevokeMerchantKey().catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
   elements.merchantLookupForm.addEventListener('submit', (event) => {
     event.preventDefault();
     refreshMerchantOperationalData(elements.merchantLookupId.value.trim()).catch((error) => {
       setApiState('Error', 'error');
-      showToast(error.message);
+      showToast(error.message, 'error');
     });
   });
 }

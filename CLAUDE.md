@@ -121,6 +121,52 @@ Full write-up is in `DIAGNOSIS.md`.
  updated. Internal identifiers (package name, DB paths, `AG_` gcode markers)
  intentionally unchanged.
 
+## Changes already made (July 2026 session — admin backend + console overhaul)
+
+1. **Platform-wide Jobs admin API** — `GET/POST /api/cloud/jobs`: list every
+   print job with `status` (comma list) / `merchant_id` / `org_id` / `q`
+   (name+ID search) filters and `limit`/`offset` paging (`listPrintJobsAdmin`
+   in both stores). POST actions: **`cancel`** (marks canceled, queues
+   `printer.stop` via routing_summary's local printer id, releases filament
+   reservations — mirrors the merchant cancel path) and **`redispatch`**
+   (runs `redispatchWaitingJobs`; with a `job_id` it 409s unless the job is
+   `waiting_for_capacity`). Handlers in `src/cloud/adminOpsHandlers.js`.
+2. **Admin audit log** — every privileged mutation records who/what/when:
+   merchant approve/reject/suspend, setup-token + API-key issue/revoke, node
+   provision/delete, org create, command queue, automation/settings PATCH,
+   drop-in prints, job cancel/redispatch, admin-user create/disable/enable/
+   reset-link. `recordAdminAudit` (`src/cloud/adminAudit.js`) is best-effort —
+   a missing table or failed write never breaks the action. Table
+   `admin_audit_log` ships in migration `20260706090000_admin_audit_log.sql`
+   (allowlisted in the migration runner); `GET /api/cloud/audit` lists entries
+   (returns `pending_migration: true` instead of erroring pre-migration).
+3. **`GET /api/cloud/stats`** — accurate aggregate tiles (nodes/printers/jobs/
+   commands/merchants by status, jobs last-24h) independent of the capped
+   overview lists. Memory store counts exactly; Supabase samples the newest
+   1000 rows/table and flags `sampled: true`.
+4. **`authenticateAdmin` now returns the auth context** (exported from
+   adminHandlers.js; adminPrintHandlers' duplicate deleted) so handlers can
+   attribute audit entries. `GET /api/cloud/commands?node_id=` added for
+   per-node command history.
+5. **Self-hosted parity fix** — `merchant-api-keys`, `merchant-jobs`,
+   `merchant-usage`, `merchant-v2` were Vercel-only (the console's Merchants
+   tab 404'd self-hosted); all wired into `localCloudServer.js` along with
+   jobs/stats/audit.
+6. **Console UI overhaul** (`public/cloud.html` + `cloud-dashboard.js` +
+   `cloud.css`): new **Jobs tab** (status filter chips, debounced search,
+   Cancel/Redispatch/Redispatch-all, offset paging) and **Activity tab**
+   (filterable audit log + node event feed). Metric tiles now come from
+   `/api/cloud/stats`, deep-link into tabs on click, and highlight alerts
+   (waiting/failed jobs, pending merchants). Every table got sortable headers
+   (click th; `tableUiState` preserves sort across refreshes), sticky headers,
+   relative timestamps (`timeAgo`, absolute in tooltip), and click-to-copy ID
+   chips. `window.confirm` replaced by an accessible promise-based
+   `confirmDialog` modal; toasts have ok/error/warn variants. Status pills
+   humanize snake_case. Verified in Chromium via Playwright (screenshots in
+   `output/playwright/overhaul-*.png`); tests in
+   `tests/cloud/adminOpsHandlers.test.js`, `adminOpsIntegration.test.js`, and
+   extended `dashboardAssets.test.js`.
+
 ## Changes already made (July 2026 session — admin + merchant sign-in overhaul)
 
 1. **Admin sign-in is a normal email/password flow** (`src/cloud/adminAuthHandlers.js`):
