@@ -15,6 +15,7 @@ import {
 } from './httpServerUtils.js';
 import { releaseFilamentReservation } from './filamentReservations.js';
 import { planAutoEjectCommands } from './farmAutomation.js';
+import { evaluateFilamentReorders } from './filamentReorder.js';
 import { redispatchWaitingJobs } from './printDispatch.js';
 import { deliverMerchantWebhook } from './webhooks.js';
 import { deliverMerchantWebhookEvent } from './merchantWebhookDelivery.js';
@@ -259,6 +260,15 @@ export function createHeartbeatHandler({ store, pepper, now = () => new Date() }
                 });
             } catch { /* never fail a heartbeat over re-dispatch */ }
 
+            // Filament restocking: compare spool inventory against the reorder
+            // rules (Amazon Business). Internally throttled to one evaluation
+            // per 5 minutes and idempotent at the vendor via externalId, so
+            // running it on every heartbeat is safe and cheap (best-effort).
+            let reorders = { created: 0, placed: 0 };
+            try {
+                reorders = await evaluateFilamentReorders({ store, now });
+            } catch { /* never fail a heartbeat over restocking */ }
+
             return sendJson(res, 200, {
                 ok: true,
                 request_id: requestId,
@@ -268,6 +278,7 @@ export function createHeartbeatHandler({ store, pepper, now = () => new Date() }
                 printers_synced: printersSynced,
                 ...(autoEject.queued > 0 ? { auto_eject_commands_queued: autoEject.queued } : {}),
                 ...(redispatch.dispatched > 0 ? { waiting_jobs_dispatched: redispatch.dispatched } : {}),
+                ...(reorders.created > 0 ? { filament_reorders_created: reorders.created, filament_reorders_placed: reorders.placed } : {}),
             });
         } catch (error) {
             return sendHandlerError(res, error, requestId, { fallbackCode: 'heartbeat_failed' });

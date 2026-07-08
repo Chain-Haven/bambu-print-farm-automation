@@ -714,6 +714,77 @@
               </label>
               <button type="submit">Save Integrations</button>
             </form>
+
+            <form id="filament-reorder-form" class="subpanel">
+              <div class="panel-heading">
+                <h2>Filament Auto-Ordering</h2>
+                <span>Amazon Business</span>
+              </div>
+              <label class="switch-row">
+                <input id="reorder-enabled" type="checkbox">
+                <span>Watch stock and reorder spools</span>
+              </label>
+              <div class="split">
+                <label>
+                  <span>Mode</span>
+                  <select id="reorder-mode">
+                    <option value="approval">Ask for approval</option>
+                    <option value="auto">Fully automatic</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Region</span>
+                  <select id="reorder-region">
+                    <option value="NA">NA (amazon.com)</option>
+                    <option value="EU">EU</option>
+                    <option value="FE">FE (Japan)</option>
+                  </select>
+                </label>
+              </div>
+              <label class="switch-row">
+                <input id="reorder-trial-mode" type="checkbox" checked>
+                <span>Trial mode — Amazon test orders, nothing charged</span>
+              </label>
+              <div class="split">
+                <label>
+                  <span>Monthly budget USD</span>
+                  <input id="reorder-monthly-budget" type="number" min="1" step="1" value="250">
+                </label>
+                <label>
+                  <span>Max per order USD</span>
+                  <input id="reorder-max-order" type="number" min="1" step="1" value="150">
+                </label>
+              </div>
+              <label>
+                <span>Amazon Business user email</span>
+                <input id="reorder-user-email" type="email" placeholder="purchasing@yourfarm.com" autocomplete="off">
+              </label>
+              <label>
+                <span>LWA client ID</span>
+                <input id="reorder-client-id" type="text" autocomplete="off">
+              </label>
+              <div class="split">
+                <label>
+                  <span>LWA client secret</span>
+                  <input id="reorder-client-secret" type="password" placeholder="(unchanged)" autocomplete="new-password">
+                </label>
+                <label>
+                  <span>LWA refresh token</span>
+                  <input id="reorder-refresh-token" type="password" placeholder="(unchanged)" autocomplete="new-password">
+                </label>
+              </div>
+              <label>
+                <span>Reorder rules JSON</span>
+                <textarea id="reorder-rules-json" rows="8">[]</textarea>
+              </label>
+              <p class="field-hint">One rule per material/color, e.g. <code>{ "material": "PLA", "color_hex": "#FFFFFF", "min_spools": 2, "order_quantity": 2, "asin": "B0XXXXXXXX", "max_unit_price_usd": 25 }</code>. Stock counts come from Filament Inventory + AMS sync. Ordering needs an Amazon Business account approved for the Ordering API (LWA credentials here or <code>AB_LWA_*</code> env vars server-side). Orders park below for approval unless mode is fully automatic.</p>
+              <div class="download-buttons">
+                <button type="submit">Save Auto-Ordering</button>
+                <button id="reorder-test-connection" type="button">Test Connection</button>
+                <button id="reorder-evaluate" type="button">Check Stock Now</button>
+              </div>
+              <pre id="reorder-output" class="secret-output" hidden></pre>
+            </form>
           </div>
         </section>
 
@@ -731,6 +802,13 @@
               <span id="automation-alert-count">0</span>
             </div>
             <div id="automation-alerts-table"></div>
+          </div>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Filament Orders</h2>
+              <span id="filament-orders-count">0</span>
+            </div>
+            <div id="filament-orders-table"></div>
           </div>
         </section>
 

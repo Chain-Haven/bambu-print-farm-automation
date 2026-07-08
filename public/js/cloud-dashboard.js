@@ -187,6 +187,22 @@ const elements = {
   amsSlots: $('#ams-slots'),
   integrationsForm: $('#integrations-form'),
   integrationsJson: $('#integrations-json'),
+  filamentReorderForm: $('#filament-reorder-form'),
+  reorderEnabled: $('#reorder-enabled'),
+  reorderMode: $('#reorder-mode'),
+  reorderRegion: $('#reorder-region'),
+  reorderTrialMode: $('#reorder-trial-mode'),
+  reorderMonthlyBudget: $('#reorder-monthly-budget'),
+  reorderMaxOrder: $('#reorder-max-order'),
+  reorderUserEmail: $('#reorder-user-email'),
+  reorderClientId: $('#reorder-client-id'),
+  reorderClientSecret: $('#reorder-client-secret'),
+  reorderRefreshToken: $('#reorder-refresh-token'),
+  reorderRulesJson: $('#reorder-rules-json'),
+  reorderTestConnection: $('#reorder-test-connection'),
+  reorderEvaluate: $('#reorder-evaluate'),
+  reorderOutput: $('#reorder-output'),
+  filamentOrdersCount: $('#filament-orders-count'),
   fullAutoMode: $('#full-auto-mode'),
   merchantModeState: $('#merchant-mode-state'),
   refreshMerchantSettings: $('#refresh-merchant-settings'),
@@ -1455,6 +1471,7 @@ async function refreshDashboard() {
     refreshOverview(),
     refreshMerchantSettings(),
     refreshFarmAutomation(),
+    refreshFilamentOrders(),
     refreshMerchants(),
     refreshAdminUsers(),
   ]);
@@ -2070,6 +2087,133 @@ async function handleIntegrationsSubmit(event) {
   showToast('Farm integrations saved');
 }
 
+// ---------------------------------------------------------------------------
+// Filament auto-ordering (Amazon Business)
+// ---------------------------------------------------------------------------
+
+function renderFilamentOrders(payload) {
+  if (!elements.filamentReorderForm) return;
+  if (payload) state.filamentReorders = payload;
+  const data = state.filamentReorders || {};
+  const config = data.config || {};
+
+  elements.reorderEnabled.checked = config.enabled === true;
+  elements.reorderMode.value = config.mode === 'auto' ? 'auto' : 'approval';
+  elements.reorderRegion.value = config.region || 'NA';
+  elements.reorderTrialMode.checked = config.trial_mode !== false;
+  elements.reorderMonthlyBudget.value = config.monthly_budget_usd || 250;
+  elements.reorderMaxOrder.value = config.max_order_usd || 150;
+  elements.reorderUserEmail.value = config.user_email || '';
+  elements.reorderClientId.value = config.credentials?.client_id || '';
+  elements.reorderClientSecret.placeholder = config.credentials?.client_secret_set ? '(saved — leave blank to keep)' : '(not set)';
+  elements.reorderRefreshToken.placeholder = config.credentials?.refresh_token_set ? '(saved — leave blank to keep)' : '(not set)';
+  elements.reorderRulesJson.value = JSON.stringify(config.rules || [], null, 2);
+
+  const orders = data.orders || [];
+  elements.filamentOrdersCount.textContent = String(orders.length);
+
+  renderTable('#filament-orders-table', [
+    { label: 'Created', value: (row) => (row.created_at || '').replace('T', ' ').slice(0, 16) },
+    { label: 'Filament', value: (row) => `${row.material}${row.color_hex ? ` ${row.color_hex}` : ''} ×${row.quantity}` },
+    { label: 'Status', value: (row) => makeStatus(row.status) },
+    {
+      label: 'Detail',
+      value: (row) => row.error || row.reason || (row.trial_mode && row.status !== 'awaiting_approval' ? 'trial order' : `~$${row.est_total_usd || 0}`),
+    },
+    {
+      label: 'Actions',
+      value: (row) => {
+        const wrap = document.createElement('span');
+        if (row.status === 'awaiting_approval') {
+          wrap.append(
+            makeButton('Approve', () => handleFilamentOrderAction('approve', row.order_id), 'ghost-button small-button'),
+            makeButton('Deny', () => handleFilamentOrderAction('deny', row.order_id), 'ghost-button small-button'),
+          );
+        } else {
+          wrap.append(makeDetailButton('Open', `Filament order ${row.order_id}`, row));
+        }
+        return wrap;
+      },
+    },
+  ], orders, 'No filament orders yet — set rules and enable auto-ordering.');
+}
+
+async function refreshFilamentOrders() {
+  if (!elements.filamentReorderForm) return null;
+  const payload = await apiRequest('/api/cloud/filament-orders');
+  renderFilamentOrders(payload);
+  return payload;
+}
+
+function collectFilamentReorderConfig() {
+  const config = {
+    enabled: elements.reorderEnabled.checked,
+    mode: elements.reorderMode.value,
+    region: elements.reorderRegion.value,
+    trial_mode: elements.reorderTrialMode.checked,
+    monthly_budget_usd: Number(elements.reorderMonthlyBudget.value) || 250,
+    max_order_usd: Number(elements.reorderMaxOrder.value) || 150,
+    user_email: elements.reorderUserEmail.value.trim() || null,
+    rules: parseJsonField(elements.reorderRulesJson.value, []),
+    credentials: {},
+  };
+  // Secrets are write-only: send them only when the operator typed a value.
+  if (elements.reorderClientId.value.trim()) config.credentials.client_id = elements.reorderClientId.value.trim();
+  if (elements.reorderClientSecret.value.trim()) config.credentials.client_secret = elements.reorderClientSecret.value.trim();
+  if (elements.reorderRefreshToken.value.trim()) config.credentials.refresh_token = elements.reorderRefreshToken.value.trim();
+  return config;
+}
+
+async function handleFilamentReorderSubmit(event) {
+  event.preventDefault();
+  const payload = await apiRequest('/api/cloud/filament-orders', {
+    method: 'PATCH',
+    body: { config: collectFilamentReorderConfig() },
+  });
+  elements.reorderClientSecret.value = '';
+  elements.reorderRefreshToken.value = '';
+  renderFilamentOrders(payload);
+  showToast('Filament auto-ordering saved');
+}
+
+async function handleFilamentOrderAction(action, orderId) {
+  try {
+    const payload = await apiRequest('/api/cloud/filament-orders', {
+      method: 'POST',
+      body: { action, order_id: orderId },
+    });
+    renderFilamentOrders(payload);
+    showToast(action === 'approve'
+      ? (payload.order?.status === 'failed' ? `Order failed: ${payload.order?.error || 'see table'}` : 'Order placed with Amazon Business')
+      : 'Order denied');
+  } catch (error) {
+    setApiState('Error', 'error');
+    showToast(error.message);
+  }
+}
+
+async function handleFilamentReorderEvaluate() {
+  const payload = await apiRequest('/api/cloud/filament-orders', {
+    method: 'POST',
+    body: { action: 'evaluate' },
+  });
+  renderFilamentOrders(payload);
+  const result = payload.result || {};
+  showToast(result.created > 0
+    ? `Stock check: ${result.created} reorder(s) created (${result.placed || 0} placed)`
+    : 'Stock check: everything above thresholds');
+}
+
+async function handleFilamentReorderTest() {
+  const payload = await apiRequest('/api/cloud/filament-orders', {
+    method: 'POST',
+    body: { action: 'test_connection' },
+  });
+  elements.reorderOutput.hidden = false;
+  elements.reorderOutput.textContent = JSON.stringify(payload.connection || payload, null, 2);
+  showToast(payload.connection?.ok ? 'Amazon Business connection OK' : 'Connection failed — see details');
+}
+
 async function handleMerchantAction(event) {
   event.preventDefault();
   const merchantId = elements.merchantActionId.value.trim();
@@ -2274,6 +2418,24 @@ function bindEvents() {
   });
   elements.integrationsForm.addEventListener('submit', (event) => {
     handleIntegrationsSubmit(event).catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.filamentReorderForm.addEventListener('submit', (event) => {
+    handleFilamentReorderSubmit(event).catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.reorderTestConnection.addEventListener('click', () => {
+    handleFilamentReorderTest().catch((error) => {
+      setApiState('Error', 'error');
+      showToast(error.message);
+    });
+  });
+  elements.reorderEvaluate.addEventListener('click', () => {
+    handleFilamentReorderEvaluate().catch((error) => {
       setApiState('Error', 'error');
       showToast(error.message);
     });

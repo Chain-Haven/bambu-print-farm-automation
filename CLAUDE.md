@@ -45,6 +45,37 @@ swapped since, re-run `proof_test.js` before concluding anything.
 
 Full write-up is in `DIAGNOSIS.md`.
 
+## Changes already made (July 2026 session — filament auto-ordering via Amazon Business)
+
+1. **Auto-restocking closes the supply loop** — `src/cloud/filamentReorder.js`
+ watches the spool inventory (`farm_filament_inventory`, AMS-synced) against
+ per-material/color rules (`min_spools`, `order_quantity`, `asin`,
+ `max_unit_price_usd`) and creates reorders when usable spools (≥
+ `min_usable_grams`) drop below threshold. Config in platform setting
+ `farm_filament_reorder`, order log in `farm_filament_reorder_state` (capped
+ 200). Evaluation runs from the **heartbeat path** (same pattern as
+ auto-eject; throttled to 1/5min, never fails a heartbeat) and manually via
+ "Check Stock Now".
+2. **Amazon Business Ordering API client** — `src/cloud/amazonBusiness.js`:
+ LWA refresh-token exchange (`api.amazon.com/auth/o2/token`), regional hosts
+ (na/eu/jp.business-api.amazon.com), `POST /ordering/2022-10-30/orders` +
+ `GET …/orders/{externalId}`, headers `x-amz-access-token` +
+ `x-amz-user-email`. Requires an Amazon Business account approved for the
+ Ordering API (partner onboarding) — credentials via console or `AB_LWA_*`
+ env vars. MOCK_MODE simulates acceptance.
+3. **Safety rails**: `trial_mode` default ON (Amazon test orders — flip off
+ after a trial round-trips), approval mode default (one-click Approve/Deny in
+ the console), monthly budget + per-order caps (over-cap parks for approval),
+ per-rule cooldown + open-order dedupe, and Amazon-side idempotency via
+ deterministic `externalId` (`pkx-{rule}-{month}-{seq}`) so racing heartbeats
+ can't double-order.
+4. **Surface**: `/api/cloud/filament-orders` (GET overview / PATCH config with
+ write-only secrets / POST evaluate|approve|deny|test_connection), wired in
+ Vercel (`api/cloud/filament-orders.js`) + `localCloudServer`. Console:
+ "Filament Auto-Ordering" panel + "Filament Orders" table on the Automation
+ tab. Tests: `tests/cloud/filamentReorder.test.js` (21) incl. heartbeat
+ integration; LWA secrets never echo in responses.
+
 ## Changes already made (July 2026 session — macOS farm node + out-of-the-box download)
 
 1. **The portable node app now runs on macOS** — the same downloaded ZIP works on

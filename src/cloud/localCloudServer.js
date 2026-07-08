@@ -15,6 +15,7 @@ import {
     createCloudCommandHandler,
     createCloudSetupStatusHandler,
     createCloudFarmAutomationHandler,
+    createCloudFilamentOrdersHandler,
     createCloudMerchantSettingsHandler,
     createCloudMerchantSetupTokenHandler,
     createCloudMerchantsHandler,
@@ -100,6 +101,7 @@ export function createLocalCloudApp({
     app.all('/api/cloud/print-files', wire(createCloudPrintFilesHandler({ store, adminToken, now })));
     app.all('/api/cloud/overview', wire(createCloudOverviewHandler({ store, adminToken })));
     app.all('/api/cloud/farm-automation', wire(createCloudFarmAutomationHandler({ store, adminToken })));
+    app.all('/api/cloud/filament-orders', wire(createCloudFilamentOrdersHandler({ store, adminToken, fetchImpl, now })));
     app.all('/api/cloud/merchants', wire(createCloudMerchantsHandler({ store, adminToken, merchantPepper: pepper })));
     app.all('/api/cloud/merchant-settings', wire(createCloudMerchantSettingsHandler({ store, adminToken })));
     app.all('/api/cloud/merchant-setup-token', wire(createCloudMerchantSetupTokenHandler({ store, adminToken, merchantPepper: pepper })));
