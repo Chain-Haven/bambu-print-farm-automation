@@ -45,6 +45,36 @@ swapped since, re-run `proof_test.js` before concluding anything.
 
 Full write-up is in `DIAGNOSIS.md`.
 
+## Changes already made (July 2026 session — macOS farm node + out-of-the-box download)
+
+1. **The portable node app now runs on macOS** — the same downloaded ZIP works on
+ Windows, macOS (Apple Silicon + Intel), and Pi/Linux. New `Start Farm Node.command`
+ double-click launcher (`createStartFarmNodeCommand` in `nodePackage.js`):
+ clears the `com.apple.quarantine` flag + restores exec bits on first run,
+ prepends Homebrew paths (`/opt/homebrew/bin:/usr/local/bin`) because Finder
+ launches with a bare PATH, resolves Node three ways (bundled `./node` →
+ system/Homebrew → auto-downloads `darwin-arm64`/`darwin-x64` tarball via the
+ now OS-aware `get-node.sh`), and holds the Terminal window open on errors.
+ First launch needs right-click → Open (Gatekeeper; documented in
+ README-FIRST + guide + toast).
+2. **Unix launchers ship 0755 in the ZIP** — `zip.addFile(..., 0o755)` for
+ `.command`/`.sh` so Archive Utility/unzip extract them executable (verified by
+ a real unzip round-trip test). Without it, double-click dies with
+ "permission denied".
+3. **Auto-config stays baked in** (`.env` with CLOUD_API_URL + LOCAL_NODE_TOKEN
+ generated per download) and the node now **auto-opens the local dashboard**:
+ `farmNodeEntry.js` polls `127.0.0.1:PORT` until the server answers, then opens
+ the browser (`open`/`start`/`xdg-open`) — TTY-only (never CI/services),
+ `PKX_OPEN_DASHBOARD=false` in `.env` to disable. `dist/windows-node/farm-node.cjs`
+ rebuilt (committed artifact).
+4. **SEA build on macOS fixed** — `build-windows-node.mjs --exe` on darwin now
+ strips the runtime signature before postject injection and ad-hoc re-signs
+ after (`codesign --sign -`), otherwise Gatekeeper kills the binary.
+5. **Copy de-Windows-ed** — console quickstart ("Windows · macOS · Pi 5 · Linux"),
+ platform-aware download toast, `windows-node-guide.html` (filename kept, now
+ "Local Farm Node" with a macOS/Gatekeeper section), index/merchant pages,
+ platformStrategy gate texts.
+
 ## Changes already made (July 2026 session — console overhaul + models + drop-in printing)
 
 1. **Unified API key management** — `/api/public/api-keys` is the canonical

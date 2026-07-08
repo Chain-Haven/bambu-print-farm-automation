@@ -1833,7 +1833,10 @@ async function handleDownloadPortable() {
       node_name: state.provisionedNode.name,
     },
   });
-  showToast('Portable app downloaded — extract and double-click "Start Farm Node.bat" (no install, auto-fetches Node)');
+  const onMac = /Mac/i.test(navigator.platform || '') || /Macintosh/i.test(navigator.userAgent || '');
+  showToast(onMac
+    ? 'Portable app downloaded — extract, right-click "Start Farm Node.command" → Open (first launch only; no install, auto-fetches Node)'
+    : 'Portable app downloaded — extract and double-click "Start Farm Node.bat" (Windows) or "Start Farm Node.command" (macOS); no install, auto-fetches Node');
 }
 
 // The Windows .exe is a single prebuilt binary hosted externally (too large for
@@ -1913,7 +1916,7 @@ async function handleNodeQuickstart(event) {
 
   const result = await provisionNode({
     orgId: organization.org_id,
-    name: elements.quickstartNodeName.value.trim() || 'Windows Farm Manager 01',
+    name: elements.quickstartNodeName.value.trim() || 'Farm Manager 01',
     capabilities,
   });
 
@@ -1938,7 +1941,7 @@ async function handleNodeQuickstart(event) {
     await handleDownloadPortable();
   }
 
-  showToast('Windows manager ready');
+  showToast('Farm node ready');
   await refreshOverview();
 }
 

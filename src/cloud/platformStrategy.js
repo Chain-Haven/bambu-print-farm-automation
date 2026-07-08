@@ -173,7 +173,7 @@ function chooseAdapter(printer) {
 
     const nextActions = [];
     if (!isOnline(printer.status)) {
-        nextActions.push('Bring the printer online and confirm the Windows edge agent can see it.');
+        nextActions.push('Bring the printer online and confirm the farm node can see it.');
     }
     if (recommendedMode === 'lan_developer_mode' && !lanDeveloperReady) {
         nextActions.push('Enable LAN Mode and Developer Mode before direct local control.');
@@ -255,10 +255,10 @@ function buildReadiness({ overview, automationPlan, now }) {
     return [
         readinessGate(
             'edge_agent_online',
-            'Windows edge agent online',
+            'Edge agent online',
             nodes.some((node) => isNodeFreshlyOnline(node, nowMs)),
             true,
-            'Provision a node in Farm Nodes, download the Windows package, and double-click "Start Farm Node.bat" (no install needed).',
+            'Provision a node in Farm Nodes, download the node app, and double-click "Start Farm Node.bat" (Windows) or "Start Farm Node.command" (macOS) — no install needed.',
         ),
         readinessGate(
             'printer_inventory',

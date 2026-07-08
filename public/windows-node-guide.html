@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PrintKinetix Windows Node Guide</title>
+  <title>PrintKinetix Farm Node Guide (Windows · macOS · Linux)</title>
   <link rel="icon"
     href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23146c5a'/%3E%3Cpath d='M8 10h16v4H8zM8 18h10v4H8z' fill='white'/%3E%3C/svg%3E">
   <style>
@@ -116,16 +116,16 @@
 <body>
   <main>
     <header>
-      <h1>Windows Local Node</h1>
-      <p>Run one Windows computer on the same local network as the Bambu printers. It keeps an outbound secure connection to Vercel and executes printer work over LAN.</p>
+      <h1>Local Farm Node (Windows · macOS · Linux)</h1>
+      <p>Run one computer — a Windows PC, a Mac, or a Raspberry Pi / Linux box — on the same local network as the Bambu printers. It keeps an outbound secure connection to Vercel and executes printer work over LAN.</p>
       <p><a href="/merchant-onboarding.html">Merchant onboarding</a> | <a href="/merchant-api.html">Merchant API docs</a> | <a href="/cloud">Cloud console</a></p>
     </header>
 
     <section>
       <h2>Network Model</h2>
       <ul>
-        <li>The Windows node only needs <strong>HTTPS outbound</strong> access to the Vercel app.</li>
-        <li>Do not open inbound firewall ports from the public internet to the Windows node.</li>
+        <li>The farm node only needs <strong>HTTPS outbound</strong> access to the Vercel app.</li>
+        <li>Do not open inbound firewall ports from the public internet to the farm node.</li>
         <li>The node stores <code>LOCAL_NODE_TOKEN</code>, not <code>SUPABASE_SERVICE_ROLE_KEY</code>, <code>CLOUD_ADMIN_TOKEN</code>, or token pepper values.</li>
         <li>The node talks to printers through LAN MQTT and FTPS after the printer is configured locally.</li>
         <li>Final command results are kept in <code>cloud-result-outbox.json</code> and replayed if Vercel or Supabase is temporarily unavailable.</li>
@@ -137,16 +137,17 @@
       <h2>Setup</h2>
       <ol>
         <li>Open <code>/cloud</code> and enter the bootstrap admin token.</li>
-        <li>Use <strong>Download Windows App</strong> to create or reuse the organization, provision a node through <code>/api/cloud/nodes</code>, and download the prefilled, self-contained app through <code>/api/cloud/node-package</code>.</li>
-        <li>Copy the one-time <code>LOCAL_NODE_TOKEN</code> only if you need to repair <code>.env</code>.</li>
-        <li>Extract the app to a stable folder such as <code>C:\PrintKinetix</code>.</li>
+        <li>Use <strong>Download Farm Node</strong> to create or reuse the organization, provision a node through <code>/api/cloud/nodes</code>, and download the prefilled, self-contained app through <code>/api/cloud/node-package</code>. The same package runs on Windows, macOS, and Linux.</li>
+        <li>Copy the one-time <code>LOCAL_NODE_TOKEN</code> only if you need to repair <code>.env</code> — the download already contains it.</li>
+        <li>Extract the app to a stable folder such as <code>C:\PrintKinetix</code> (Windows) or <code>~/PrintKinetix</code> (macOS / Linux).</li>
         <li>Start the node. There is <strong>no <code>npm install</code> and no manual Node install</strong> — every dependency is compiled into <code>farm-node.cjs</code>, and the launcher uses a bundled Node runtime, a Node already on the machine, or downloads a portable Node automatically the first time.
           <ul>
             <li><strong>Windows:</strong> double-click <code>Start Farm Node.bat</code>.</li>
+            <li><strong>macOS (Apple Silicon + Intel):</strong> right-click (Control-click) <code>Start Farm Node.command</code> and choose <strong>Open</strong> the first time (Gatekeeper asks once for apps downloaded outside the App Store; the launcher clears the quarantine flag so later runs are a plain double-click). If macOS still refuses, use System Settings → Privacy &amp; Security → <strong>Open Anyway</strong>, or run <code>bash start-farm-node.sh</code> in Terminal.</li>
             <li><strong>Raspberry Pi 5 / Linux:</strong> run <code>bash start-farm-node.sh</code>. The same package runs on arm64 — a Pi 5 makes a great low-power farm controller. Optionally run <code>bash install-service.sh</code> to auto-start on boot and restart on failure (systemd).</li>
           </ul>
         </li>
-        <li>Open <code>http://localhost:3000</code> on that Windows computer and add each Bambu printer with its LAN IP, serial, and access code.</li>
+        <li>The local dashboard at <code>http://localhost:3000</code> opens in the browser automatically once the node is up — add each Bambu printer with its LAN IP, serial, and access code.</li>
         <li>Return to <code>/cloud</code>, verify the node heartbeat is online, then queue <strong>Discover LAN Printers</strong> and <strong>Sync Printer Inventory</strong>.</li>
       </ol>
     </section>
@@ -168,7 +169,7 @@
 
     <section>
       <h2>Printer Sync Commands</h2>
-      <p><code>cloud.printers.discover</code> returns Bambu SSDP discoveries visible from the Windows machine. <code>cloud.printers.sync</code> returns saved local printers, live worker status, AMS tray counts, and filament snapshots when available.</p>
+      <p><code>cloud.printers.discover</code> returns Bambu SSDP discoveries visible from the node machine. <code>cloud.printers.sync</code> returns saved local printers, live worker status, AMS tray counts, and filament snapshots when available.</p>
       <pre><code>{
   "command_type": "cloud.printers.sync",
   "payload": {
@@ -182,7 +183,7 @@
 
     <section>
       <h2>Print Command</h2>
-      <p>The merchant API queues <code>cloud.print.ready</code> when a ready file can be routed. The Windows node downloads the signed private artifact, wraps raw <code>.gcode</code> into <code>.gcode.3mf</code> when needed, uploads it to the selected printer over LAN FTPS, and starts the print over Bambu MQTT.</p>
+      <p>The merchant API queues <code>cloud.print.ready</code> when a ready file can be routed. The farm node downloads the signed private artifact, wraps raw <code>.gcode</code> into <code>.gcode.3mf</code> when needed, uploads it to the selected printer over LAN FTPS, and starts the print over Bambu MQTT.</p>
       <pre><code>{
   "command_type": "cloud.print.ready",
   "payload": {

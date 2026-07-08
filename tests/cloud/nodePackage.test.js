@@ -12,6 +12,8 @@ import {
     createGetNodeSh,
     createNodeEnv,
     createNodePackageReadme,
+    createPortableReadme,
+    createStartFarmNodeCommand,
     createStartFarmNodeSh,
     hasPortableBundle,
 } from '../../src/cloud/nodePackage.js';
@@ -251,7 +253,8 @@ describe('Portable ("no install") node package', () => {
         expect(entries).toContain('public/index.html');
         expect(entries).toContain('Start Farm Node.bat');
         expect(entries).toContain('get-node.ps1');
-        // Cross-platform: Raspberry Pi 5 / Linux launchers ship in the same package.
+        // Cross-platform: macOS + Raspberry Pi 5 / Linux launchers ship in the same package.
+        expect(entries).toContain('Start Farm Node.command');
         expect(entries).toContain('start-farm-node.sh');
         expect(entries).toContain('get-node.sh');
         expect(entries).toContain('install-service.sh');
@@ -265,6 +268,23 @@ describe('Portable ("no install") node package', () => {
         const zip = new AdmZip(buffer);
         expect(zip.readAsText('.env')).toContain('LOCAL_NODE_TOKEN=pkx_node_secret');
         expect(zip.readAsText('.env')).not.toContain('SUPABASE_SERVICE_ROLE_KEY');
+    });
+
+    it('marks unix launchers executable in the zip so macOS/Linux extract them runnable', () => {
+        // Without 0755 external attrs, Archive Utility extracts the .command
+        // without the exec bit and double-click dies with "permission denied".
+        const root = makePortableFixture();
+        const buffer = buildWindowsNodePackage({
+            rootDir: root,
+            cloudApiUrl: 'https://farm.example.com',
+            localNodeToken: 'pkx_node_secret',
+        });
+        const zip = new AdmZip(buffer);
+        const modeOf = (name) => (zip.getEntry(name).attr >>> 16) & 0o777;
+
+        for (const name of ['Start Farm Node.command', 'start-farm-node.sh', 'get-node.sh', 'install-service.sh']) {
+            expect(modeOf(name), `${name} should be 0755 in the zip`).toBe(0o755);
+        }
     });
 
     it('launcher never runs npm install and finds a Node runtime three ways', () => {
@@ -285,13 +305,50 @@ describe('Portable ("no install") node package', () => {
         expect(sh).toContain('./node/bin/node');       // bundled runtime
         expect(sh).toContain('command -v node');        // system Node
         expect(sh).toContain('get-node.sh');            // auto-download portable Node
+        // Homebrew Node lives off the default PATH when launched from Finder.
+        expect(sh).toContain('/opt/homebrew/bin:/usr/local/bin');
     });
 
-    it('portable Node download targets the Raspberry Pi 5 architecture', () => {
+    it('macOS .command launcher self-heals quarantine and finds Node three ways', () => {
+        const cmd = createStartFarmNodeCommand();
+        expect(cmd).not.toMatch(/npm install/i);
+        expect(cmd).not.toContain('\r'); // LF only — Terminal runs it with bash
+        expect(cmd.startsWith('#!/bin/bash')).toBe(true);
+        // First-run self-heal: clear browser quarantine + restore exec bits so
+        // later launches are a plain double-click.
+        expect(cmd).toContain('xattr -dr com.apple.quarantine .');
+        expect(cmd).toContain('chmod +x "Start Farm Node.command"');
+        // Homebrew paths are not on PATH for Finder-launched .command files.
+        expect(cmd).toContain('/opt/homebrew/bin:/usr/local/bin');
+        expect(cmd).toContain('./node/bin/node');   // bundled runtime
+        expect(cmd).toContain('command -v node');    // system / Homebrew Node
+        expect(cmd).toContain('get-node.sh');        // auto-download portable Node
+        expect(cmd).toContain('farm-node.cjs');
+        // Errors must never flash-and-vanish: the window holds until Enter.
+        expect(cmd).toContain('Press Enter to close this window');
+    });
+
+    it('portable Node download covers macOS (Apple Silicon + Intel) and Raspberry Pi 5', () => {
         const sh = createGetNodeSh();
-        expect(sh).toContain('aarch64|arm64) NODE_ARCH="linux-arm64"'); // Pi 5
-        expect(sh).toContain('x86_64|amd64)  NODE_ARCH="linux-x64"');
+        // macOS tarballs (.tar.gz, handled by the stock bsdtar).
+        expect(sh).toContain('arm64|aarch64) NODE_DIST="darwin-arm64"'); // Apple Silicon
+        expect(sh).toContain('x86_64)        NODE_DIST="darwin-x64"');   // Intel Mac
+        // Linux tarballs (.tar.xz).
+        expect(sh).toContain('aarch64|arm64) NODE_DIST="linux-arm64"'); // Pi 5
+        expect(sh).toContain('x86_64|amd64)  NODE_DIST="linux-x64"');
+        expect(sh).toContain('nodejs.org/dist');
         expect(sh).not.toContain('\r');
+    });
+
+    it('portable README walks through Windows, macOS (Gatekeeper), and Pi/Linux starts', () => {
+        const readme = createPortableReadme({ nodeName: 'Mac Studio 01', cloudApiUrl: 'https://farm.example.com' });
+        expect(readme).toContain('Mac Studio 01');
+        expect(readme).toContain('Start Farm Node.bat');
+        expect(readme).toContain('Start Farm Node.command');
+        expect(readme).toContain('right-click (Control-click)');
+        expect(readme).toContain('Open Anyway'); // newer macOS Gatekeeper path
+        expect(readme).toContain('bash start-farm-node.sh');
+        expect(readme).toContain('PKX_OPEN_DASHBOARD');
     });
 
     it('buildPortableNodePackage requires cloud url and token', () => {

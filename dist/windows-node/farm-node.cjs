@@ -2713,6 +2713,7 @@ __export(nodePackage_exports, {
   createNodeEnv: () => createNodeEnv,
   createNodePackageReadme: () => createNodePackageReadme,
   createPortableReadme: () => createPortableReadme,
+  createStartFarmNodeCommand: () => createStartFarmNodeCommand,
   createStartFarmNodeSh: () => createStartFarmNodeSh,
   getNodePackageFileName: () => getNodePackageFileName,
   hasPortableBundle: () => hasPortableBundle
@@ -2774,7 +2775,7 @@ function createNodeEnv({
   const normalizedCloudApiUrl = normalizeRequiredString(cloudApiUrl, "cloud_api_url").replace(/\/+$/, "");
   const normalizedToken = normalizeRequiredString(localNodeToken, "local_node_token");
   return [
-    "# PrintKinetix Windows node configuration",
+    "# PrintKinetix farm node configuration",
     "PORT=3000",
     "HOST=0.0.0.0",
     "JWT_SECRET=change-me",
@@ -2783,6 +2784,8 @@ function createNodeEnv({
     "DB_PATH=./data/antigravity.db",
     "ENCRYPTION_KEY=0123456789abcdef0123456789abcdef",
     "LOG_LEVEL=info",
+    "# Opens http://localhost:3000 in the browser once the node is up (double-click runs).",
+    "PKX_OPEN_DASHBOARD=true",
     "",
     `CLOUD_API_URL=${normalizedCloudApiUrl}`,
     `LOCAL_NODE_TOKEN=${normalizedToken}`,
@@ -2987,6 +2990,10 @@ function createStartFarmNodeSh() {
     "  exit 1",
     "fi",
     "",
+    "# Homebrew bins (Apple Silicon + Intel Mac) are not on PATH when launched",
+    "# from Finder; harmless on Linux where those directories do not exist.",
+    'export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"',
+    "",
     "# 1) Prefer a Node runtime bundled next to this launcher.",
     'if [ -x "./node/bin/node" ]; then',
     '  NODE_BIN="./node/bin/node"',
@@ -2994,14 +3001,75 @@ function createStartFarmNodeSh() {
     "elif command -v node >/dev/null 2>&1; then",
     '  NODE_BIN="node"',
     "else",
-    "  # 3) No Node found: fetch a portable Node runtime automatically (no apt, no npm).",
+    "  # 3) No Node found: fetch a portable Node runtime automatically",
+    "  #    (no package manager, no npm, no admin rights).",
     '  echo "Node.js was not found. Downloading a portable copy (one time)..."',
     "  bash ./get-node.sh",
+    '  if [ ! -x "./node/bin/node" ]; then',
+    '    echo "Could not obtain Node.js automatically. Install Node 20+ from https://nodejs.org and re-run."',
+    "    exit 1",
+    "  fi",
     '  NODE_BIN="./node/bin/node"',
     "fi",
     "",
     'echo "Using Node: $NODE_BIN"',
     'exec "$NODE_BIN" ./farm-node.cjs',
+    ""
+  ].join("\n");
+}
+function createStartFarmNodeCommand() {
+  return [
+    "#!/bin/bash",
+    "# PrintKinetix Farm Node - macOS launcher.",
+    "# First launch: right-click (Control-click) this file and choose Open.",
+    'cd "$(dirname "$0")"',
+    "",
+    'echo "Starting PrintKinetix farm node..."',
+    "echo",
+    "",
+    "hold_open() {",
+    "  echo",
+    '  if [ -t 0 ]; then read -r -p "Press Enter to close this window..."; fi',
+    "}",
+    "",
+    "# One-time self-heal after unzip: clear the browser-download quarantine flag",
+    "# and restore execute bits so helper scripts and future launches just work.",
+    "xattr -dr com.apple.quarantine . >/dev/null 2>&1 || true",
+    'chmod +x "Start Farm Node.command" start-farm-node.sh get-node.sh install-service.sh >/dev/null 2>&1 || true',
+    "",
+    'if [ ! -f ".env" ]; then',
+    '  echo "Missing .env file next to this launcher."',
+    '  echo "It should contain CLOUD_API_URL and LOCAL_NODE_TOKEN (shipped in this package)."',
+    "  hold_open",
+    "  exit 1",
+    "fi",
+    "",
+    "# Homebrew installs are not on PATH when Finder launches a .command.",
+    'export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"',
+    "",
+    "# 1) Prefer a Node runtime bundled next to this launcher.",
+    'if [ -x "./node/bin/node" ]; then',
+    '  NODE_BIN="./node/bin/node"',
+    "# 2) Fall back to a Node already installed on this Mac.",
+    "elif command -v node >/dev/null 2>&1; then",
+    '  NODE_BIN="node"',
+    "else",
+    "  # 3) No Node found: fetch a portable Node runtime automatically (no admin, no npm).",
+    '  echo "Node.js was not found. Downloading a portable copy (one time)..."',
+    "  bash ./get-node.sh || true",
+    '  if [ ! -x "./node/bin/node" ]; then',
+    '    echo "Could not obtain Node.js automatically. Install Node 20+ from https://nodejs.org and re-run."',
+    "    hold_open",
+    "    exit 1",
+    "  fi",
+    '  NODE_BIN="./node/bin/node"',
+    "fi",
+    "",
+    'echo "Using Node: $NODE_BIN"',
+    '"$NODE_BIN" ./farm-node.cjs',
+    "echo",
+    'echo "Farm node stopped."',
+    "hold_open",
     ""
   ].join("\n");
 }
@@ -3012,21 +3080,37 @@ function createGetNodeSh() {
     'cd "$(dirname "$0")"',
     "",
     'VER="v22.11.0"',
+    'OS="$(uname -s)"',
     'ARCH="$(uname -m)"',
-    'case "$ARCH" in',
-    '  aarch64|arm64) NODE_ARCH="linux-arm64" ;;',
-    '  x86_64|amd64)  NODE_ARCH="linux-x64" ;;',
-    '  armv7l|armv6l) NODE_ARCH="linux-armv7l" ;;',
-    '  *) echo "Unsupported architecture: $ARCH. Install Node 20+ manually."; exit 1 ;;',
+    "",
+    'case "$OS" in',
+    "  Darwin)",
+    '    case "$ARCH" in',
+    '      arm64|aarch64) NODE_DIST="darwin-arm64" ;;',
+    '      x86_64)        NODE_DIST="darwin-x64" ;;',
+    '      *) echo "Unsupported macOS architecture: $ARCH. Install Node 20+ from https://nodejs.org"; exit 1 ;;',
+    "    esac",
+    '    TARBALL="node-$VER-$NODE_DIST.tar.gz"',
+    "    ;;",
+    "  Linux)",
+    '    case "$ARCH" in',
+    '      aarch64|arm64) NODE_DIST="linux-arm64" ;;',
+    '      x86_64|amd64)  NODE_DIST="linux-x64" ;;',
+    '      armv7l|armv6l) NODE_DIST="linux-armv7l" ;;',
+    '      *) echo "Unsupported architecture: $ARCH. Install Node 20+ manually."; exit 1 ;;',
+    "    esac",
+    '    TARBALL="node-$VER-$NODE_DIST.tar.xz"',
+    "    ;;",
+    '  *) echo "Unsupported OS: $OS. Install Node 20+ manually."; exit 1 ;;',
     "esac",
     "",
-    'TARBALL="node-$VER-$NODE_ARCH.tar.xz"',
     'URL="https://nodejs.org/dist/$VER/$TARBALL"',
+    'TMPFILE="${TMPDIR:-/tmp}/$TARBALL"',
     'echo "Downloading $URL"',
-    'curl -fsSL "$URL" -o "/tmp/$TARBALL"',
+    'curl -fsSL "$URL" -o "$TMPFILE"',
     "rm -rf ./node && mkdir -p ./node",
-    'tar -xJf "/tmp/$TARBALL" -C ./node --strip-components=1',
-    'rm -f "/tmp/$TARBALL"',
+    'tar -xf "$TMPFILE" -C ./node --strip-components=1',
+    'rm -f "$TMPFILE"',
     'echo "Portable Node installed to ./node"',
     ""
   ].join("\n");
@@ -3073,7 +3157,8 @@ function createPortableReadme({ nodeName = "Windows NUC", cloudApiUrl } = {}) {
     "",
     "This is a self-contained build. It does NOT need `npm install` and has no",
     "source tree \u2014 every dependency is compiled into farm-node.cjs. The same",
-    "package runs on Windows, on a Raspberry Pi 5 (arm64), and on Linux x64.",
+    "package runs on Windows, macOS (Apple Silicon + Intel), Raspberry Pi 5",
+    "(arm64), and Linux x64.",
     "",
     "To run on Windows",
     "-----------------",
@@ -3082,6 +3167,21 @@ function createPortableReadme({ nodeName = "Windows NUC", cloudApiUrl } = {}) {
     '3. Double-click "Start Farm Node.bat".',
     "   - It uses a bundled Node runtime (\\node), Node already on the PC, or",
     "     downloads a portable Node the first time. No manual install, no keys to type.",
+    "",
+    "To run on macOS",
+    "---------------",
+    "1. Keep every file in this folder together.",
+    "2. Confirm .env is present (your cloud credentials are already inside).",
+    '3. FIRST launch only: right-click (Control-click) "Start Farm Node.command"',
+    "   and choose Open, then Open again. macOS asks this once for every app",
+    "   downloaded outside the App Store; the launcher then clears the quarantine",
+    "   flag so future runs are a plain double-click.",
+    "   - If macOS still refuses (newer versions): System Settings ->",
+    '     Privacy & Security -> "Open Anyway", or run this in Terminal:',
+    "       cd <this folder> && bash start-farm-node.sh",
+    "4. The launcher uses a bundled Node runtime (./node), a Node already on the",
+    "   Mac (including Homebrew installs), or downloads a portable Node matching",
+    "   your chip (Apple Silicon or Intel) the first time. No admin, no npm.",
     "",
     "To run on a Raspberry Pi 5 / Linux",
     "----------------------------------",
@@ -3092,8 +3192,10 @@ function createPortableReadme({ nodeName = "Windows NUC", cloudApiUrl } = {}) {
     "     Node matching the Pi (arm64) automatically. No apt, no npm, no keys to type.",
     "4. Optional \u2014 start on boot + auto-restart (self-healing):  bash install-service.sh",
     "",
-    "Then, on either platform",
-    "------------------------",
+    "Then, on any platform",
+    "---------------------",
+    "- The local dashboard opens in your browser automatically once the node is up",
+    "  (set PKX_OPEN_DASHBOARD=false in .env to disable).",
     "- Open http://localhost:3000 on that machine to add LAN printers.",
     "- Enable LAN/Developer mode on each Bambu printer and add its IP, serial, and access code.",
     "- Return to /cloud, open Local Printer Sync, and queue Discover LAN Printers, then Sync Printer Inventory.",
@@ -3107,14 +3209,15 @@ function createPortableReadme({ nodeName = "Windows NUC", cloudApiUrl } = {}) {
     "",
     "Files",
     "-----",
-    "  farm-node.cjs        the entire node, bundled (no npm install)",
-    "  public/              local dashboard served at http://localhost:3000",
-    "  migrations/          applied to the local SQLite database on first run",
-    "  sql-wasm.wasm        SQLite engine (WebAssembly)",
-    "  Start Farm Node.bat  Windows double-click launcher",
-    "  start-farm-node.sh   Raspberry Pi / Linux launcher",
-    "  install-service.sh   optional systemd auto-start on Pi / Linux",
-    "  .env                 your cloud credentials (do not share)",
+    "  farm-node.cjs            the entire node, bundled (no npm install)",
+    "  public/                  local dashboard served at http://localhost:3000",
+    "  migrations/              applied to the local SQLite database on first run",
+    "  sql-wasm.wasm            SQLite engine (WebAssembly)",
+    "  Start Farm Node.bat      Windows double-click launcher",
+    "  Start Farm Node.command  macOS double-click launcher",
+    "  start-farm-node.sh       macOS / Raspberry Pi / Linux terminal launcher",
+    "  install-service.sh       optional systemd auto-start on Pi / Linux",
+    "  .env                     your cloud credentials (do not share)",
     ""
   ].join("\r\n");
 }
@@ -3148,11 +3251,16 @@ function buildPortableNodePackage({
       }
     }
   }
+  const addExecutable = (entryName, content) => {
+    zip.addFile(entryName, Buffer.from(content, "utf-8"), "", 493);
+    files.push(entryName);
+  };
   addFile("Start Farm Node.bat", Buffer.from(createFarmNodeLauncherBat(), "utf-8"));
   addFile("get-node.ps1", Buffer.from(createGetNodePs1(), "utf-8"));
-  addFile("start-farm-node.sh", Buffer.from(createStartFarmNodeSh(), "utf-8"));
-  addFile("get-node.sh", Buffer.from(createGetNodeSh(), "utf-8"));
-  addFile("install-service.sh", Buffer.from(createInstallServiceSh(), "utf-8"));
+  addExecutable("Start Farm Node.command", createStartFarmNodeCommand());
+  addExecutable("start-farm-node.sh", createStartFarmNodeSh());
+  addExecutable("get-node.sh", createGetNodeSh());
+  addExecutable("install-service.sh", createInstallServiceSh());
   addFile("README-FIRST.txt", Buffer.from(createPortableReadme({
     nodeName,
     cloudApiUrl: normalizedCloudApiUrl
@@ -27074,7 +27182,7 @@ var require_websocket = __commonJS({
     "use strict";
     var EventEmitter2 = require("events");
     var https = require("https");
-    var http = require("http");
+    var http2 = require("http");
     var net3 = require("net");
     var tls4 = require("tls");
     var { randomBytes: randomBytes2, createHash: createHash4 } = require("crypto");
@@ -27608,7 +27716,7 @@ var require_websocket = __commonJS({
       }
       const defaultPort = isSecure ? 443 : 80;
       const key = randomBytes2(16).toString("base64");
-      const request = isSecure ? https.request : http.request;
+      const request = isSecure ? https.request : http2.request;
       const protocolSet = /* @__PURE__ */ new Set();
       let perMessageDeflate;
       opts.createConnection = opts.createConnection || (isSecure ? tlsConnect : netConnect);
@@ -28102,7 +28210,7 @@ var require_websocket_server = __commonJS({
   "node_modules/ws/lib/websocket-server.js"(exports2, module2) {
     "use strict";
     var EventEmitter2 = require("events");
-    var http = require("http");
+    var http2 = require("http");
     var { Duplex } = require("stream");
     var { createHash: createHash4 } = require("crypto");
     var extension = require_extension();
@@ -28177,8 +28285,8 @@ var require_websocket_server = __commonJS({
           );
         }
         if (options.port != null) {
-          this._server = http.createServer((req, res) => {
-            const body = http.STATUS_CODES[426];
+          this._server = http2.createServer((req, res) => {
+            const body = http2.STATUS_CODES[426];
             res.writeHead(426, {
               "Content-Length": body.length,
               "Content-Type": "text/plain"
@@ -28465,7 +28573,7 @@ var require_websocket_server = __commonJS({
       this.destroy();
     }
     function abortHandshake(socket, code, message, headers) {
-      message = message || http.STATUS_CODES[code];
+      message = message || http2.STATUS_CODES[code];
       headers = {
         Connection: "close",
         "Content-Type": "text/html",
@@ -28474,7 +28582,7 @@ var require_websocket_server = __commonJS({
       };
       socket.once("finish", socket.destroy);
       socket.end(
-        `HTTP/1.1 ${code} ${http.STATUS_CODES[code]}\r
+        `HTTP/1.1 ${code} ${http2.STATUS_CODES[code]}\r
 ` + Object.keys(headers).map((h) => `${h}: ${headers[h]}`).join("\r\n") + "\r\n\r\n" + message
       );
     }
@@ -65013,10 +65121,10 @@ var require_layer = __commonJS({
 var require_methods2 = __commonJS({
   "node_modules/methods/index.js"(exports2, module2) {
     "use strict";
-    var http = require("http");
+    var http2 = require("http");
     module2.exports = getCurrentNodeMethods() || getBasicNodeMethods();
     function getCurrentNodeMethods() {
-      return http.METHODS && http.METHODS.map(function lowerCaseMethod(method) {
+      return http2.METHODS && http2.METHODS.map(function lowerCaseMethod(method) {
         return method.toLowerCase();
       });
     }
@@ -67747,7 +67855,7 @@ var require_application = __commonJS({
     var query = require_query();
     var debug = require_src7()("express:application");
     var View = require_view();
-    var http = require("http");
+    var http2 = require("http");
     var compileETag = require_utils6().compileETag;
     var compileQueryParser = require_utils6().compileQueryParser;
     var compileTrust = require_utils6().compileTrust;
@@ -67996,7 +68104,7 @@ var require_application = __commonJS({
       tryRender(view, renderOptions, done);
     };
     app2.listen = function listen() {
-      var server2 = http.createServer(this);
+      var server2 = http2.createServer(this);
       return server2.listen.apply(server2, arguments);
     };
     function logerror(err) {
@@ -68598,12 +68706,12 @@ var require_request = __commonJS({
     var deprecate = require_depd()("express");
     var isIP = require("net").isIP;
     var typeis = require_type_is();
-    var http = require("http");
+    var http2 = require("http");
     var fresh = require_fresh();
     var parseRange = require_range_parser();
     var parse = require_parseurl();
     var proxyaddr = require_proxy_addr();
-    var req = Object.create(http.IncomingMessage.prototype);
+    var req = Object.create(http2.IncomingMessage.prototype);
     module2.exports = req;
     req.get = req.header = function header(name) {
       if (!name) {
@@ -69024,7 +69132,7 @@ var require_response = __commonJS({
     var deprecate = require_depd()("express");
     var encodeUrl = require_encodeurl();
     var escapeHtml = require_escape_html();
-    var http = require("http");
+    var http2 = require("http");
     var isAbsolute = require_utils6().isAbsolute;
     var onFinished = require_on_finished();
     var path15 = require("path");
@@ -69040,7 +69148,7 @@ var require_response = __commonJS({
     var mime = send.mime;
     var resolve = path15.resolve;
     var vary = require_vary();
-    var res = Object.create(http.ServerResponse.prototype);
+    var res = Object.create(http2.ServerResponse.prototype);
     module2.exports = res;
     var charsetRegExp = /;\s*charset\s*=/;
     res.status = function status(code) {
@@ -86361,7 +86469,9 @@ var init_runLocalNode = __esm({
 });
 
 // src/cloud/farmNodeEntry.js
+var import_node_child_process3 = require("node:child_process");
 var import_node_fs11 = __toESM(require("node:fs"), 1);
+var import_node_http2 = __toESM(require("node:http"), 1);
 var import_node_path14 = __toESM(require("node:path"), 1);
 var import_node_readline = __toESM(require("node:readline"), 1);
 var DEFAULT_CLOUD_URL = "https://bambu-print-farm-automation.vercel.app";
@@ -86425,6 +86535,46 @@ Saved configuration to ${envPath}
 `);
   process.stdout.write("Delete that file (or edit it) to re-run this setup.\n\n");
 }
+function openInBrowser(url) {
+  const platform = process.platform;
+  let child;
+  if (platform === "darwin") {
+    child = (0, import_node_child_process3.spawn)("open", [url], { stdio: "ignore", detached: true });
+  } else if (platform === "win32") {
+    child = (0, import_node_child_process3.spawn)("cmd", ["/c", "start", "", url], { stdio: "ignore", detached: true });
+  } else {
+    child = (0, import_node_child_process3.spawn)("xdg-open", [url], { stdio: "ignore", detached: true });
+  }
+  child.on("error", () => {
+  });
+  child.unref();
+}
+function openDashboardWhenReady() {
+  if (process.env.PKX_OPEN_DASHBOARD === "false" || !process.stdin.isTTY) return;
+  const port = Number.parseInt(process.env.PORT || "", 10) || 3e3;
+  const url = `http://localhost:${port}`;
+  const deadline = Date.now() + 9e4;
+  const attempt = () => {
+    let settled = false;
+    const req = import_node_http2.default.get({ host: "127.0.0.1", port, path: "/", timeout: 2e3 }, (res) => {
+      settled = true;
+      res.resume();
+      process.stdout.write(`
+[farm-node] Local dashboard ready: ${url} (opening browser)
+`);
+      openInBrowser(url);
+    });
+    const retry = () => {
+      if (settled) return;
+      settled = true;
+      req.destroy();
+      if (Date.now() < deadline) setTimeout(attempt, 1e3).unref();
+    };
+    req.on("error", retry);
+    req.on("timeout", retry);
+  };
+  setTimeout(attempt, 1500).unref();
+}
 async function bootstrap() {
   const sea = await loadSea();
   const baseDir = sea ? import_node_path14.default.dirname(process.execPath) : process.env.PKX_ASSET_ROOT || process.cwd();
@@ -86446,6 +86596,7 @@ async function bootstrap() {
     dotenv.config({ path: envPath, override: true });
   }
   if (process.stdin.isTTY) process.env.PKX_HOLD_CONSOLE = "1";
+  openDashboardWhenReady();
   await Promise.resolve().then(() => (init_runLocalNode(), runLocalNode_exports));
 }
 process.on("uncaughtException", (error) => {

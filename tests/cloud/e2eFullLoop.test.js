@@ -158,6 +158,7 @@ describe('full farm loop end to end (local cloud, real handlers over HTTP)', () 
         expect(entries).toContain('sql-wasm.wasm');
         expect(entries).toContain('Start Farm Node.bat');
         expect(entries).toContain('get-node.ps1');
+        expect(entries).toContain('Start Farm Node.command'); // macOS double-click launcher
         expect(entries).toContain('start-farm-node.sh');
         expect(entries).toContain('.env');
         expect(entries).not.toContain('package.json');
