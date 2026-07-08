@@ -26,6 +26,7 @@ import {
     normalizeReorderConfig,
 } from './filamentReorder.js';
 import { testAmazonBusinessConnection } from './amazonBusiness.js';
+import { createStorefrontAdminOverview } from './storefrontHandlers.js';
 
 const FARM_AUTOMATION_POLICY_KEY = 'farm_automation_policy';
 const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
@@ -930,6 +931,46 @@ export function createCloudFilamentOrdersHandler({
             return sendJson(res, 400, {
                 ok: false,
                 error: 'filament_orders_action_failed',
+                message: error.message,
+            });
+        }
+    };
+}
+
+// Public storefront settings + order log (GET) and settings updates (PATCH,
+// Stripe secrets write-only).
+export function createCloudStorefrontHandler({
+    store,
+    adminToken = process.env.CLOUD_ADMIN_TOKEN,
+    now = () => new Date(),
+}) {
+    if (!store) throw new Error('store is required');
+    const overviewApi = createStorefrontAdminOverview({ store, now });
+
+    return async function cloudStorefrontHandler(req, res) {
+        if (req.method === 'GET') {
+            try {
+                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+                const overview = await overviewApi.getOverview();
+                return sendJson(res, 200, { ok: true, ...overview });
+            } catch (error) {
+                return sendInternalError(res, req, 'storefront_overview_failed');
+            }
+        }
+
+        if (req.method && req.method !== 'PATCH') {
+            return methodNotAllowed(res, 'GET, PATCH');
+        }
+
+        try {
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+            const body = parseJsonBody(req.body);
+            const settings = await overviewApi.patchSettings(isPlainObject(body.settings) ? body.settings : body);
+            return sendJson(res, 200, { ok: true, settings });
+        } catch (error) {
+            return sendJson(res, 400, {
+                ok: false,
+                error: 'update_storefront_failed',
                 message: error.message,
             });
         }

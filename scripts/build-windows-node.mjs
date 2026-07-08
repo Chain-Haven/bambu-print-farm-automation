@@ -39,6 +39,8 @@ const PUBLIC_EXCLUDES = new Set([
     'css/cloud.css',
     'js/cloud-dashboard.js',
     'js/fleet-view.js',
+    'order.html',
+    'js/storefront-order.js',
 ]);
 
 function log(msg) {

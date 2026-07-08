@@ -45,6 +45,43 @@ swapped since, re-run `proof_test.js` before concluding anything.
 
 Full write-up is in `DIAGNOSIS.md`.
 
+## Changes already made (July 2026 session — public storefront: quote → pay → ship)
+
+1. **Anyone can order a print at `/order`** (no account): upload STL/3MF/STEP/
+ OBJ/gcode(.3mf) → instant server-side price → shipping address → Stripe
+ hosted checkout → paid order dispatches through the REAL merchant pipeline
+ (`routeAndDispatchJobFile`, exported split of `merchantPrintHandlers`'
+ `createPrintJob`) under a platform-owned **"Walk-in Storefront" merchant**
+ (auto-provisioned once, `ensureStorefrontIdentity`, `storefront_state`).
+ One print job per ordered piece; capacity parking + heartbeat redispatch
+ apply as usual. Tokenized public status page (`/order?order_id&token`).
+2. **Honest pricing from the file itself** — `src/cloud/modelAnalysis.js`:
+ sliced files parse the slicer's "filament used [g]" (gcode header or
+ slice_info `used_g`); STL gets exact signed-tetrahedron mesh volume
+ (binary + ASCII) × density × 0.35 solidity; OBJ/STEP fall back to a
+ size heuristic labeled `file_size_heuristic`. Quote = per-piece estimator
+ (`quoteEstimator`) × qty + setup + markup% + flat shipping (all in
+ `storefront_settings`). **Quotes are HMAC-tokenized** (checksum+material+
+ qty+total+expiry, `storefront_state.quote_secret`) and recomputed at
+ checkout — clients cannot name their own price.
+3. **Stripe without the SDK** — `src/cloud/stripePayments.js`: hosted
+ Checkout Sessions via form-encoded REST; keys from settings (write-only)
+ or `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`; `mock` mode for offline.
+ **Webhook trust**: Vercel functions lack the raw body, so the delivered
+ event is only a hint — the handler re-fetches the event by id from Stripe
+ with our key before mutating anything (forgery-proof, replay-idempotent);
+ raw-body HMAC verify (`verifyStripeSignature`) also available self-hosted.
+ No Stripe → orders park unless `allow_unpaid_orders` (or MOCK_MODE demo).
+4. **Surfaces**: public `/api/public/storefront/{quote,checkout,orders,
+ stripe-webhook}`; admin `/api/cloud/storefront` (GET settings+orders /
+ PATCH settings); wired on Vercel + `localCloudServer` (+ `/order` page
+ route + vercel.json rewrite). Landing page: hero CTA + nav "Instant Print
+ Quote" + no-account card. Storefront page excluded from the farm-node
+ bundle (all three exclusion lists). Orders log: `storefront_orders`
+ platform setting (capped 500). Tests: `tests/cloud/storefront.test.js`
+ (17) — mesh math, token tamper, offline + Stripe funnels, webhook
+ idempotency, secret redaction.
+
 ## Changes already made (July 2026 session — filament auto-ordering via Amazon Business)
 
 1. **Auto-restocking closes the supply loop** — `src/cloud/filamentReorder.js`

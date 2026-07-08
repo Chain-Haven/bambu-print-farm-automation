@@ -22,6 +22,10 @@
       "destination": "/cloud.html"
     },
     {
+      "source": "/order",
+      "destination": "/order.html"
+    },
+    {
       "source": "/merchant-onboarding",
       "destination": "/merchant-onboarding.html"
     },

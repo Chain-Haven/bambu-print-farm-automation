@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Instant 3D Print Quote — PrintKinetix</title>
+  <meta name="description" content="Upload a 3D model, get an instant price, pay, and we print and ship it from an automated Bambu Lab farm.">
+  <link rel="icon"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23146c5a'/%3E%3Cpath d='M8 10h16v4H8zM8 18h10v4H8z' fill='white'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --text: #18202f;
+      --muted: #526073;
+      --line: #d9e0ea;
+      --accent: #0f766e;
+      --accent-strong: #0b5d57;
+      --ok: #16794c;
+      --warn: #9a6b00;
+      --err: #b3261e;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0d1117;
+        --panel: #161b22;
+        --text: #e6edf3;
+        --muted: #9aa7b4;
+        --line: #2d333b;
+        --accent: #2dd4bf;
+        --accent-strong: #14b8a6;
+        --ok: #3fb950;
+        --warn: #d29922;
+        --err: #f85149;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+    }
+    main { max-width: 880px; margin: 0 auto; padding: 24px 20px 80px; }
+    header.site {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 0; gap: 12px; flex-wrap: wrap;
+    }
+    .brand { font-weight: 700; font-size: 18px; text-decoration: none; color: var(--text); }
+    .brand span { color: var(--accent); }
+    header.site nav a { color: var(--muted); text-decoration: none; margin-left: 16px; font-size: 14px; }
+    header.site nav a:hover { color: var(--text); }
+    h1 { font-size: clamp(26px, 4.5vw, 38px); margin: 8px 0 6px; }
+    .lead { color: var(--muted); margin: 0 0 24px; max-width: 60ch; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+      padding: 22px; margin-bottom: 18px;
+    }
+    .card h2 { margin: 0 0 4px; font-size: 18px; }
+    .card .sub { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
+    .drop {
+      border: 2px dashed var(--line); border-radius: 12px; padding: 28px 16px;
+      text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+    }
+    .drop.dragover, .drop:hover { border-color: var(--accent); }
+    .drop strong { color: var(--accent); }
+    .drop .file-name { display: block; margin-top: 8px; font-weight: 600; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+    @media (max-width: 620px) { .row { grid-template-columns: 1fr; } }
+    label { display: block; font-size: 13px; color: var(--muted); }
+    label > span { display: block; margin-bottom: 5px; font-weight: 600; }
+    input, select {
+      width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg); color: var(--text); font-size: 15px;
+    }
+    button {
+      appearance: none; border: 0; border-radius: 10px; padding: 12px 20px;
+      background: var(--accent); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
+      margin-top: 16px;
+    }
+    button:hover { background: var(--accent-strong); }
+    button:disabled { opacity: .55; cursor: wait; }
+    button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+    .price-lines { margin: 12px 0 0; padding: 0; list-style: none; font-size: 15px; }
+    .price-lines li { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+    .price-lines li.total { font-weight: 700; font-size: 18px; border-bottom: 0; }
+    .hint { color: var(--muted); font-size: 13px; margin-top: 10px; }
+    .status-chip {
+      display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+      background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent);
+    }
+    .status-chip.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+    .status-chip.warn { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+    .status-chip.err { background: color-mix(in srgb, var(--err) 14%, transparent); color: var(--err); }
+    .error-box { color: var(--err); font-size: 14px; margin-top: 12px; white-space: pre-wrap; }
+    .jobs-list { margin: 10px 0 0; padding: 0; list-style: none; font-size: 14px; }
+    .jobs-list li { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+    [hidden] { display: none !important; }
+    .steps { display: flex; gap: 8px; margin: 0 0 20px; flex-wrap: wrap; }
+    .steps span { font-size: 13px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; }
+    .steps span.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+    code { background: color-mix(in srgb, var(--line) 40%, transparent); padding: 1px 6px; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="site">
+      <a class="brand" href="/">Print<span>Kinetix</span></a>
+      <nav>
+        <a href="/">Home</a>
+        <a href="/merchant-api.html">API</a>
+        <a href="/merchant-onboarding">For merchants</a>
+      </nav>
+    </header>
+
+    <div id="funnel-view">
+      <h1>Upload it. We print &amp; ship it.</h1>
+      <p class="lead">Drop a 3D file, get a price in seconds, pay online, and an automated Bambu Lab farm prints
+        your part and ships it to your door. STL, 3MF, STEP, OBJ, and pre-sliced G-code all work.</p>
+
+      <div class="steps" aria-hidden="true">
+        <span id="step-1" class="active">1 · Upload &amp; price</span>
+        <span id="step-2">2 · Shipping &amp; payment</span>
+        <span id="step-3">3 · We print &amp; ship</span>
+      </div>
+
+      <section class="card" aria-label="Upload and quote">
+        <h2>Your part</h2>
+        <p class="sub">Files up to 25&nbsp;MB. Pre-sliced <code>.gcode.3mf</code> gets exact material pricing; STL is measured from mesh volume.</p>
+        <div class="drop" id="drop-zone" role="button" tabindex="0" aria-label="Choose a 3D file">
+          Drag a file here or <strong>browse</strong>
+          <span class="file-name" id="file-name">No file selected</span>
+          <input id="file-input" type="file" hidden
+            accept=".stl,.3mf,.gcode,.obj,.step,.stp,.gcode.3mf">
+        </div>
+        <div class="row">
+          <label><span>Material</span>
+            <select id="material">
+              <option value="PLA">PLA — general purpose</option>
+              <option value="PETG">PETG — tough, outdoor</option>
+              <option value="ABS">ABS — heat resistant</option>
+              <option value="ASA">ASA — UV stable</option>
+              <option value="TPU">TPU — flexible</option>
+            </select>
+          </label>
+          <label><span>Quantity</span>
+            <input id="quantity" type="number" min="1" max="50" value="1">
+          </label>
+        </div>
+        <button id="quote-btn" type="button">Get instant price</button>
+        <div class="error-box" id="quote-error" hidden></div>
+      </section>
+
+      <section class="card" id="quote-card" hidden aria-label="Price">
+        <h2>Price</h2>
+        <p class="sub" id="quote-meta"></p>
+        <ul class="price-lines" id="price-lines"></ul>
+        <p class="hint" id="quote-basis"></p>
+      </section>
+
+      <section class="card" id="checkout-card" hidden aria-label="Shipping and payment">
+        <h2>Shipping &amp; payment</h2>
+        <p class="sub">We ship tracked. Card payment is handled by Stripe — card details never touch our servers.</p>
+        <div class="row">
+          <label><span>Full name</span><input id="ship-name" autocomplete="name" required></label>
+          <label><span>Email (order updates)</span><input id="ship-email" type="email" autocomplete="email" required></label>
+        </div>
+        <div class="row">
+          <label><span>Address line 1</span><input id="ship-line1" autocomplete="address-line1" required></label>
+          <label><span>Address line 2 (optional)</span><input id="ship-line2" autocomplete="address-line2"></label>
+        </div>
+        <div class="row">
+          <label><span>City</span><input id="ship-city" autocomplete="address-level2" required></label>
+          <label><span>State / region</span><input id="ship-region" autocomplete="address-level1"></label>
+        </div>
+        <div class="row">
+          <label><span>Postal code</span><input id="ship-postal" autocomplete="postal-code" required></label>
+          <label><span>Country (2-letter)</span><input id="ship-country" autocomplete="country" value="US" maxlength="2" required></label>
+        </div>
+        <button id="checkout-btn" type="button">Pay &amp; print</button>
+        <p class="hint" id="payment-hint"></p>
+        <div class="error-box" id="checkout-error" hidden></div>
+      </section>
+    </div>
+
+    <div id="status-view" hidden>
+      <h1>Order status</h1>
+      <p class="lead" id="status-lead">Bookmark this page — it is the live status of your order.</p>
+      <section class="card">
+        <h2 id="status-order-id"></h2>
+        <p class="sub" id="status-summary"></p>
+        <p><span class="status-chip" id="status-chip">loading…</span></p>
+        <ul class="price-lines" id="status-price-lines"></ul>
+        <h2 style="margin-top:18px">Print jobs</h2>
+        <ul class="jobs-list" id="status-jobs"></ul>
+        <p class="hint" id="status-shipping"></p>
+        <button class="ghost" id="status-refresh" type="button">Refresh now</button>
+        <div class="error-box" id="status-error" hidden></div>
+      </section>
+      <p class="hint"><a href="/order">Print something else →</a></p>
+    </div>
+  </main>
+  <script src="/js/storefront-order.js"></script>
+</body>
+</html>

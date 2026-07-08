@@ -523,7 +523,8 @@
         <a href="#for-merchants">Merchants</a>
         <a href="#developers">Developers</a>
         <a href="/merchant-api.html">API Docs</a>
-        <a class="cta" href="/cloud">Operator Console</a>
+        <a href="/cloud">Operator Console</a>
+        <a class="cta" href="/order">Instant Print Quote</a>
       </nav>
     </div>
   </header>
@@ -532,9 +533,10 @@
     <section class="hero" aria-labelledby="hero-title">
       <div class="hero-copy">
         <h1 id="hero-title">Run a Bambu print farm from the cloud</h1>
-        <p>PrintKinetix is the control plane for multi-printer Bambu Lab farms. Connect a Windows node on
+        <p>PrintKinetix is the control plane for multi-printer Bambu Lab farms. Connect a farm node on
           your LAN, onboard merchants, route storefront orders to the right printer, and monitor the fleet —
-          without exposing printers to the public internet.</p>
+          without exposing printers to the public internet. Need a part printed? Upload a file, get an
+          instant price, pay, and it ships — no account needed.</p>
         <div class="hero-meta">
           <span class="status-chip ok" title="Cloud API status">
             <span class="dot"></span> Cloud API operational
@@ -542,9 +544,9 @@
           <span class="status-chip" title="Self-hostable">Self-hostable · MIT licensed</span>
         </div>
         <div class="hero-actions">
-          <a class="btn btn-primary" href="/cloud">Open Operator Console</a>
+          <a class="btn btn-primary" href="/order">Upload a file — instant price</a>
+          <a class="btn btn-secondary" href="/cloud">Operator Console</a>
           <a class="btn btn-secondary" href="/merchant-onboarding">Merchant sign up</a>
-          <a class="btn btn-secondary" href="/merchant-api.html">Read API docs</a>
         </div>
         <div class="printers-strip" aria-label="Supported Bambu Lab printers">
           <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16v10H4z"/><path d="M8 17v3h8v-3"/></svg> A1</span>
@@ -622,7 +624,13 @@
       <h2 class="section-title" id="merchants-title">For merchants</h2>
       <p class="section-lead">Sign up, get approved, and connect a storefront — or upload a file manually with no code.</p>
       <div class="entry-grid">
-        <a class="card primary" href="/merchant-onboarding">
+        <a class="card primary" href="/order">
+          <div class="eyebrow">No account needed</div>
+          <h3>Just want a part printed?</h3>
+          <p>Upload STL, 3MF, STEP, or sliced G-code, see the price instantly, pay by card, and we print and ship it.</p>
+          <div class="go">Get an instant quote →</div>
+        </a>
+        <a class="card" href="/merchant-onboarding">
           <div class="eyebrow">Get started</div>
           <h3>Sign up &amp; onboarding</h3>
           <p>Request access, create your portal account, exchange a setup token, and receive a live API key.</p>
