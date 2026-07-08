@@ -57,7 +57,10 @@ function normalizeColorHex(value) {
     if (!raw) return null;
     const hex = raw.replace(/^#/, '').toUpperCase();
     const expanded = hex.length === 3 ? hex.split('').map((c) => `${c}${c}`).join('') : hex;
-    return /^[0-9A-F]{6}$/.test(expanded) ? `#${expanded}` : null;
+    // Bambu live tray colors are 8-char RGBA ("00AE42FF") — drop the alpha so
+    // AMS trays, inventory spools, and rules all compare as #RRGGBB.
+    const rgb = expanded.slice(0, 6);
+    return /^[0-9A-F]{6}$/.test(rgb) ? `#${rgb}` : null;
 }
 
 function positiveNumber(value, fallback) {
@@ -90,6 +93,7 @@ export function normalizeReorderRule(rule, index = 0) {
 export function normalizeReorderConfig(config) {
     const source = isPlainObject(config) ? config : {};
     const credentials = isPlainObject(source.credentials) ? source.credentials : {};
+    const ruleDefaults = isPlainObject(source.rule_defaults) ? source.rule_defaults : {};
     return {
         enabled: source.enabled === true,
         vendor: 'amazon_business',
@@ -97,6 +101,16 @@ export function normalizeReorderConfig(config) {
         // within the caps below without asking.
         mode: source.mode === 'auto' ? 'auto' : 'approval',
         trial_mode: source.trial_mode !== false,
+        // Count filament loaded in AMS units (live_remaining telemetry from
+        // heartbeats) as stock, so ordering works with zero manual inventory.
+        count_ams_trays: source.count_ams_trays !== false,
+        // Prefills for tagging a newly-detected filament in the console.
+        rule_defaults: {
+            min_spools: positiveInt(ruleDefaults.min_spools, 2),
+            order_quantity: positiveInt(ruleDefaults.order_quantity, 2),
+            max_unit_price_usd: positiveNumber(ruleDefaults.max_unit_price_usd, 30),
+            grams_per_spool: positiveInt(ruleDefaults.grams_per_spool, 1000),
+        },
         region: ['NA', 'EU', 'FE'].includes(String(source.region || '').toUpperCase())
             ? String(source.region).toUpperCase()
             : 'NA',
@@ -144,6 +158,189 @@ export function countUsableSpools(spools, rule, minUsableGrams) {
         if (rule.color_hex && normalizeColorHex(spool?.color_hex) !== rule.color_hex) return false;
         return Number(spool?.grams_remaining) >= minUsableGrams;
     }).length;
+}
+
+// ---------------------------------------------------------------------------
+// Live AMS stock (per-tray filament levels mirrored by node heartbeats)
+// ---------------------------------------------------------------------------
+
+// Printers that stopped heartbeating must not count as stock.
+const STALE_PRINTER_MS = 24 * 60 * 60 * 1000;
+
+function isFreshPrinter(printer, nowMs) {
+    const lastSeen = printer?.last_seen_at ? new Date(printer.last_seen_at).getTime() : null;
+    return !Number.isFinite(lastSeen) || nowMs - lastSeen < STALE_PRINTER_MS;
+}
+
+// Flatten every fresh printer's mirrored AMS view into normalized trays.
+// Shape source: localPrinterSnapshot.collectAmsTrays → capabilities.ams_trays
+// [{ ams_id, tray_id, material, material_base, color_hex, live_remaining }].
+export function collectLiveAmsTrays(printers, nowMs = Date.now()) {
+    const trays = [];
+    for (const printer of asArray(printers)) {
+        if (!isFreshPrinter(printer, nowMs)) continue;
+        const source = asArray(printer?.capabilities?.ams_trays).length > 0
+            ? printer.capabilities.ams_trays
+            : asArray(printer?.capabilities?.trays);
+        for (const tray of source) {
+            const material = normalizeMaterial(tray?.material);
+            const colorHex = normalizeColorHex(tray?.color_hex || tray?.color);
+            if (!material && !colorHex) continue;
+            trays.push({
+                printer_id: printer.printer_id || null,
+                local_printer_id: printer.local_printer_id || null,
+                ams_id: tray?.ams_id ?? null,
+                tray_id: tray?.tray_id ?? null,
+                material,
+                material_base: normalizeMaterial(tray?.material_base),
+                color_hex: colorHex,
+                color_name: normalizeString(tray?.color_name),
+                // Bambu `remain` percent (0-100); null/negative = unknown
+                // (third-party spool without RFID).
+                live_remaining: Number.isFinite(Number(tray?.live_remaining)) ? Number(tray.live_remaining) : null,
+            });
+        }
+    }
+    return trays;
+}
+
+function trayMatchesRule(tray, rule) {
+    if (tray.material !== rule.material && tray.material_base !== rule.material) return false;
+    if (rule.color_hex && tray.color_hex !== rule.color_hex) return false;
+    return true;
+}
+
+// Estimated grams left in a tray. Unknown levels (no RFID telemetry) count as
+// a full spool: the tray is physically loaded, and guessing "empty" would
+// trigger orders for filament the operator can see on the shelf.
+export function estimateTrayGrams(tray, gramsPerSpool) {
+    if (tray.live_remaining === null || tray.live_remaining < 0) return gramsPerSpool;
+    return Math.round((Math.min(tray.live_remaining, 100) / 100) * gramsPerSpool);
+}
+
+/**
+ * Usable stock for one rule = loaded AMS trays with enough filament left
+ * (live levels) + shelf spools from the inventory. When AMS counting is on,
+ * inventory spools assigned to a printer are skipped — they ARE the loaded
+ * trays and would double count.
+ */
+export function countUsableStock({ spools, trays, rule, config }) {
+    const minGrams = config.min_usable_grams;
+    let trayCount = 0;
+    let estGrams = 0;
+
+    if (config.count_ams_trays) {
+        for (const tray of asArray(trays)) {
+            if (!trayMatchesRule(tray, rule)) continue;
+            const grams = estimateTrayGrams(tray, rule.grams_per_spool);
+            estGrams += grams;
+            if (grams >= minGrams) trayCount += 1;
+        }
+    }
+
+    const shelfSpools = asArray(spools).filter((spool) => (
+        !config.count_ams_trays || (!spool?.printer_id && !spool?.local_printer_id)
+    ));
+    const spoolCount = countUsableSpools(shelfSpools, rule, minGrams);
+    estGrams += shelfSpools
+        .filter((spool) => normalizeMaterial(spool?.material) === rule.material
+            && (!rule.color_hex || normalizeColorHex(spool?.color_hex) === rule.color_hex))
+        .reduce((sum, spool) => sum + (Number(spool?.grams_remaining) || 0), 0);
+
+    return {
+        usable: trayCount + spoolCount,
+        tray_count: trayCount,
+        spool_count: spoolCount,
+        est_grams: Math.round(estGrams),
+    };
+}
+
+// Rule lookup for a detected filament: an exact color match wins over a
+// material-wide (color-less) rule.
+function findRuleForFilament(rules, material, colorHex) {
+    return rules.find((rule) => rule.material === material && rule.color_hex === colorHex)
+        || rules.find((rule) => rule.material === material && !rule.color_hex)
+        || null;
+}
+
+/**
+ * Everything the farm can see about its filament, aggregated per
+ * material+color — the console's tagging table. Each entry reports where the
+ * stock lives (AMS trays vs shelf spools), the estimated grams, and the rule
+ * (Amazon product tag) covering it, if any.
+ */
+export function buildFilamentStockView({ config, spools = [], printers = [], now = () => new Date() } = {}) {
+    const normalized = normalizeReorderConfig(config);
+    const trays = collectLiveAmsTrays(printers, now().getTime());
+    const byKey = new Map();
+
+    const entryFor = (material, colorHex, colorName = null) => {
+        const key = `${material}|${colorHex || ''}`;
+        if (!byKey.has(key)) {
+            byKey.set(key, {
+                material,
+                color_hex: colorHex,
+                color_name: colorName,
+                ams_tray_count: 0,
+                inventory_spool_count: 0,
+                est_grams: 0,
+            });
+        }
+        const entry = byKey.get(key);
+        if (!entry.color_name && colorName) entry.color_name = colorName;
+        return entry;
+    };
+
+    for (const tray of trays) {
+        if (!tray.material) continue;
+        const entry = entryFor(tray.material, tray.color_hex, tray.color_name);
+        entry.ams_tray_count += 1;
+        const rule = findRuleForFilament(normalized.rules, tray.material, tray.color_hex);
+        entry.est_grams += estimateTrayGrams(tray, rule?.grams_per_spool || normalized.rule_defaults.grams_per_spool);
+    }
+    for (const spool of asArray(spools)) {
+        const material = normalizeMaterial(spool?.material);
+        if (!material) continue;
+        const entry = entryFor(material, normalizeColorHex(spool?.color_hex), normalizeString(spool?.color_name));
+        entry.inventory_spool_count += 1;
+        entry.est_grams += Number(spool?.grams_remaining) || 0;
+    }
+    // Rules for filament the farm has run out of entirely still need a row —
+    // that is exactly when auto-ordering matters most.
+    for (const rule of normalized.rules) {
+        entryFor(rule.material, rule.color_hex, rule.color_name);
+    }
+
+    return [...byKey.values()]
+        .map((entry) => {
+            const rule = findRuleForFilament(normalized.rules, entry.material, entry.color_hex);
+            const stock = countUsableStock({
+                spools,
+                trays,
+                rule: rule || normalizeReorderRule({
+                    material: entry.material,
+                    color_hex: entry.color_hex,
+                    ...normalized.rule_defaults,
+                }),
+                config: normalized,
+            });
+            return {
+                ...entry,
+                est_grams: Math.round(entry.est_grams),
+                usable_spools: stock.usable,
+                tagged: Boolean(rule?.asin),
+                rule: rule ? {
+                    rule_id: rule.rule_id,
+                    enabled: rule.enabled,
+                    asin: rule.asin,
+                    min_spools: rule.min_spools,
+                    order_quantity: rule.order_quantity,
+                    max_unit_price_usd: rule.max_unit_price_usd,
+                    grams_per_spool: rule.grams_per_spool,
+                } : null,
+            };
+        })
+        .sort((a, b) => a.material.localeCompare(b.material) || String(a.color_hex || '').localeCompare(String(b.color_hex || '')));
 }
 
 export function monthlySpendUsd(orders, month) {
@@ -241,6 +438,15 @@ export async function evaluateFilamentReorders({
 
     const inventory = await store.getPlatformSetting(FARM_FILAMENT_INVENTORY_KEY, { spools: [] });
     const spools = asArray(isPlainObject(inventory) ? inventory.spools : []);
+    // Live AMS levels: loaded trays mirrored from heartbeats count as stock,
+    // so restocking works with zero manual inventory bookkeeping.
+    let printers = [];
+    if (config.count_ams_trays && typeof store.getCloudOverview === 'function') {
+        try {
+            printers = asArray((await store.getCloudOverview({ limit: 200 }))?.printers);
+        } catch { printers = []; }
+    }
+    const trays = collectLiveAmsTrays(printers, nowMs);
     const month = monthKey(nowDate);
     const cooldownMs = config.cooldown_hours * 60 * 60 * 1000;
     const credentialsReady = hasAmazonBusinessCredentials(config);
@@ -250,8 +456,8 @@ export async function evaluateFilamentReorders({
     let spend = monthlySpendUsd(state.orders, month);
 
     for (const rule of rules) {
-        const usable = countUsableSpools(spools, rule, config.min_usable_grams);
-        if (usable >= rule.min_spools) continue;
+        const stock = countUsableStock({ spools, trays, rule, config });
+        if (stock.usable >= rule.min_spools) continue;
         if (ruleHasOpenOrRecentOrder([...state.orders, ...newOrders], rule, nowMs, cooldownMs)) continue;
 
         const estTotal = rule.max_unit_price_usd * rule.order_quantity;
@@ -272,7 +478,10 @@ export async function evaluateFilamentReorders({
             quantity: rule.order_quantity,
             max_unit_price_usd: rule.max_unit_price_usd,
             est_total_usd: estTotal,
-            usable_spools: usable,
+            usable_spools: stock.usable,
+            ams_tray_count: stock.tray_count,
+            shelf_spool_count: stock.spool_count,
+            est_grams_left: stock.est_grams,
             min_spools: rule.min_spools,
             trial_mode: config.trial_mode !== false,
             status: 'awaiting_approval',
@@ -351,10 +560,17 @@ export async function denyFilamentReorder({ store, orderId, now = () => new Date
 }
 
 export async function getFilamentReorderOverview({ store, now = () => new Date() }) {
-    const [rawConfig, state] = await Promise.all([
+    const [rawConfig, state, inventory] = await Promise.all([
         store.getPlatformSetting(FILAMENT_REORDER_CONFIG_KEY, null),
         loadState(store),
+        store.getPlatformSetting(FARM_FILAMENT_INVENTORY_KEY, { spools: [] }),
     ]);
+    let printers = [];
+    if (typeof store.getCloudOverview === 'function') {
+        try {
+            printers = asArray((await store.getCloudOverview({ limit: 200 }))?.printers);
+        } catch { printers = []; }
+    }
     const month = monthKey(now());
     return {
         config: redactReorderConfig(rawConfig),
@@ -362,5 +578,13 @@ export async function getFilamentReorderOverview({ store, now = () => new Date()
         last_evaluated_at: state.last_evaluated_at,
         month,
         monthly_spend_usd: monthlySpendUsd(state.orders, month),
+        // Tagging table: every filament the farm can see (AMS + shelf),
+        // with live stock and the Amazon product tag covering it (if any).
+        detected_filaments: buildFilamentStockView({
+            config: rawConfig,
+            spools: asArray(isPlainObject(inventory) ? inventory.spools : []),
+            printers,
+            now,
+        }),
     };
 }

@@ -745,6 +745,10 @@
                 <input id="reorder-trial-mode" type="checkbox" checked>
                 <span>Trial mode — Amazon test orders, nothing charged</span>
               </label>
+              <label class="switch-row">
+                <input id="reorder-count-ams" type="checkbox" checked>
+                <span>Track AMS filament levels — loaded trays count as stock</span>
+              </label>
               <div class="split">
                 <label>
                   <span>Monthly budget USD</span>
@@ -753,6 +757,26 @@
                 <label>
                   <span>Max per order USD</span>
                   <input id="reorder-max-order" type="number" min="1" step="1" value="150">
+                </label>
+              </div>
+              <div class="split">
+                <label>
+                  <span>Default: reorder below (spools)</span>
+                  <input id="reorder-default-min" type="number" min="1" step="1" value="2">
+                </label>
+                <label>
+                  <span>Default: order quantity</span>
+                  <input id="reorder-default-qty" type="number" min="1" step="1" value="2">
+                </label>
+              </div>
+              <div class="split">
+                <label>
+                  <span>Default: max $/spool</span>
+                  <input id="reorder-default-price" type="number" min="1" step="0.5" value="30">
+                </label>
+                <label>
+                  <span>Default: grams per spool</span>
+                  <input id="reorder-default-grams" type="number" min="100" step="50" value="1000">
                 </label>
               </div>
               <label>
@@ -802,6 +826,14 @@
               <span id="automation-alert-count">0</span>
             </div>
             <div id="automation-alerts-table"></div>
+          </div>
+          <div class="table-panel">
+            <div class="panel-heading">
+              <h2>Filament Catalog — tag to Amazon</h2>
+              <span id="filament-tags-count">0</span>
+            </div>
+            <p class="field-hint">Every filament the farm can see (loaded AMS trays via heartbeats + shelf spools from inventory). Paste the Amazon product ASIN next to a filament to tag it; tagged filaments reorder themselves when usable stock drops below the threshold.</p>
+            <div id="filament-tags-table"></div>
           </div>
           <div class="table-panel">
             <div class="panel-heading">

@@ -9,13 +9,18 @@ import {
 } from '../../src/cloud/amazonBusiness.js';
 import {
     approveFilamentReorder,
+    buildFilamentStockView,
+    collectLiveAmsTrays,
     countUsableSpools,
+    countUsableStock,
     denyFilamentReorder,
+    estimateTrayGrams,
     evaluateFilamentReorders,
     FILAMENT_REORDER_CONFIG_KEY,
     FILAMENT_REORDER_STATE_KEY,
     getFilamentReorderOverview,
     normalizeReorderConfig,
+    normalizeReorderRule,
     redactReorderConfig,
 } from '../../src/cloud/filamentReorder.js';
 
@@ -314,6 +319,149 @@ describe('filament reorder engine', () => {
     });
 });
 
+describe('AMS-level stock tracking', () => {
+    // Mirrored printer rows as upsertCloudPrinters stores them (heartbeat path):
+    // merged AMS view under capabilities.ams_trays, live_remaining = Bambu
+    // `remain` percent, live colors 8-char RGBA without '#'.
+    function printerWith(trays, { lastSeenAt = '2026-07-08T11:55:00.000Z', id = 'p1' } = {}) {
+        return {
+            printer_id: id,
+            local_printer_id: `local-${id}`,
+            last_seen_at: lastSeenAt,
+            capabilities: { ams_trays: trays },
+        };
+    }
+
+    it('collects live trays, normalizes RGBA colors, and skips stale printers', () => {
+        const trays = collectLiveAmsTrays([
+            printerWith([
+                { ams_id: 0, tray_id: 0, material: 'PLA', material_base: 'PLA', color_hex: 'FFFFFFFF', live_remaining: 80 },
+                { ams_id: 0, tray_id: 1, material: 'PLA Silk', material_base: 'PLA', color_hex: '00AE42FF', live_remaining: -1 },
+            ]),
+            printerWith(
+                [{ ams_id: 0, tray_id: 0, material: 'PETG', color_hex: '000000FF', live_remaining: 90 }],
+                { lastSeenAt: '2026-07-05T00:00:00.000Z', id: 'stale' }, // 3 days silent
+            ),
+        ], new Date('2026-07-08T12:00:00.000Z').getTime());
+
+        expect(trays).toHaveLength(2); // stale printer contributes nothing
+        expect(trays[0]).toMatchObject({ material: 'PLA', color_hex: '#FFFFFF', live_remaining: 80 });
+        expect(trays[1]).toMatchObject({ material: 'PLA SILK', material_base: 'PLA', color_hex: '#00AE42' });
+    });
+
+    it('estimates tray grams from Bambu remain percent; unknown counts as full', () => {
+        expect(estimateTrayGrams({ live_remaining: 80 }, 1000)).toBe(800);
+        expect(estimateTrayGrams({ live_remaining: 5 }, 1000)).toBe(50);
+        expect(estimateTrayGrams({ live_remaining: null }, 1000)).toBe(1000); // no RFID telemetry
+        expect(estimateTrayGrams({ live_remaining: -1 }, 1000)).toBe(1000);
+        expect(estimateTrayGrams({ live_remaining: 250 }, 1000)).toBe(1000);  // clamped
+    });
+
+    it('counts AMS trays + shelf spools without double-counting loaded spools', () => {
+        const config = normalizeReorderConfig(baseConfig());
+        const rule = config.rules[0]; // PLA #FFFFFF, grams_per_spool 1000
+        const trays = collectLiveAmsTrays([
+            printerWith([
+                { material: 'PLA', color_hex: 'FFFFFFFF', live_remaining: 70 },  // 700g usable
+                { material: 'PLA', color_hex: 'FFFFFFFF', live_remaining: 5 },   // 50g — nearly empty
+            ]),
+        ], new Date('2026-07-08T12:00:00.000Z').getTime());
+        const spools = [
+            { material: 'PLA', color_hex: '#FFFFFF', grams_remaining: 900 },                      // shelf spool
+            { material: 'PLA', color_hex: '#FFFFFF', grams_remaining: 800, printer_id: 'p1' },    // loaded — IS a tray
+        ];
+
+        const stock = countUsableStock({ spools, trays, rule, config });
+        expect(stock).toMatchObject({ usable: 2, tray_count: 1, spool_count: 1 });
+
+        // With AMS counting off, only inventory counts — including loaded spools.
+        const offConfig = normalizeReorderConfig(baseConfig({ count_ams_trays: false }));
+        const offStock = countUsableStock({ spools, trays, rule: offConfig.rules[0], config: offConfig });
+        expect(offStock).toMatchObject({ usable: 2, tray_count: 0, spool_count: 2 });
+    });
+
+    it('live AMS levels drive ordering with zero manual inventory', async () => {
+        const store = createMemoryCloudStore();
+        const nodeLike = { node_id: 'n1', org_id: 'o1' };
+        await seed(store, { config: baseConfig(), spools: [] });
+
+        // Two healthy white-PLA trays → above threshold, nothing ordered.
+        await store.upsertCloudPrinters(nodeLike, [{
+            local_printer_id: 'a1',
+            capabilities: {
+                ams_trays: [
+                    { material: 'PLA', color_hex: 'FFFFFFFF', live_remaining: 90 },
+                    { material: 'PLA', color_hex: 'FFFFFFFF', live_remaining: 60 },
+                ],
+            },
+        }], NOW().toISOString());
+        let result = await evaluateFilamentReorders({ store, now: NOW, force: true });
+        expect(result.created).toBe(0);
+
+        // Both trays running out → order created, with the AMS breakdown on it.
+        await store.upsertCloudPrinters(nodeLike, [{
+            local_printer_id: 'a1',
+            capabilities: {
+                ams_trays: [
+                    { material: 'PLA', color_hex: 'FFFFFFFF', live_remaining: 8 },
+                    { material: 'PLA', color_hex: 'FFFFFFFF', live_remaining: 3 },
+                ],
+            },
+        }], NOW().toISOString());
+        result = await evaluateFilamentReorders({ store, now: NOW, force: true });
+        expect(result.created).toBe(1);
+        expect(result.orders[0]).toMatchObject({
+            usable_spools: 0,
+            ams_tray_count: 0,
+            shelf_spool_count: 0,
+        });
+        expect(result.orders[0].est_grams_left).toBe(110); // 80g + 30g still loaded
+    });
+
+    it('builds the tagging view: aggregates AMS + shelf stock and attaches rules', () => {
+        const config = baseConfig(); // rule covers PLA #FFFFFF
+        const printers = [printerWith([
+            { material: 'PLA', color_hex: 'FFFFFFFF', color_name: 'Jade White', live_remaining: 70 },
+            { material: 'PETG', color_hex: '000000FF', live_remaining: 40 },
+        ])];
+        const spools = [{ material: 'PLA', color_hex: '#FFFFFF', grams_remaining: 900 }];
+
+        const view = buildFilamentStockView({ config, spools, printers, now: NOW });
+
+        const white = view.find((entry) => entry.material === 'PLA' && entry.color_hex === '#FFFFFF');
+        expect(white).toMatchObject({
+            ams_tray_count: 1,
+            inventory_spool_count: 1,
+            usable_spools: 2,
+            tagged: true,
+            color_name: 'Jade White',
+        });
+        expect(white.rule).toMatchObject({ asin: 'B0TESTASIN', min_spools: 2 });
+        expect(white.est_grams).toBe(1600); // 700g tray + 900g shelf spool
+
+        const petg = view.find((entry) => entry.material === 'PETG');
+        expect(petg).toMatchObject({ tagged: false, rule: null, ams_tray_count: 1 });
+    });
+
+    it('keeps a row for tagged filament the farm has fully run out of', () => {
+        const view = buildFilamentStockView({ config: baseConfig(), spools: [], printers: [], now: NOW });
+        expect(view).toHaveLength(1);
+        expect(view[0]).toMatchObject({ material: 'PLA', color_hex: '#FFFFFF', usable_spools: 0, tagged: true });
+    });
+
+    it('defaults: AMS counting on, rule_defaults populated, rules normalize RGBA colors', () => {
+        const config = normalizeReorderConfig({});
+        expect(config.count_ams_trays).toBe(true);
+        expect(config.rule_defaults).toEqual({
+            min_spools: 2,
+            order_quantity: 2,
+            max_unit_price_usd: 30,
+            grams_per_spool: 1000,
+        });
+        expect(normalizeReorderRule({ material: 'pla', color_hex: '00AE42FF' }).color_hex).toBe('#00AE42');
+    });
+});
+
 describe('filament orders admin handler', () => {
     function makeRes() {
         return {
@@ -340,9 +488,9 @@ describe('filament orders admin handler', () => {
         return res;
     }
 
-    it('GET returns redacted config, orders, and monthly spend', async () => {
+    it('GET returns redacted config, orders, monthly spend, and detected filaments', async () => {
         const store = createMemoryCloudStore();
-        await seed(store, { config: baseConfig(), spools: [] });
+        await seed(store, { config: baseConfig(), spools: [{ material: 'PLA', color_hex: '#FFFFFF', grams_remaining: 500 }] });
         await evaluateFilamentReorders({ store, now: NOW, force: true });
 
         const handler = createCloudFilamentOrdersHandler({ store, adminToken: ADMIN_TOKEN, now: NOW });
@@ -353,6 +501,8 @@ describe('filament orders admin handler', () => {
         expect(JSON.stringify(res.body)).not.toContain(CREDENTIALS.client_secret);
         expect(res.body.orders).toHaveLength(1);
         expect(res.body.month).toBe('2026-07');
+        expect(res.body.detected_filaments).toHaveLength(1);
+        expect(res.body.detected_filaments[0]).toMatchObject({ material: 'PLA', tagged: true, inventory_spool_count: 1 });
     });
 
     it('PATCH merges config and keeps stored secrets when fields are blank', async () => {

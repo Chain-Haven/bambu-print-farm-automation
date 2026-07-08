@@ -73,8 +73,20 @@ Full write-up is in `DIAGNOSIS.md`.
  write-only secrets / POST evaluate|approve|deny|test_connection), wired in
  Vercel (`api/cloud/filament-orders.js`) + `localCloudServer`. Console:
  "Filament Auto-Ordering" panel + "Filament Orders" table on the Automation
- tab. Tests: `tests/cloud/filamentReorder.test.js` (21) incl. heartbeat
+ tab. Tests: `tests/cloud/filamentReorder.test.js` (28) incl. heartbeat
  integration; LWA secrets never echo in responses.
+5. **Fully hands-off variant (AMS-level tracking + tagging)** — stock now
+ includes **live AMS tray levels** (`count_ams_trays`, default ON): trays from
+ heartbeat-mirrored printers (`capabilities.ams_trays[].live_remaining`,
+ Bambu `remain` %; null/-1 = no RFID → counts as full; RGBA colors normalized
+ to #RRGGBB; printers silent >24h ignored; inventory spools assigned to a
+ printer skipped to avoid double-count with their live tray). Zero manual
+ inventory needed. `buildFilamentStockView` powers the **"Filament Catalog —
+ tag to Amazon"** table: every detected filament (AMS + shelf) with live
+ stock and per-row ASIN/threshold inputs — Tag/Untag upserts rules
+ (`rule_defaults` config prefills). Loop closes physically: order arrives →
+ spools loaded → tray levels rise → no re-order (plus cooldown while
+ shipping).
 
 ## Changes already made (July 2026 session — macOS farm node + out-of-the-box download)
 

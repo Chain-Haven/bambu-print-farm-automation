@@ -202,7 +202,13 @@ const elements = {
   reorderTestConnection: $('#reorder-test-connection'),
   reorderEvaluate: $('#reorder-evaluate'),
   reorderOutput: $('#reorder-output'),
+  reorderCountAms: $('#reorder-count-ams'),
+  reorderDefaultMin: $('#reorder-default-min'),
+  reorderDefaultQty: $('#reorder-default-qty'),
+  reorderDefaultPrice: $('#reorder-default-price'),
+  reorderDefaultGrams: $('#reorder-default-grams'),
   filamentOrdersCount: $('#filament-orders-count'),
+  filamentTagsCount: $('#filament-tags-count'),
   fullAutoMode: $('#full-auto-mode'),
   merchantModeState: $('#merchant-mode-state'),
   refreshMerchantSettings: $('#refresh-merchant-settings'),
@@ -2101,13 +2107,20 @@ function renderFilamentOrders(payload) {
   elements.reorderMode.value = config.mode === 'auto' ? 'auto' : 'approval';
   elements.reorderRegion.value = config.region || 'NA';
   elements.reorderTrialMode.checked = config.trial_mode !== false;
+  elements.reorderCountAms.checked = config.count_ams_trays !== false;
   elements.reorderMonthlyBudget.value = config.monthly_budget_usd || 250;
   elements.reorderMaxOrder.value = config.max_order_usd || 150;
+  elements.reorderDefaultMin.value = config.rule_defaults?.min_spools || 2;
+  elements.reorderDefaultQty.value = config.rule_defaults?.order_quantity || 2;
+  elements.reorderDefaultPrice.value = config.rule_defaults?.max_unit_price_usd || 30;
+  elements.reorderDefaultGrams.value = config.rule_defaults?.grams_per_spool || 1000;
   elements.reorderUserEmail.value = config.user_email || '';
   elements.reorderClientId.value = config.credentials?.client_id || '';
   elements.reorderClientSecret.placeholder = config.credentials?.client_secret_set ? '(saved — leave blank to keep)' : '(not set)';
   elements.reorderRefreshToken.placeholder = config.credentials?.refresh_token_set ? '(saved — leave blank to keep)' : '(not set)';
   elements.reorderRulesJson.value = JSON.stringify(config.rules || [], null, 2);
+
+  renderFilamentTags(data.detected_filaments || [], config);
 
   const orders = data.orders || [];
   elements.filamentOrdersCount.textContent = String(orders.length);
@@ -2138,6 +2151,127 @@ function renderFilamentOrders(payload) {
   ], orders, 'No filament orders yet — set rules and enable auto-ordering.');
 }
 
+// The tagging table: every filament the farm can see, with live stock and a
+// per-row ASIN + threshold editor. Tagging a filament upserts a reorder rule.
+function renderFilamentTags(filaments, config) {
+  if (!elements.filamentTagsCount) return;
+  elements.filamentTagsCount.textContent = String(filaments.length);
+  const defaults = config?.rule_defaults || {};
+
+  const numberInput = (value, min, step, width) => {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = String(min);
+    input.step = String(step);
+    input.value = String(value);
+    input.style.width = width;
+    return input;
+  };
+
+  renderTable('#filament-tags-table', [
+    {
+      label: 'Filament',
+      value: (row) => {
+        const wrap = document.createElement('span');
+        wrap.style.display = 'inline-flex';
+        wrap.style.alignItems = 'center';
+        wrap.style.gap = '8px';
+        if (row.color_hex) {
+          const swatch = document.createElement('span');
+          swatch.style.cssText = `display:inline-block;width:14px;height:14px;border-radius:50%;border:1px solid rgba(127,127,127,.5);background:${row.color_hex}`;
+          wrap.append(swatch);
+        }
+        const label = document.createElement('span');
+        label.textContent = `${row.material}${row.color_name ? ` ${row.color_name}` : ''}${row.color_hex ? ` ${row.color_hex}` : ' (any color)'}`;
+        wrap.append(label);
+        return wrap;
+      },
+    },
+    {
+      label: 'Stock',
+      value: (row) => `${row.usable_spools} usable — ${row.ams_tray_count} in AMS · ${row.inventory_spool_count} shelf · ~${((row.est_grams || 0) / 1000).toFixed(1)} kg`,
+    },
+    {
+      label: 'Amazon ASIN',
+      value: (row) => {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = 'B0XXXXXXXX';
+        input.value = row.rule?.asin || '';
+        input.style.width = '9.5em';
+        row._asin = input;
+        return input;
+      },
+    },
+    {
+      label: 'Reorder <',
+      value: (row) => (row._min = numberInput(row.rule?.min_spools ?? defaults.min_spools ?? 2, 1, 1, '4em')),
+    },
+    {
+      label: 'Qty',
+      value: (row) => (row._qty = numberInput(row.rule?.order_quantity ?? defaults.order_quantity ?? 2, 1, 1, '4em')),
+    },
+    {
+      label: 'Max $',
+      value: (row) => (row._price = numberInput(row.rule?.max_unit_price_usd ?? defaults.max_unit_price_usd ?? 30, 1, 0.5, '5em')),
+    },
+    {
+      label: 'Tag',
+      value: (row) => {
+        const report = (error) => { setApiState('Error', 'error'); showToast(error.message); };
+        const wrap = document.createElement('span');
+        wrap.append(makeButton(row.tagged ? 'Update' : 'Tag', () => handleFilamentTagSave(row).catch(report), 'ghost-button small-button'));
+        if (row.rule) {
+          wrap.append(makeButton('Untag', () => handleFilamentUntag(row).catch(report), 'ghost-button small-button'));
+        }
+        return wrap;
+      },
+    },
+  ], filaments, 'No filament detected yet — load spools into an AMS (heartbeats sync them here) or add inventory.');
+}
+
+async function patchFilamentRules(rules, toast) {
+  const payload = await apiRequest('/api/cloud/filament-orders', {
+    method: 'PATCH',
+    body: { config: { rules } },
+  });
+  renderFilamentOrders(payload);
+  showToast(toast);
+}
+
+async function handleFilamentTagSave(row) {
+  const asin = (row._asin?.value || '').trim();
+  if (!asin) {
+    showToast('Paste the Amazon product ASIN first (from the product page URL)');
+    return;
+  }
+  const config = state.filamentReorders?.config || {};
+  const defaults = config.rule_defaults || {};
+  const ruleId = row.rule?.rule_id
+    || `tag-${row.material}-${(row.color_hex || 'any').replace('#', '')}`.toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+  const rule = {
+    rule_id: ruleId,
+    enabled: true,
+    material: row.material,
+    color_hex: row.color_hex,
+    color_name: row.color_name || null,
+    asin,
+    min_spools: Number(row._min?.value) || defaults.min_spools || 2,
+    order_quantity: Number(row._qty?.value) || defaults.order_quantity || 2,
+    max_unit_price_usd: Number(row._price?.value) || defaults.max_unit_price_usd || 30,
+    grams_per_spool: row.rule?.grams_per_spool || defaults.grams_per_spool || 1000,
+  };
+  const rules = (config.rules || []).filter((existing) => existing.rule_id !== ruleId);
+  rules.push(rule);
+  await patchFilamentRules(rules, `${row.material} tagged to ${asin} — reorders below ${rule.min_spools} spool(s)`);
+}
+
+async function handleFilamentUntag(row) {
+  if (!row.rule) return;
+  const rules = (state.filamentReorders?.config?.rules || []).filter((existing) => existing.rule_id !== row.rule.rule_id);
+  await patchFilamentRules(rules, `${row.material} untagged — no longer auto-ordered`);
+}
+
 async function refreshFilamentOrders() {
   if (!elements.filamentReorderForm) return null;
   const payload = await apiRequest('/api/cloud/filament-orders');
@@ -2151,8 +2285,15 @@ function collectFilamentReorderConfig() {
     mode: elements.reorderMode.value,
     region: elements.reorderRegion.value,
     trial_mode: elements.reorderTrialMode.checked,
+    count_ams_trays: elements.reorderCountAms.checked,
     monthly_budget_usd: Number(elements.reorderMonthlyBudget.value) || 250,
     max_order_usd: Number(elements.reorderMaxOrder.value) || 150,
+    rule_defaults: {
+      min_spools: Number(elements.reorderDefaultMin.value) || 2,
+      order_quantity: Number(elements.reorderDefaultQty.value) || 2,
+      max_unit_price_usd: Number(elements.reorderDefaultPrice.value) || 30,
+      grams_per_spool: Number(elements.reorderDefaultGrams.value) || 1000,
+    },
     user_email: elements.reorderUserEmail.value.trim() || null,
     rules: parseJsonField(elements.reorderRulesJson.value, []),
     credentials: {},
