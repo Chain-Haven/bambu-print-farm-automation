@@ -45,6 +45,30 @@ swapped since, re-run `proof_test.js` before concluding anything.
 
 Full write-up is in `DIAGNOSIS.md`.
 
+## Changes already made (July 2026 session — UI/UX refresh: landing, operator console, merchant portal)
+
+1. **Merchant portal (`public/merchant.html` + `merchant-portal.js`) rebuilt**:
+ sticky brand header, split auth layout (gradient brand/value panel + auth
+ card), login ↔ forgot-password now swap in place (`showSigninForm`; new
+ `#back-to-login`), focus rings, and a real signed-in dashboard — company
+ name + status pill header, account tiles, hoverable API-key table, one-click
+ **Copy key to clipboard** (`#copy-key-secret`), and "Build with the farm"
+ quick links (API guide / Woo plugin / /order). All test-asserted IDs and
+ endpoints unchanged.
+2. **Operator console visual refresh (`cloud.css` + small `cloud.html` edits)**:
+ compact brand-mark header (h1 42→22px), centered brand on the login screen,
+ tabs became a segmented control, metric cards dropped the thick colored top
+ borders for dot-labeled cards with tabular numbers + hover, focus rings on
+ all inputs/buttons, softer layered shadows/radii, table `thead`/row-hover
+ styling, subpanel tint, animated toast. Every ID/class asserted by
+ `dashboardAssets.test.js` kept (incl. `[hidden]{display:none}` guards).
+3. **Landing page polish (`index.html`)**: hero eyebrow chip + gradient
+ headline accent, numbered step badges, per-section uppercase eyebrows with
+ uniform 76px section rhythm, panel/pricing hover lift, "Most popular" badge,
+ smooth-scroll + `:focus-visible`. Dark-mode vars respected throughout.
+4. Verified with Playwright before/after shots (incl. a mocked signed-in
+ portal). Tests: 664 pass.
+
 ## Changes already made (July 2026 session — MCP v2: agent-native commerce + org routing fix)
 
 1. **CRITICAL routing fix**: `ensureStorefrontIdentity` now provisions the

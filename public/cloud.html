@@ -13,9 +13,12 @@
 <body>
   <main class="shell">
     <header class="topbar">
-      <div>
-        <p class="eyebrow">PrintKinetix</p>
-        <h1>Operator Console</h1>
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true">P</div>
+        <div>
+          <p class="eyebrow">PrintKinetix</p>
+          <h1>Operator Console</h1>
+        </div>
       </div>
       <div class="topbar-actions">
         <span id="admin-email-display" class="admin-email" hidden></span>
@@ -38,6 +41,11 @@
 
     <!-- ================= LOGIN VIEW (shown until authenticated) ================= -->
     <section id="login-view" class="login-view" aria-label="Sign in">
+      <div class="login-brand" aria-hidden="true">
+        <div class="brand-mark">P</div>
+        <strong>PrintKinetix</strong>
+        <span>Operator Console</span>
+      </div>
       <div class="login-card">
         <h2>Sign in</h2>
         <p class="login-sub">Manage merchants, API keys, farm nodes, printers, and jobs.</p>

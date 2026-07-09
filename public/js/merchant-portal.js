@@ -17,6 +17,7 @@ const elements = {
   loginPassword: $('#login-password'),
   loginStatus: $('#login-status'),
   showForgot: $('#show-forgot'),
+  backToLogin: $('#back-to-login'),
   forgotForm: $('#forgot-form'),
   forgotEmail: $('#forgot-email'),
   forgotStatus: $('#forgot-status'),
@@ -33,8 +34,11 @@ const elements = {
   createKeyForm: $('#create-key-form'),
   newKeyName: $('#new-key-name'),
   keySecretOutput: $('#key-secret-output'),
+  copyKeySecret: $('#copy-key-secret'),
   keysStatus: $('#keys-status'),
 };
+
+let lastKeySecret = '';
 
 function getSessionToken() {
   return window.localStorage.getItem(SESSION_KEY) || '';
@@ -67,11 +71,19 @@ async function requestJson(path, { method = 'GET', body = null, auth = true } = 
   return payload;
 }
 
+// Within the sign-in view, the login and forgot-password forms swap in place
+// (only one is visible at a time) instead of stacking.
+function showSigninForm(which) {
+  if (elements.loginForm) elements.loginForm.hidden = which !== 'login';
+  if (elements.forgotForm) elements.forgotForm.hidden = which !== 'forgot';
+}
+
 function showView(view) {
   elements.signinView.hidden = view !== 'signin';
   elements.resetView.hidden = view !== 'reset';
   elements.portalView.hidden = view !== 'portal';
   elements.logoutBtn.hidden = view !== 'portal';
+  if (view === 'signin') showSigninForm('login');
   if (elements.subtitle) {
     elements.subtitle.textContent = view === 'portal'
       ? 'Manage your account, API keys, and print jobs.'
@@ -239,11 +251,13 @@ async function handleCreateKey(event) {
       method: 'POST',
       body: { name: elements.newKeyName.value.trim() || 'Production' },
     });
+    lastKeySecret = payload.api_key_secret || '';
     elements.keySecretOutput.hidden = false;
     elements.keySecretOutput.textContent = [
       'Copy this key now — it is shown only once.',
       `API_KEY=${payload.api_key_secret}`,
     ].join('\n');
+    if (elements.copyKeySecret) elements.copyKeySecret.hidden = !lastKeySecret;
     await refreshApiKeys();
   } catch (error) {
     setStatus(elements.keysStatus, error.message === 'merchant_not_active'
@@ -292,8 +306,20 @@ elements.forgotForm.addEventListener('submit', handleForgot);
 elements.resetForm.addEventListener('submit', handleReset);
 elements.createKeyForm.addEventListener('submit', handleCreateKey);
 elements.logoutBtn.addEventListener('click', handleLogout);
-elements.showForgot.addEventListener('click', () => {
-  elements.forgotForm.hidden = !elements.forgotForm.hidden;
-});
+elements.showForgot.addEventListener('click', () => showSigninForm('forgot'));
+if (elements.backToLogin) {
+  elements.backToLogin.addEventListener('click', () => showSigninForm('login'));
+}
+if (elements.copyKeySecret) {
+  elements.copyKeySecret.addEventListener('click', () => {
+    if (!lastKeySecret) return;
+    navigator.clipboard.writeText(lastKeySecret).then(() => {
+      elements.copyKeySecret.textContent = 'Copied ✓';
+      window.setTimeout(() => {
+        elements.copyKeySecret.textContent = 'Copy key to clipboard';
+      }, 1600);
+    }).catch(() => {});
+  });
+}
 
 initView();
