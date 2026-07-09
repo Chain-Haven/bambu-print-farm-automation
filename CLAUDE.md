@@ -45,6 +45,31 @@ swapped since, re-run `proof_test.js` before concluding anything.
 
 Full write-up is in `DIAGNOSIS.md`.
 
+## Changes already made (July 2026 session — 3D viewer + finishing touches on /order)
+
+1. **Interactive 3D preview** — `public/js/model-viewer.js`: dependency-free
+ WebGL viewer (no three.js/CDN; ~450 lines): binary+ASCII STL and OBJ
+ parsers, per-face flat normals, two-light lambert shader, orbit/wheel/pinch
+ controls, auto-fit + idle spin, DPI-aware. `window.PKXModelViewer`.
+ Verified in real Chromium (Playwright smoke: parse, WebGL init, bounds,
+ zero page errors + screenshot).
+2. **Finishing touches that really change the print** (panel under the
+ viewer): scale 25–400% (server reprices by scale³ via `analyzePrintUpload
+ scalePercent`; sliced files ignore scale), color swatch (tints the viewer
+ AND becomes `requirements.colors` → router prefers a printer with that
+ filament loaded), strength light/standard/strong (solidity 0.28/0.35/0.48 +
+ `slice_settings.infill_percent` 10/15/25), quality draft/standard/fine
+ (machine-time ×0.8/1/1.35 + `layer_height_mm` 0.28/0.2/0.12). All in
+ `normalizeFinishOptions`/`finishSolidity`/`finishSliceSettings`
+ (storefrontHandlers); jobs carry `options.finish` + `options.slice_settings`.
+ Client marks the quote stale on any change (checkout disabled until
+ re-quote); the HMAC token binds the finish via the total.
+3. **Page polish**: /order gets the viewer card + finish panel + status
+ timeline (Paid → Printing → Done); landing page gets a customer
+ "three steps" strip; file reading switched to ArrayBuffer (feeds viewer +
+ chunked base64). `model-viewer.js` excluded from the farm-node bundle
+ (all three lists); browser scripts syntax-checked in dashboardAssets test.
+
 ## Changes already made (July 2026 session — unprinted-order pickup + ASIN suggestions)
 
 1. **Nothing paid/submitted can sit unprinted in Supabase anymore.** Two

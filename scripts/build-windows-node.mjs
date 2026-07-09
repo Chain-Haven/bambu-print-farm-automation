@@ -41,6 +41,7 @@ const PUBLIC_EXCLUDES = new Set([
     'js/fleet-view.js',
     'order.html',
     'js/storefront-order.js',
+    'js/model-viewer.js',
 ]);
 
 function log(msg) {

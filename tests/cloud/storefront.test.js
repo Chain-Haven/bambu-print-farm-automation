@@ -362,6 +362,79 @@ describe('storefront funnel over handlers', () => {
     });
 });
 
+describe('finishing touches (3D viewer panel)', () => {
+    it('scale reprices by volume: 200% = 8x the material grams', () => {
+        const at100 = analyzePrintUpload({ fileName: 'p.stl', buffer: buildBoxStl(30, 30, 30), material: 'PLA', scalePercent: 100 });
+        const at200 = analyzePrintUpload({ fileName: 'p.stl', buffer: buildBoxStl(30, 30, 30), material: 'PLA', scalePercent: 200 });
+        expect(at100.mesh_volume_cm3).toBeCloseTo(27, 3);
+        expect(at200.mesh_volume_cm3).toBeCloseTo(216, 3);
+        expect(at200.estimated_grams).toBeGreaterThan(at100.estimated_grams * 7); // ceil rounding
+        expect(at200.scaled).toBe(true);
+        // Sliced files are geometry-frozen: scale is ignored.
+        const sliced = analyzePrintUpload({ fileName: 'p.gcode.3mf', buffer: SLICED_3MF, scalePercent: 200 });
+        expect(sliced.estimated_grams).toBe(43);
+        expect(sliced.scaled).toBe(false);
+    });
+
+    it('strength changes solidity and quality changes machine time', async () => {
+        const store = createMemoryCloudStore();
+        const quoteHandler = createStorefrontQuoteHandler({ store, now: NOW });
+        const bigBox = buildBoxStl(60, 60, 60); // big enough to clear the min-grams clamp
+        const request = (finish) => post({
+            file: { name: 'part.stl', base64: bigBox.toString('base64') },
+            material: 'PLA',
+            quantity: 1,
+            finish,
+        });
+
+        const standard = (await invoke(quoteHandler, request({}))).body;
+        const strong = (await invoke(quoteHandler, request({ infill: 'strong' }))).body;
+        const fine = (await invoke(quoteHandler, request({ quality: 'fine' }))).body;
+
+        expect(strong.quote.estimates.grams_per_piece).toBeGreaterThan(standard.quote.estimates.grams_per_piece);
+        expect(fine.quote.totals.total_cents).toBeGreaterThan(standard.quote.totals.total_cents);
+        expect(fine.quote.estimates.print_minutes_per_piece).toBeGreaterThan(standard.quote.estimates.print_minutes_per_piece);
+        expect(standard.quote.finish).toMatchObject({ scale_percent: 100, infill: 'standard', quality: 'standard' });
+    });
+
+    it('finish rides the paid order into routing requirements and slicer settings', async () => {
+        const store = createMemoryCloudStore();
+        await seedSettings(store, { allow_unpaid_orders: true });
+        const finish = { scale_percent: 150, color_hex: '#1976D2', infill: 'strong', quality: 'fine' };
+        const body = { ...quoteBody({ quantity: 1 }), finish };
+        const quoteRes = await invoke(createStorefrontQuoteHandler({ store, now: NOW }), post(body));
+
+        const checkoutRes = await invoke(createStorefrontCheckoutHandler({ store, now: NOW }), post({
+            ...body, ...shippingFields(), quote_token: quoteRes.body.quote_token,
+        }));
+        expect(checkoutRes.statusCode).toBe(201);
+
+        const state = await store.getPlatformSetting(STOREFRONT_ORDERS_KEY, null);
+        const job = await store.getPrintJobById(state.orders[0].print_job_ids[0]);
+        expect(job.options.finish).toMatchObject(finish);
+        expect(job.options.slice_settings).toEqual({
+            layer_height_mm: 0.12,
+            infill_percent: 25,
+            scale_percent: 150,
+        });
+        expect(job.routing_summary).toBeTruthy(); // went through the real router
+    });
+
+    it('changing finish between quote and checkout invalidates the price token', async () => {
+        const store = createMemoryCloudStore();
+        await seedSettings(store, { allow_unpaid_orders: true });
+        const quoted = await invoke(createStorefrontQuoteHandler({ store, now: NOW }), post({
+            ...quoteBody(), finish: { scale_percent: 100 },
+        }));
+        const sneaky = await invoke(createStorefrontCheckoutHandler({ store, now: NOW }), post({
+            ...quoteBody(), finish: { scale_percent: 300 }, ...shippingFields(),
+            quote_token: quoted.body.quote_token,
+        }));
+        expect(sneaky.statusCode).toBe(409);
+        expect(sneaky.body.error).toBe('quote_expired_or_changed');
+    });
+});
+
 describe('storefront recovery sweep (heartbeat path)', () => {
     async function checkoutPendingStripeOrder(store) {
         await seedSettings(store, { stripe: { secret_key: 'sk_test_x' } });

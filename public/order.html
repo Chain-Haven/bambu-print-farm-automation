@@ -102,6 +102,46 @@
     .steps span { font-size: 13px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; }
     .steps span.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
     code { background: color-mix(in srgb, var(--line) 40%, transparent); padding: 1px 6px; border-radius: 5px; }
+    .viewer-wrap {
+      position: relative; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+      background: radial-gradient(120% 90% at 50% 10%, color-mix(in srgb, var(--accent) 9%, transparent) 0%, transparent 70%),
+        linear-gradient(180deg, color-mix(in srgb, var(--line) 22%, transparent), transparent 55%);
+    }
+    .viewer-wrap canvas { display: block; width: 100%; height: 340px; touch-action: none; cursor: grab; }
+    .viewer-wrap canvas:active { cursor: grabbing; }
+    .viewer-hud {
+      position: absolute; left: 12px; right: 12px; bottom: 10px; display: flex;
+      justify-content: space-between; align-items: center; gap: 10px; pointer-events: none;
+      font-size: 12.5px; color: var(--muted);
+    }
+    .viewer-hud button { pointer-events: auto; margin: 0; padding: 6px 12px; font-size: 13px; }
+    .swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+    .swatch {
+      width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line);
+      cursor: pointer; padding: 0; margin: 0; flex: none;
+    }
+    .swatch.selected { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+    .stale-banner {
+      margin-top: 12px; padding: 10px 14px; border-radius: 10px; font-size: 14px;
+      background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); font-weight: 600;
+    }
+    .scale-row { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
+    .scale-row input[type="range"] { flex: 1; }
+    .scale-row input[type="number"] { width: 5.5em; }
+    .timeline { display: flex; gap: 0; margin: 14px 0 6px; }
+    .timeline .tstep { flex: 1; text-align: center; font-size: 13px; color: var(--muted); position: relative; padding-top: 18px; }
+    .timeline .tstep::before {
+      content: ''; position: absolute; top: 4px; left: 50%; transform: translateX(-50%);
+      width: 12px; height: 12px; border-radius: 50%; background: var(--line);
+    }
+    .timeline .tstep::after {
+      content: ''; position: absolute; top: 9px; left: calc(50% + 8px); right: calc(-50% + 8px); height: 2px; background: var(--line);
+    }
+    .timeline .tstep:last-child::after { display: none; }
+    .timeline .tstep.done { color: var(--ok); }
+    .timeline .tstep.done::before { background: var(--ok); }
+    .timeline .tstep.now { color: var(--accent); font-weight: 700; }
+    .timeline .tstep.now::before { background: var(--accent); }
   </style>
 </head>
 <body>
@@ -153,6 +193,47 @@
         <div class="error-box" id="quote-error" hidden></div>
       </section>
 
+      <section class="card" id="viewer-card" hidden aria-label="3D preview">
+        <h2>Your part in 3D</h2>
+        <p class="sub" id="viewer-sub">Drag to rotate · scroll or pinch to zoom. This is the exact geometry we'll print.</p>
+        <div class="viewer-wrap">
+          <canvas id="model-canvas" aria-label="Interactive 3D model preview"></canvas>
+          <div class="viewer-hud">
+            <span id="model-dims">—</span>
+            <button class="ghost" id="viewer-reset" type="button">Reset view</button>
+          </div>
+        </div>
+
+        <div id="finish-panel">
+          <h2 style="margin-top:18px">Finishing touches</h2>
+          <p class="sub">These change the real print — size and strength update the price, color routes your part to a printer loaded with that filament.</p>
+          <label><span>Size — scale <strong id="scale-label">100%</strong></span></label>
+          <div class="scale-row">
+            <input id="finish-scale" type="range" min="25" max="400" step="5" value="100">
+            <input id="finish-scale-num" type="number" min="25" max="400" step="5" value="100">
+          </div>
+          <label style="margin-top:12px"><span>Color</span></label>
+          <div class="swatches" id="color-swatches"></div>
+          <div class="row">
+            <label><span>Strength (infill)</span>
+              <select id="finish-infill">
+                <option value="light">Light — decorative</option>
+                <option value="standard" selected>Standard</option>
+                <option value="strong">Strong — functional parts</option>
+              </select>
+            </label>
+            <label><span>Surface quality</span>
+              <select id="finish-quality">
+                <option value="draft">Draft — fastest</option>
+                <option value="standard" selected>Standard</option>
+                <option value="fine">Fine — smoothest</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="stale-banner" id="stale-banner" hidden>Options changed — hit "Get instant price" to refresh the price before checkout.</div>
+      </section>
+
       <section class="card" id="quote-card" hidden aria-label="Price">
         <h2>Price</h2>
         <p class="sub" id="quote-meta"></p>
@@ -191,6 +272,11 @@
       <section class="card">
         <h2 id="status-order-id"></h2>
         <p class="sub" id="status-summary"></p>
+        <div class="timeline" id="status-timeline" aria-hidden="true">
+          <span class="tstep" data-step="paid">Paid</span>
+          <span class="tstep" data-step="printing">Printing</span>
+          <span class="tstep" data-step="done">Done &amp; shipping</span>
+        </div>
         <p><span class="status-chip" id="status-chip">loading…</span></p>
         <ul class="price-lines" id="status-price-lines"></ul>
         <h2 style="margin-top:18px">Print jobs</h2>
@@ -202,6 +288,7 @@
       <p class="hint"><a href="/order">Print something else →</a></p>
     </div>
   </main>
+  <script src="/js/model-viewer.js"></script>
   <script src="/js/storefront-order.js"></script>
 </body>
 </html>

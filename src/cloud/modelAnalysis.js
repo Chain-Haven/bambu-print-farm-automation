@@ -154,15 +154,21 @@ export function extractSlicedFilamentGrams({ fileName, buffer }) {
 
 /**
  * Per-piece filament estimate for a storefront upload.
- * Returns { estimated_grams, estimate_basis, mesh_volume_cm3 }.
+ * `scalePercent` is the customer's uniform scale finishing option: volume
+ * (and therefore grams) grows with the CUBE of linear scale. Sliced files
+ * ignore it — their geometry is already frozen by the slicer.
+ * Returns { estimated_grams, estimate_basis, mesh_volume_cm3, scaled }.
  */
 export function analyzePrintUpload({
     fileName,
     buffer,
     material = 'PLA',
     solidity = DEFAULT_SOLIDITY,
+    scalePercent = 100,
 } = {}) {
     const lower = String(fileName || '').toLowerCase();
+    const scale = Math.min(Math.max(Number(scalePercent) || 100, 25), 400) / 100;
+    const volumeFactor = scale ** 3;
 
     const slicedGrams = extractSlicedFilamentGrams({ fileName, buffer });
     if (slicedGrams) {
@@ -170,17 +176,19 @@ export function analyzePrintUpload({
             estimated_grams: Math.max(MIN_GRAMS, Math.ceil(slicedGrams)),
             estimate_basis: 'slicer_metadata',
             mesh_volume_cm3: null,
+            scaled: false,
         };
     }
 
     if (lower.endsWith('.stl')) {
         const volumeCm3 = computeStlVolumeCm3(buffer);
         if (volumeCm3) {
-            const grams = volumeCm3 * materialDensity(material) * Math.min(Math.max(solidity, 0.05), 1);
+            const grams = volumeCm3 * volumeFactor * materialDensity(material) * Math.min(Math.max(solidity, 0.05), 1);
             return {
                 estimated_grams: Math.max(MIN_GRAMS, Math.ceil(grams)),
                 estimate_basis: 'mesh_volume',
-                mesh_volume_cm3: Math.round(volumeCm3 * 100) / 100,
+                mesh_volume_cm3: Math.round(volumeCm3 * volumeFactor * 100) / 100,
+                scaled: scale !== 1,
             };
         }
     }
@@ -188,8 +196,9 @@ export function analyzePrintUpload({
     // OBJ / STEP / unsliced 3MF without slice metadata: coarse size heuristic,
     // clearly labeled so the UI presents it as an estimate pending review.
     return {
-        estimated_grams: Math.max(20, Math.ceil((buffer?.length || 0) / 50000)),
+        estimated_grams: Math.max(20, Math.ceil(((buffer?.length || 0) / 50000) * volumeFactor)),
         estimate_basis: 'file_size_heuristic',
         mesh_volume_cm3: null,
+        scaled: scale !== 1,
     };
 }

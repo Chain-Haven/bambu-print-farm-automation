@@ -40,6 +40,7 @@ const PORTABLE_PUBLIC_EXCLUDES = new Set([
     'public/js/fleet-view.js',
     'public/order.html',
     'public/js/storefront-order.js',
+    'public/js/model-viewer.js',
 ]);
 const EXCLUDED_PATHS = new Set([
     'public/cloud.html',
@@ -48,6 +49,7 @@ const EXCLUDED_PATHS = new Set([
     'public/js/fleet-view.js',
     'public/order.html',
     'public/js/storefront-order.js',
+    'public/js/model-viewer.js',
     'src/cloud/adminHandlers.js',
     'src/cloud/nodePackage.js',
     'src/cloud/supabaseRest.js',

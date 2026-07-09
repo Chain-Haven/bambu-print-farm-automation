@@ -120,15 +120,61 @@ export async function ensureStorefrontIdentity(store) {
 }
 
 // ---------------------------------------------------------------------------
+// Finishing touches (the /order 3D-viewer panel) — every option maps to a
+// real effect: scale reprices by volume (scale³) and rides to the slicer;
+// color becomes a routing requirement so the job lands on a printer with
+// that filament loaded; strength/quality change the material estimate,
+// machine time, and the slicer settings used on the node.
+// ---------------------------------------------------------------------------
+
+const INFILL_SOLIDITY = { light: 0.28, standard: 0.35, strong: 0.48 };
+const INFILL_PERCENT = { light: 10, standard: 15, strong: 25 };
+const QUALITY_TIME_MULTIPLIER = { draft: 0.8, standard: 1, fine: 1.35 };
+const QUALITY_LAYER_HEIGHT_MM = { draft: 0.28, standard: 0.2, fine: 0.12 };
+
+function normalizeColorChoice(value) {
+    const raw = normalizeString(value, 9);
+    if (!raw) return null;
+    const hex = raw.replace(/^#/, '').toUpperCase().slice(0, 6);
+    return /^[0-9A-F]{6}$/.test(hex) ? `#${hex}` : null;
+}
+
+export function normalizeFinishOptions(source) {
+    const finish = isPlainObject(source) ? source : {};
+    const scale = Number(finish.scale_percent);
+    return {
+        scale_percent: Number.isFinite(scale) ? Math.round(Math.min(Math.max(scale, 25), 400)) : 100,
+        color_hex: normalizeColorChoice(finish.color_hex || finish.color),
+        infill: Object.hasOwn(INFILL_SOLIDITY, finish.infill) ? finish.infill : 'standard',
+        quality: Object.hasOwn(QUALITY_TIME_MULTIPLIER, finish.quality) ? finish.quality : 'standard',
+    };
+}
+
+export function finishSolidity(finish) {
+    return INFILL_SOLIDITY[finish?.infill] || INFILL_SOLIDITY.standard;
+}
+
+// What the farm node's slicer receives for source models (OrcaSlicer CLI).
+export function finishSliceSettings(finish) {
+    return {
+        layer_height_mm: QUALITY_LAYER_HEIGHT_MM[finish?.quality] || QUALITY_LAYER_HEIGHT_MM.standard,
+        infill_percent: INFILL_PERCENT[finish?.infill] || INFILL_PERCENT.standard,
+        scale_percent: finish?.scale_percent || 100,
+    };
+}
+
+// ---------------------------------------------------------------------------
 // Quote math + tamper-proof quote tokens
 // ---------------------------------------------------------------------------
 
-export function computeStorefrontQuote({ settings, analysis, material, quantity, now = () => new Date() }) {
+export function computeStorefrontQuote({ settings, analysis, material, quantity, finish = null, now = () => new Date() }) {
     const perPiece = estimatePrintQuote({
         requirements: { material, estimated_grams: analysis.estimated_grams },
         now,
     });
-    const unitCents = perPiece.totals.material_cents + perPiece.totals.machine_cents;
+    const qualityMultiplier = QUALITY_TIME_MULTIPLIER[finish?.quality] || 1;
+    const machineCents = Math.ceil(perPiece.totals.machine_cents * qualityMultiplier);
+    const unitCents = perPiece.totals.material_cents + machineCents;
     const setupCents = perPiece.totals.setup_cents;
     const subtotal = unitCents * quantity + setupCents;
     const markupCents = Math.ceil(subtotal * (settings.markup_pct / 100));
@@ -139,11 +185,12 @@ export function computeStorefrontQuote({ settings, analysis, material, quantity,
         currency: settings.currency,
         quantity,
         material,
+        ...(finish ? { finish } : {}),
         estimates: {
             grams_per_piece: analysis.estimated_grams,
             estimate_basis: analysis.estimate_basis,
             mesh_volume_cm3: analysis.mesh_volume_cm3,
-            print_minutes_per_piece: perPiece.estimates.print_minutes,
+            print_minutes_per_piece: Math.ceil(perPiece.estimates.print_minutes * qualityMultiplier),
         },
         totals: {
             unit_cents: unitCents,
@@ -257,13 +304,23 @@ export async function dispatchStorefrontOrder({ store, order, now = () => new Da
     if (asArray(order.print_job_ids).length > 0) return order; // idempotent (webhook retries)
     const identity = await ensureStorefrontIdentity(store);
     const merchant = { org_id: identity.org_id, merchant_id: identity.merchant_id };
+    const finish = normalizeFinishOptions(order.finish);
     const upload = {
         name: `${order.file_name} (storefront ${order.order_id.slice(-6)})`,
         requirements: {
             material: order.material,
             estimated_grams: order.quote?.estimates?.grams_per_piece,
+            // The customer's color pick becomes a routing requirement: the job
+            // lands on a printer with that filament loaded when one exists.
+            ...(finish.color_hex ? { colors: [finish.color_hex] } : {}),
         },
-        options: { source: 'storefront', storefront_order_id: order.order_id },
+        options: {
+            source: 'storefront',
+            storefront_order_id: order.order_id,
+            finish,
+            // Honored by the slicer-capable node for source models.
+            slice_settings: finishSliceSettings(finish),
+        },
     };
     const jobIds = [];
     for (let piece = 0; piece < order.quantity; piece += 1) {
@@ -368,13 +425,16 @@ export function createStorefrontQuoteHandler({ store, now = () => new Date() }) 
             const upload = normalizeUpload(body);
             const material = normalizeMaterialChoice(body.material, settings);
             const quantity = clampQuantity(body.quantity, settings);
+            const finish = normalizeFinishOptions(body.finish);
 
             const analysis = analyzePrintUpload({
                 fileName: upload.file.originalName,
                 buffer: upload.file.buffer,
                 material,
+                solidity: finishSolidity(finish),
+                scalePercent: finish.scale_percent,
             });
-            const quote = computeStorefrontQuote({ settings, analysis, material, quantity, now });
+            const quote = computeStorefrontQuote({ settings, analysis, material, quantity, finish, now });
             const identity = await ensureStorefrontIdentity(store);
             const expiresAtMs = now().getTime() + QUOTE_TOKEN_TTL_MS;
             const quoteToken = signQuoteToken({
@@ -433,9 +493,17 @@ export function createStorefrontCheckoutHandler({ store, now = () => new Date(),
             }
 
             // Server-side price recomputation + HMAC token: the client cannot
-            // alter grams, material, quantity, or price between quote and pay.
-            const analysis = analyzePrintUpload({ fileName: upload.file.originalName, buffer: upload.file.buffer, material });
-            const quote = computeStorefrontQuote({ settings, analysis, material, quantity, now });
+            // alter grams, material, quantity, scale, or price between quote
+            // and pay (finishing options change the total, which the token binds).
+            const finish = normalizeFinishOptions(body.finish);
+            const analysis = analyzePrintUpload({
+                fileName: upload.file.originalName,
+                buffer: upload.file.buffer,
+                material,
+                solidity: finishSolidity(finish),
+                scalePercent: finish.scale_percent,
+            });
+            const quote = computeStorefrontQuote({ settings, analysis, material, quantity, finish, now });
             const identity = await ensureStorefrontIdentity(store);
             const tokenOk = verifyQuoteToken({
                 secret: identity.quote_secret,
@@ -470,6 +538,7 @@ export function createStorefrontCheckoutHandler({ store, now = () => new Date(),
                 shipping_address: address,
                 material,
                 quantity,
+                finish,
                 quote,
                 file_name: upload.file.originalName,
                 checksum_sha256: upload.file.checksum,

@@ -7,13 +7,99 @@
   const $ = (selector) => document.querySelector(selector);
   const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
+  const FILAMENT_COLORS = [
+    ['Any color', null],
+    ['White', '#F5F5F0'],
+    ['Black', '#101010'],
+    ['Gray', '#9E9E9E'],
+    ['Red', '#D32F2F'],
+    ['Orange', '#F57C00'],
+    ['Yellow', '#FBC02D'],
+    ['Green', '#388E3C'],
+    ['Blue', '#1976D2'],
+    ['Teal', '#0F766E'],
+    ['Purple', '#7B1FA2'],
+  ];
+
   const state = {
     file: null,        // { name, base64, byteSize }
     quote: null,
     quoteToken: null,
     paymentsConfigured: false,
     unpaidAllowed: false,
+    viewer: null,
+    meshBounds: null,
+    finish: { scale_percent: 100, color_hex: null, infill: 'standard', quality: 'standard' },
   };
+
+  // Base64 without readAsDataURL so the same ArrayBuffer also feeds the 3D
+  // viewer. Chunked to keep String.fromCharCode off the stack limit.
+  function arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    const chunks = [];
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      chunks.push(String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)));
+    }
+    return btoa(chunks.join(''));
+  }
+
+  function formatDims(bounds, scalePercent) {
+    if (!bounds) return '—';
+    const factor = (scalePercent || 100) / 100;
+    const [x, y, z] = bounds.size.map((value) => (value * factor).toFixed(value * factor >= 100 ? 0 : 1));
+    return `${x} × ${y} × ${z} mm at ${scalePercent}%`;
+  }
+
+  function updateDims() {
+    $('#model-dims').textContent = formatDims(state.meshBounds, state.finish.scale_percent);
+  }
+
+  // Any option that affects the print invalidates the current price.
+  function markQuoteStale() {
+    if (!state.quoteToken) return;
+    state.quoteToken = null;
+    $('#stale-banner').hidden = false;
+    $('#checkout-btn').disabled = true;
+  }
+
+  function showModelInViewer(arrayBuffer, fileName) {
+    const viewerCard = $('#viewer-card');
+    const lower = fileName.toLowerCase();
+    const isSliced = lower.endsWith('.gcode') || lower.endsWith('.gcode.3mf');
+    let positions = null;
+    try {
+      if (lower.endsWith('.stl')) positions = window.PKXModelViewer.parseSTL(arrayBuffer);
+      else if (lower.endsWith('.obj')) positions = window.PKXModelViewer.parseOBJ(new TextDecoder().decode(arrayBuffer));
+    } catch { positions = null; }
+
+    if (!positions) {
+      state.meshBounds = null;
+      // Still show finishing options for other source formats; sliced files
+      // are geometry-frozen, so nothing to adjust.
+      viewerCard.hidden = isSliced;
+      $('#viewer-sub').textContent = isSliced
+        ? ''
+        : 'No 3D preview for this format — finishing options below still apply.';
+      document.querySelector('.viewer-wrap').hidden = true;
+      $('#finish-panel').hidden = isSliced;
+      return;
+    }
+
+    document.querySelector('.viewer-wrap').hidden = false;
+    $('#finish-panel').hidden = false;
+    $('#viewer-sub').textContent = 'Drag to rotate · scroll or pinch to zoom. This is the exact geometry we\'ll print.';
+    viewerCard.hidden = false;
+    if (!state.viewer) {
+      state.viewer = window.PKXModelViewer.createModelViewer($('#model-canvas'));
+      if (!state.viewer) { // WebGL unavailable
+        document.querySelector('.viewer-wrap').hidden = true;
+        return;
+      }
+    }
+    state.meshBounds = state.viewer.loadPositions(positions);
+    state.viewer.setColor(state.finish.color_hex || '#6BC0AE');
+    updateDims();
+  }
 
   function money(cents, currency = 'USD') {
     return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format((cents || 0) / 100);
@@ -50,13 +136,15 @@
     }
     const reader = new FileReader();
     reader.onload = () => {
-      const base64 = String(reader.result).split(',')[1] || '';
-      state.file = { name: file.name, base64, byteSize: file.size };
+      const buffer = reader.result;
+      state.file = { name: file.name, base64: arrayBufferToBase64(buffer), byteSize: file.size };
       $('#file-name').textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
       showError('#quote-error', '');
+      markQuoteStale();
+      showModelInViewer(buffer, file.name);
     };
     reader.onerror = () => showError('#quote-error', 'Could not read that file — try again.');
-    reader.readAsDataURL(file);
+    reader.readAsArrayBuffer(file);
   }
 
   dropZone.addEventListener('click', () => fileInput.click());
@@ -72,6 +160,51 @@
     });
   });
 
+  // ------------------------------------------------------- finishing touches
+  function buildSwatches() {
+    const wrap = $('#color-swatches');
+    for (const [name, hex] of FILAMENT_COLORS) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `swatch${hex === null ? ' selected' : ''}`;
+      button.title = name;
+      button.setAttribute('aria-label', `Color: ${name}`);
+      button.style.background = hex || 'conic-gradient(#e66 0 25%, #6b6 0 50%, #66d 0 75%, #dd6 0)';
+      button.addEventListener('click', () => {
+        state.finish.color_hex = hex;
+        wrap.querySelectorAll('.swatch').forEach((el) => el.classList.remove('selected'));
+        button.classList.add('selected');
+        if (state.viewer) state.viewer.setColor(hex || '#6BC0AE');
+        markQuoteStale(); // color routes the job; keep quote + order in sync
+      });
+      wrap.append(button);
+    }
+  }
+  buildSwatches();
+
+  function setScale(value) {
+    const scale = Math.min(Math.max(Math.round(Number(value) || 100), 25), 400);
+    state.finish.scale_percent = scale;
+    $('#finish-scale').value = String(scale);
+    $('#finish-scale-num').value = String(scale);
+    $('#scale-label').textContent = `${scale}%`;
+    updateDims();
+    markQuoteStale();
+  }
+  $('#finish-scale').addEventListener('input', (event) => setScale(event.target.value));
+  $('#finish-scale-num').addEventListener('change', (event) => setScale(event.target.value));
+  $('#finish-infill').addEventListener('change', (event) => {
+    state.finish.infill = event.target.value;
+    markQuoteStale();
+  });
+  $('#finish-quality').addEventListener('change', (event) => {
+    state.finish.quality = event.target.value;
+    markQuoteStale();
+  });
+  $('#viewer-reset')?.addEventListener('click', () => state.viewer?.resetView());
+  $('#material').addEventListener('change', markQuoteStale);
+  $('#quantity').addEventListener('change', markQuoteStale);
+
   // -------------------------------------------------------------------- quote
   function renderQuote(payload) {
     state.quote = payload.quote;
@@ -81,9 +214,16 @@
 
     const quote = payload.quote;
     const currency = quote.currency;
+    const finishBits = [];
+    if (state.finish.scale_percent !== 100) finishBits.push(`${state.finish.scale_percent}% size`);
+    if (state.finish.color_hex) finishBits.push(`color ${state.finish.color_hex}`);
+    if (state.finish.infill !== 'standard') finishBits.push(`${state.finish.infill} infill`);
+    if (state.finish.quality !== 'standard') finishBits.push(`${state.finish.quality} quality`);
     $('#quote-meta').textContent =
-      `${quote.quantity} × ${payload.file.name} in ${quote.material} — about ${quote.estimates.grams_per_piece} g `
-      + `and ${Math.round(quote.estimates.print_minutes_per_piece / 60 * 10) / 10} h of printing per piece.`;
+      `${quote.quantity} × ${payload.file.name} in ${quote.material}${finishBits.length ? ` (${finishBits.join(', ')})` : ''} — `
+      + `about ${quote.estimates.grams_per_piece} g and ${Math.round(quote.estimates.print_minutes_per_piece / 60 * 10) / 10} h of printing per piece.`;
+    $('#stale-banner').hidden = true;
+    $('#checkout-btn').disabled = false;
 
     const lines = [
       [`Printing (${quote.quantity} × ${money(quote.totals.unit_cents, currency)})`, quote.totals.unit_cents * quote.quantity],
@@ -142,6 +282,7 @@
           file: { name: state.file.name, base64: state.file.base64 },
           material: $('#material').value,
           quantity: Number($('#quantity').value) || 1,
+          finish: state.finish,
         },
       });
       renderQuote(payload);
@@ -169,6 +310,7 @@
           file: { name: state.file.name, base64: state.file.base64 },
           material: $('#material').value,
           quantity: Number($('#quantity').value) || 1,
+          finish: state.finish,
           quote_token: state.quoteToken,
           email: $('#ship-email').value.trim(),
           name: $('#ship-name').value.trim(),
@@ -213,6 +355,21 @@
       const chip = $('#status-chip');
       chip.textContent = label;
       chip.className = `status-chip ${tone}`;
+
+      // Progress timeline: Paid → Printing → Done & shipping.
+      const jobStatuses = order.jobs.map((job) => String(job.status || '').toLowerCase());
+      const allDone = jobStatuses.length > 0 && jobStatuses.every((status) => ['completed', 'complete', 'finished'].includes(status));
+      const anyPrinting = jobStatuses.some((status) => ['printing', 'queued', 'assigned', 'transforming', 'uploading'].includes(status));
+      const stepStates = {
+        paid: order.paid_at ? 'done' : (order.status === 'pending_payment' ? 'now' : ''),
+        printing: allDone ? 'done' : (anyPrinting || order.status === 'processing' ? 'now' : ''),
+        done: allDone ? 'now' : '',
+      };
+      document.querySelectorAll('#status-timeline .tstep').forEach((el) => {
+        el.classList.remove('done', 'now');
+        const stepState = stepStates[el.dataset.step];
+        if (stepState) el.classList.add(stepState);
+      });
       $('#status-order-id').textContent = `Order ${order.order_id.slice(-10)}`;
       $('#status-summary').textContent =
         `${order.quantity} × ${order.file_name} in ${order.material}, placed ${new Date(order.created_at).toLocaleString()}.`;
