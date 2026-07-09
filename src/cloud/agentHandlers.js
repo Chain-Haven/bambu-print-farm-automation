@@ -16,7 +16,9 @@ import {
 import { releaseFilamentReservation } from './filamentReservations.js';
 import { planAutoEjectCommands } from './farmAutomation.js';
 import { evaluateFilamentReorders } from './filamentReorder.js';
+import { pickupUnprintedOrderItems } from './orderPickup.js';
 import { redispatchWaitingJobs } from './printDispatch.js';
+import { sweepStorefrontOrders } from './storefrontHandlers.js';
 import { deliverMerchantWebhook } from './webhooks.js';
 import { deliverMerchantWebhookEvent } from './merchantWebhookDelivery.js';
 
@@ -209,7 +211,7 @@ function parseCommandLimit(query = {}) {
     return Math.max(1, Math.min(raw, 50));
 }
 
-export function createHeartbeatHandler({ store, pepper, now = () => new Date() }) {
+export function createHeartbeatHandler({ store, pepper, now = () => new Date(), fetchImpl = fetch }) {
     if (!store) throw new Error('store is required');
 
     return async function heartbeatHandler(req, res) {
@@ -269,6 +271,19 @@ export function createHeartbeatHandler({ store, pepper, now = () => new Date() }
                 reorders = await evaluateFilamentReorders({ store, now });
             } catch { /* never fail a heartbeat over restocking */ }
 
+            // Unprinted commerce pickup: merchant order items sitting in the
+            // database without print jobs become jobs, and storefront orders
+            // stranded by a missed Stripe webhook or a crashed dispatch get
+            // settled. Both are internally throttled and best-effort.
+            let orderPickup = { dispatched_items: 0, jobs_created: 0 };
+            try {
+                orderPickup = await pickupUnprintedOrderItems({ store, now });
+            } catch { /* never fail a heartbeat over order pickup */ }
+            let storefrontSweep = { settled: 0, dispatched: 0, expired: 0 };
+            try {
+                storefrontSweep = await sweepStorefrontOrders({ store, now, fetchImpl });
+            } catch { /* never fail a heartbeat over the storefront sweep */ }
+
             return sendJson(res, 200, {
                 ok: true,
                 request_id: requestId,
@@ -279,6 +294,10 @@ export function createHeartbeatHandler({ store, pepper, now = () => new Date() }
                 ...(autoEject.queued > 0 ? { auto_eject_commands_queued: autoEject.queued } : {}),
                 ...(redispatch.dispatched > 0 ? { waiting_jobs_dispatched: redispatch.dispatched } : {}),
                 ...(reorders.created > 0 ? { filament_reorders_created: reorders.created, filament_reorders_placed: reorders.placed } : {}),
+                ...(orderPickup.dispatched_items > 0 ? { order_items_picked_up: orderPickup.dispatched_items, order_jobs_created: orderPickup.jobs_created } : {}),
+                ...(storefrontSweep.settled + storefrontSweep.dispatched > 0
+                    ? { storefront_orders_settled: storefrontSweep.settled, storefront_orders_dispatched: storefrontSweep.dispatched }
+                    : {}),
             });
         } catch (error) {
             return sendHandlerError(res, error, requestId, { fallbackCode: 'heartbeat_failed' });

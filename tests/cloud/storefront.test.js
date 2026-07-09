@@ -19,6 +19,7 @@ import {
     signQuoteToken,
     STOREFRONT_ORDERS_KEY,
     STOREFRONT_SETTINGS_KEY,
+    sweepStorefrontOrders,
     verifyQuoteToken,
 } from '../../src/cloud/storefrontHandlers.js';
 import { createCloudStorefrontHandler } from '../../src/cloud/adminHandlers.js';
@@ -358,6 +359,101 @@ describe('storefront funnel over handlers', () => {
         expect(first.quote_secret).toBe(second.quote_secret);
         const merchants = await store.listMerchants({});
         expect(merchants.filter((m) => m.company_name === 'Walk-in Storefront')).toHaveLength(1);
+    });
+});
+
+describe('storefront recovery sweep (heartbeat path)', () => {
+    async function checkoutPendingStripeOrder(store) {
+        await seedSettings(store, { stripe: { secret_key: 'sk_test_x' } });
+        const fetchImpl = vi.fn(async (url, options) => {
+            if (String(url).includes('/v1/checkout/sessions')) {
+                const form = new URLSearchParams(options.body);
+                return {
+                    ok: true, status: 200,
+                    text: async () => JSON.stringify({
+                        id: 'cs_live_777',
+                        url: 'https://checkout.stripe.com/pay/cs_live_777',
+                        metadata: { storefront_order_id: form.get('metadata[storefront_order_id]') },
+                    }),
+                };
+            }
+            throw new Error(`unexpected fetch ${url}`);
+        });
+        const quoteRes = await invoke(createStorefrontQuoteHandler({ store, now: NOW }), post(quoteBody()));
+        const checkoutRes = await invoke(createStorefrontCheckoutHandler({ store, now: NOW, fetchImpl }), post({
+            ...quoteBody(), ...shippingFields(), quote_token: quoteRes.body.quote_token,
+        }));
+        expect(checkoutRes.body.status).toBe('pending_payment');
+        return checkoutRes.body.order_id;
+    }
+
+    it('recovers a paid order whose webhook never arrived by asking Stripe directly', async () => {
+        const store = createMemoryCloudStore();
+        const orderId = await checkoutPendingStripeOrder(store);
+
+        const sweepFetch = vi.fn(async (url) => {
+            if (String(url).includes('/v1/checkout/sessions/cs_live_777')) {
+                return {
+                    ok: true, status: 200,
+                    text: async () => JSON.stringify({
+                        id: 'cs_live_777', status: 'complete', payment_status: 'paid',
+                        metadata: { storefront_order_id: orderId },
+                    }),
+                };
+            }
+            throw new Error(`unexpected fetch ${url}`);
+        });
+        const result = await sweepStorefrontOrders({ store, now: NOW, fetchImpl: sweepFetch, force: true });
+
+        expect(result.settled).toBe(1);
+        const state = await store.getPlatformSetting(STOREFRONT_ORDERS_KEY, null);
+        expect(state.orders[0].status).toBe('processing');
+        expect(state.orders[0].print_job_ids).toHaveLength(2);
+    });
+
+    it('marks orders with expired Stripe sessions as payment_expired', async () => {
+        const store = createMemoryCloudStore();
+        await checkoutPendingStripeOrder(store);
+        const sweepFetch = vi.fn(async () => ({
+            ok: true, status: 200,
+            text: async () => JSON.stringify({ id: 'cs_live_777', status: 'expired', payment_status: 'unpaid' }),
+        }));
+        const result = await sweepStorefrontOrders({ store, now: NOW, fetchImpl: sweepFetch, force: true });
+        expect(result.expired).toBe(1);
+        const state = await store.getPlatformSetting(STOREFRONT_ORDERS_KEY, null);
+        expect(state.orders[0].status).toBe('payment_expired');
+    });
+
+    it('re-dispatches a paid order whose job creation crashed', async () => {
+        const store = createMemoryCloudStore();
+        await seedSettings(store, { allow_unpaid_orders: true });
+        const quoteRes = await invoke(createStorefrontQuoteHandler({ store, now: NOW }), post(quoteBody()));
+        await invoke(createStorefrontCheckoutHandler({ store, now: NOW }), post({
+            ...quoteBody(), ...shippingFields(), quote_token: quoteRes.body.quote_token,
+        }));
+        // Simulate the crash: order paid, but its jobs were never created.
+        const state = await store.getPlatformSetting(STOREFRONT_ORDERS_KEY, null);
+        state.orders[0].status = 'paid';
+        state.orders[0].print_job_ids = [];
+        await store.upsertPlatformSetting(STOREFRONT_ORDERS_KEY, state);
+
+        const result = await sweepStorefrontOrders({ store, now: NOW, force: true });
+        expect(result.dispatched).toBe(1);
+        const after = await store.getPlatformSetting(STOREFRONT_ORDERS_KEY, null);
+        expect(after.orders[0].status).toBe('processing');
+        expect(after.orders[0].print_job_ids).toHaveLength(2);
+    });
+
+    it('throttles between sweeps', async () => {
+        const store = createMemoryCloudStore();
+        await seedSettings(store, { allow_unpaid_orders: true });
+        const quoteRes = await invoke(createStorefrontQuoteHandler({ store, now: NOW }), post(quoteBody()));
+        await invoke(createStorefrontCheckoutHandler({ store, now: NOW }), post({
+            ...quoteBody(), ...shippingFields(), quote_token: quoteRes.body.quote_token,
+        }));
+        await sweepStorefrontOrders({ store, now: NOW, force: true });
+        const throttled = await sweepStorefrontOrders({ store, now: () => new Date('2026-07-08T12:02:00.000Z') });
+        expect(throttled.skipped).toBe('recently_swept');
     });
 });
 

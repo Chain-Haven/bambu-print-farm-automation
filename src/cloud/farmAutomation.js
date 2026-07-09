@@ -24,6 +24,10 @@ const DEFAULT_POLICY = {
     prefer_loaded_filament: true,
     low_spool_threshold_grams: 150,
     remote_access_enabled: true,
+    // Heartbeat sweep turns submitted-but-unprinted merchant order items
+    // (job_id null) into print jobs automatically. Off = only items that
+    // explicitly requested auto_submit are picked up.
+    auto_print_submitted_orders: true,
 };
 
 const DEFAULT_INTEGRATIONS = {
@@ -116,6 +120,7 @@ function normalizePolicy(policy = {}) {
         prefer_loaded_filament: normalizeBoolean(source.prefer_loaded_filament, DEFAULT_POLICY.prefer_loaded_filament),
         low_spool_threshold_grams: normalizePositiveNumber(source.low_spool_threshold_grams, DEFAULT_POLICY.low_spool_threshold_grams),
         remote_access_enabled: normalizeBoolean(source.remote_access_enabled, DEFAULT_POLICY.remote_access_enabled),
+        auto_print_submitted_orders: normalizeBoolean(source.auto_print_submitted_orders, DEFAULT_POLICY.auto_print_submitted_orders),
     };
 }
 

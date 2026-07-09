@@ -21,6 +21,7 @@ import {
     createStripeCheckoutSession,
     isStripeConfigured,
     resolveStripeConfig,
+    retrieveStripeCheckoutSession,
     retrieveStripeEvent,
 } from './stripePayments.js';
 
@@ -610,6 +611,80 @@ export function createStorefrontStripeWebhookHandler({ store, now = () => new Da
             return sendJson(res, 500, { ok: false, error: 'webhook_processing_failed', message: error.message });
         }
     };
+}
+
+// ---------------------------------------------------------------------------
+// Recovery sweep — runs from the heartbeat path so orders stranded in
+// Supabase are picked up automatically:
+//   • pending_payment orders whose Stripe webhook never arrived: ask Stripe
+//     for the session's real state (paid → settle + dispatch; expired →
+//     mark expired). The delivered webhook was always just a hint anyway.
+//   • paid/processing orders with zero print jobs (dispatch crashed between
+//     payment and job creation): dispatch now (idempotent).
+// Bounded per pass and internally throttled; never throws.
+// ---------------------------------------------------------------------------
+const SWEEP_MIN_INTERVAL_MS = 5 * 60 * 1000;
+const SWEEP_MAX_STRIPE_LOOKUPS = 8;
+export const STOREFRONT_SWEEP_STATE_KEY = 'storefront_sweep_state';
+
+export async function sweepStorefrontOrders({ store, now = () => new Date(), fetchImpl = fetch, force = false } = {}) {
+    if (typeof store?.getPlatformSetting !== 'function' || typeof store?.upsertPlatformSetting !== 'function') {
+        return { skipped: 'store_unsupported', settled: 0, dispatched: 0, expired: 0 };
+    }
+    const orders = await loadOrders(store);
+    if (orders.length === 0) return { skipped: 'no_orders', settled: 0, dispatched: 0, expired: 0 };
+
+    const nowMs = now().getTime();
+    // Throttle state lives in its own key: order writes must not reset it.
+    const sweepState = await store.getPlatformSetting(STOREFRONT_SWEEP_STATE_KEY, null) || {};
+    const lastSweptMs = sweepState.last_swept_at ? new Date(sweepState.last_swept_at).getTime() : null;
+    if (!force && Number.isFinite(lastSweptMs) && nowMs - lastSweptMs < SWEEP_MIN_INTERVAL_MS) {
+        return { skipped: 'recently_swept', settled: 0, dispatched: 0, expired: 0 };
+    }
+    await store.upsertPlatformSetting(STOREFRONT_SWEEP_STATE_KEY, { last_swept_at: now().toISOString() });
+
+    const settings = await loadSettings(store);
+    const stripeConfig = resolveStripeConfig(settings);
+    let settled = 0;
+    let dispatched = 0;
+    let expired = 0;
+
+    // 1) Paid but never dispatched (crash between payment and job creation).
+    for (const order of orders) {
+        if ((order.status === 'paid' || order.status === 'processing') && asArray(order.print_job_ids).length === 0) {
+            try {
+                const updated = await markStorefrontOrderPaid({ store, orderId: order.order_id, now });
+                if (asArray(updated?.print_job_ids).length > 0) dispatched += 1;
+            } catch { /* keep sweeping */ }
+        }
+    }
+
+    // 2) Awaiting a webhook that may never have arrived: ask Stripe directly.
+    if (stripeConfig.secret_key && !stripeConfig.mock) {
+        const pending = orders
+            .filter((order) => order.status === 'pending_payment' && order.payment?.session_id)
+            .slice(0, SWEEP_MAX_STRIPE_LOOKUPS);
+        for (const order of pending) {
+            try {
+                const session = await retrieveStripeCheckoutSession({
+                    settings,
+                    sessionId: order.payment.session_id,
+                    fetchImpl,
+                });
+                if (session.payment_status === 'paid') {
+                    await markStorefrontOrderPaid({ store, orderId: order.order_id, sessionId: session.id, now });
+                    settled += 1;
+                } else if (session.status === 'expired') {
+                    await updateOrder(store, order.order_id, (entry) => (
+                        entry.paid_at ? entry : { ...entry, status: 'payment_expired' }
+                    ));
+                    expired += 1;
+                }
+            } catch { /* Stripe hiccups: next sweep retries */ }
+        }
+    }
+
+    return { settled, dispatched, expired };
 }
 
 // Admin surface: GET settings + recent orders, PATCH settings (Stripe secrets

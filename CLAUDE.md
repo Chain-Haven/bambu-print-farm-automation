@@ -45,6 +45,37 @@ swapped since, re-run `proof_test.js` before concluding anything.
 
 Full write-up is in `DIAGNOSIS.md`.
 
+## Changes already made (July 2026 session — unprinted-order pickup + ASIN suggestions)
+
+1. **Nothing paid/submitted can sit unprinted in Supabase anymore.** Two
+ heartbeat sweeps (both throttled 5min, best-effort, never fail a heartbeat):
+ - `pickupUnprintedOrderItems` (`src/cloud/orderPickup.js`): merchant v2
+   `merchant_order_items` rows with a file but `job_id: null` (the old
+   `auto_submit` dead end that only "recorded intent") become REAL routed
+   print jobs — one per unit (cap 20), item gets `job_id` + `metadata.job_ids`
+   + `auto_submit_status:'submitted'`, order → `in_production`
+   (in_production/printing stay pickup-eligible so multi-item orders finish).
+   Gate: farm policy `auto_print_submitted_orders` (default ON; off = only
+   items that explicitly requested auto_submit). Missing file →
+   `pickup_failed` marker (no retry loop). New store methods
+   `listUnprintedMerchantOrderItems`/`updateMerchantOrderItem` (supabaseRest;
+   `merchant_order_items` added to MERCHANT_V2_IDS).
+ - `sweepStorefrontOrders` (storefrontHandlers): `pending_payment` orders
+   whose Stripe webhook never arrived are settled by asking Stripe for the
+   session state directly (paid → dispatch; expired → `payment_expired`;
+   ≤8 lookups/sweep); paid/processing orders with zero jobs (dispatch crash)
+   re-dispatch idempotently. Throttle state in `storefront_sweep_state`.
+2. **"Suggest product" for filament tagging** — Amazon Business Product
+ Search API client (`searchAmazonBusinessProducts`,
+ `GET /products/2020-08-26/products?keywords=…`), handler action
+ `suggest_product` (never 400s — returns `search_error` inline), console
+ button per Filament Catalog row fills ASIN + price cap (top hit × 1.1).
+ MOCK returns a fake product.
+3. Heartbeat responses now include pickup/sweep counts; `createHeartbeatHandler`
+ takes `fetchImpl`. Tests: `orderPickup.test.js` (6) + sweep tests in
+ `storefront.test.js` + search/suggest tests in `filamentReorder.test.js`
+ (629 total).
+
 ## Changes already made (July 2026 session — public storefront: quote → pay → ship)
 
 1. **Anyone can order a print at `/order`** (no account): upload STL/3MF/STEP/

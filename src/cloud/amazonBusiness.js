@@ -200,6 +200,63 @@ export async function getAmazonBusinessOrderDetails({ config, externalId, fetchI
     return orderingRequest({ config, method: 'GET', path: `${ORDERING_BASE_PATH}/${encodeURIComponent(externalId)}`, fetchImpl });
 }
 
+// Amazon Business Product Search: keyword search used by the console's
+// "Suggest product" button to find an ASIN (and current price) for a
+// detected filament. GET /products/2020-08-26/products?keywords=...
+export async function searchAmazonBusinessProducts({
+    config,
+    keywords,
+    pageSize = 5,
+    fetchImpl = fetch,
+}) {
+    if (!isNonEmptyString(keywords)) throw new Error('keywords are required');
+    if (config?.mock === true || process.env.MOCK_MODE === 'true') {
+        return [{
+            asin: 'B0MOCKSPOOL',
+            title: `Mock 1kg spool — ${keywords.trim()}`,
+            price: 19.99,
+            currency: 'USD',
+            prime_eligible: true,
+            mock: true,
+        }];
+    }
+    const query = new URLSearchParams({
+        keywords: keywords.trim(),
+        productRegion: isNonEmptyString(config?.country_code) ? config.country_code.trim().toUpperCase() : 'US',
+        locale: isNonEmptyString(config?.locale) ? config.locale.trim() : 'en-US',
+        pageSize: String(Math.max(1, Math.min(Number.parseInt(pageSize, 10) || 5, 24))),
+        pageNumber: '0',
+    });
+    const result = await orderingRequest({
+        config,
+        method: 'GET',
+        path: `/products/2020-08-26/products?${query.toString()}`,
+        fetchImpl,
+    });
+
+    // Defensive extraction: the exact envelope differs by API version.
+    const rawProducts = Array.isArray(result?.products) ? result.products
+        : Array.isArray(result?.matchingProducts) ? result.matchingProducts
+            : Array.isArray(result?.results) ? result.results : [];
+    const pickAmount = (price) => {
+        if (!price) return null;
+        const amount = Number(price.amount ?? price.value?.amount ?? price);
+        return Number.isFinite(amount) && amount > 0 ? amount : null;
+    };
+    return rawProducts.map((product) => {
+        const offer = (Array.isArray(product?.includedOffers) && product.includedOffers[0])
+            || (Array.isArray(product?.offers) && product.offers[0])
+            || null;
+        return {
+            asin: product?.asin || product?.productId || null,
+            title: product?.title || product?.productName || null,
+            price: pickAmount(offer?.price) ?? pickAmount(product?.price),
+            currency: offer?.price?.currencyCode || product?.price?.currencyCode || 'USD',
+            prime_eligible: offer?.primeEligible === true || product?.primeEligible === true,
+        };
+    }).filter((product) => product.asin);
+}
+
 // Cheap connectivity probe: proves the LWA credentials round-trip without
 // touching the Ordering API (no order side effects).
 export async function testAmazonBusinessConnection({ config, fetchImpl = fetch }) {

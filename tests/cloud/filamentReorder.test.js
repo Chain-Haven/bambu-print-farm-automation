@@ -6,6 +6,7 @@ import {
     getLwaAccessToken,
     LWA_TOKEN_URL,
     resolveAmazonBusinessCredentials,
+    searchAmazonBusinessProducts,
 } from '../../src/cloud/amazonBusiness.js';
 import {
     approveFilamentReorder,
@@ -130,6 +131,47 @@ describe('Amazon Business client', () => {
         expect(types).toContain('Region');
         expect(types).toContain('UserEmail');
         expect(types).toContain('TrialMode'); // safe default until the operator flips it
+    });
+
+    it('searches the Product Search API and normalizes results', async () => {
+        const calls = [];
+        const impl = vi.fn(async (url, options = {}) => {
+            calls.push({ url: String(url), options });
+            if (String(url) === LWA_TOKEN_URL) {
+                return { ok: true, status: 200, text: async () => JSON.stringify({ access_token: 'Atza|access' }) };
+            }
+            return {
+                ok: true, status: 200,
+                text: async () => JSON.stringify({
+                    products: [
+                        {
+                            asin: 'B0FILAMENT1',
+                            title: 'PLA Filament Jade White 1.75mm 1kg',
+                            includedOffers: [{ price: { amount: 21.5, currencyCode: 'USD' }, primeEligible: true }],
+                        },
+                        { title: 'no asin — dropped' },
+                    ],
+                }),
+            };
+        });
+
+        const products = await searchAmazonBusinessProducts({
+            config: { credentials: CREDENTIALS, user_email: 'purchasing@farm.example', country_code: 'US' },
+            keywords: 'PLA filament Jade White 1kg',
+            fetchImpl: impl,
+        });
+
+        expect(products).toEqual([{
+            asin: 'B0FILAMENT1',
+            title: 'PLA Filament Jade White 1.75mm 1kg',
+            price: 21.5,
+            currency: 'USD',
+            prime_eligible: true,
+        }]);
+        const searchCall = calls.find((call) => call.url.includes('/products/2020-08-26/products?'));
+        expect(searchCall.url).toContain('keywords=PLA+filament+Jade+White+1kg');
+        expect(searchCall.url).toContain('productRegion=US');
+        expect(searchCall.options.headers['x-amz-access-token']).toBe('Atza|access');
     });
 
     it('omits TrialMode only when explicitly disabled', () => {
@@ -603,6 +645,20 @@ describe('filament orders admin handler', () => {
         const handler = createCloudFilamentOrdersHandler({ store, adminToken: ADMIN_TOKEN, now: NOW });
         const res = await invoke(handler, { method: 'GET', headers: {}, query: {} });
         expect(res.statusCode).toBe(401);
+    });
+
+    it('POST suggest_product returns Amazon candidates for a detected filament', async () => {
+        const store = createMemoryCloudStore();
+        await seed(store, { config: baseConfig({ mock: true }), spools: [] }); // mock search — no network
+        const handler = createCloudFilamentOrdersHandler({ store, adminToken: ADMIN_TOKEN, now: NOW });
+
+        const res = await invoke(handler, makeReq({
+            method: 'POST',
+            body: { action: 'suggest_product', material: 'PLA', color_name: 'Jade White' },
+        }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.keywords).toBe('PLA filament Jade White 1.75mm 1kg spool');
+        expect(res.body.products[0].asin).toBe('B0MOCKSPOOL');
     });
 });
 

@@ -260,6 +260,7 @@ const MERCHANT_V2_IDS = {
     merchant_files: 'file_id',
     merchant_slice_jobs: 'slice_job_id',
     merchant_orders: 'order_id',
+    merchant_order_items: 'order_item_id',
     merchant_material_reservations: 'reservation_id',
     merchant_batches: 'batch_id',
     merchant_inspections: 'inspection_id',
@@ -1341,6 +1342,28 @@ export function createSupabaseRestClient({
 
         async createMerchantOrderItem(orderItem) {
             return createMerchantV2Row('merchant_order_items', orderItem);
+        },
+
+        // Cross-merchant sweep source for the heartbeat order-pickup pass:
+        // order items that reference an uploaded file but have no print job.
+        async listUnprintedMerchantOrderItems({ limit = 10 } = {}) {
+            const rows = await request([
+                '/rest/v1/merchant_order_items?job_id=is.null',
+                'file_id=not.is.null',
+                'select=*',
+                'order=created_at.asc',
+                `limit=${boundedLimit(limit, 10, 50)}`,
+            ].join('&'));
+            return Array.isArray(rows) ? rows : [];
+        },
+
+        async updateMerchantOrderItem({ merchantId, orderItemId, fields = {} }) {
+            return updateMerchantV2Row('merchant_order_items', {
+                merchantId,
+                idColumn: MERCHANT_V2_IDS.merchant_order_items,
+                id: orderItemId,
+                body: fields,
+            });
         },
 
         async findMerchantOrderItemByJobAndOrder({ merchantId, jobId, orderId }) {

@@ -2209,13 +2209,22 @@ function renderFilamentTags(filaments, config) {
     {
       label: 'Amazon ASIN',
       value: (row) => {
+        const wrap = document.createElement('span');
+        wrap.style.display = 'inline-flex';
+        wrap.style.gap = '6px';
         const input = document.createElement('input');
         input.type = 'text';
         input.placeholder = 'B0XXXXXXXX';
         input.value = row.rule?.asin || '';
         input.style.width = '9.5em';
         row._asin = input;
-        return input;
+        wrap.append(input, makeButton('Suggest', () => {
+          handleFilamentSuggestProduct(row).catch((error) => {
+            setApiState('Error', 'error');
+            showToast(error.message);
+          });
+        }, 'ghost-button small-button'));
+        return wrap;
       },
     },
     {
@@ -2368,6 +2377,30 @@ async function handleFilamentReorderEvaluate() {
   showToast(result.created > 0
     ? `Stock check: ${result.created} reorder(s) created (${result.placed || 0} placed)`
     : 'Stock check: everything above thresholds');
+}
+
+// Ask Amazon Business Product Search for an ASIN matching a detected
+// filament, and prefill the row's tag inputs with the top hit.
+async function handleFilamentSuggestProduct(row) {
+  showToast(`Searching Amazon for ${row.material}${row.color_name ? ` ${row.color_name}` : ''}…`);
+  const payload = await apiRequest('/api/cloud/filament-orders', {
+    method: 'POST',
+    body: {
+      action: 'suggest_product',
+      material: row.material,
+      color_name: row.color_name || null,
+    },
+  });
+  const top = (payload.products || [])[0];
+  if (!top) {
+    showToast(payload.search_error
+      ? `Amazon search unavailable: ${payload.search_error}`
+      : `No Amazon results for "${payload.keywords}" — paste an ASIN manually.`);
+    return;
+  }
+  if (row._asin) row._asin.value = top.asin;
+  if (top.price && row._price) row._price.value = Math.ceil(top.price * 1.1); // cap ~10% over current price
+  showToast(`Suggested: ${top.title || top.asin}${top.price ? ` — $${top.price}` : ''} (review, then Tag)`);
 }
 
 async function handleFilamentReorderTest() {

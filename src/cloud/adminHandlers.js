@@ -25,7 +25,7 @@ import {
     getFilamentReorderOverview,
     normalizeReorderConfig,
 } from './filamentReorder.js';
-import { testAmazonBusinessConnection } from './amazonBusiness.js';
+import { searchAmazonBusinessProducts, testAmazonBusinessConnection } from './amazonBusiness.js';
 import { createStorefrontAdminOverview } from './storefrontHandlers.js';
 
 const FARM_AUTOMATION_POLICY_KEY = 'farm_automation_policy';
@@ -922,10 +922,32 @@ export function createCloudFilamentOrdersHandler({
                 return sendJson(res, 200, { ok: true, connection });
             }
 
+            if (action === 'suggest_product') {
+                const config = normalizeReorderConfig(await store.getPlatformSetting(FILAMENT_REORDER_CONFIG_KEY, null));
+                const material = normalizeOptionalString(body.material) || 'PLA';
+                const colorName = normalizeOptionalString(body.color_name);
+                const keywords = normalizeOptionalString(body.keywords)
+                    || [material, 'filament', colorName, '1.75mm 1kg spool'].filter(Boolean).join(' ');
+                try {
+                    const products = await searchAmazonBusinessProducts({ config, keywords, fetchImpl });
+                    return sendJson(res, 200, { ok: true, keywords, products });
+                } catch (error) {
+                    // Search availability depends on the AB account's API roles;
+                    // return the diagnosis instead of a bare 400 so the console
+                    // can show it next to the manual-ASIN fallback.
+                    return sendJson(res, 200, {
+                        ok: true,
+                        keywords,
+                        products: [],
+                        search_error: String(error.message || error).slice(0, 300),
+                    });
+                }
+            }
+
             return sendJson(res, 400, {
                 ok: false,
                 error: 'unknown_action',
-                message: 'action must be one of: evaluate, approve, deny, test_connection',
+                message: 'action must be one of: evaluate, approve, deny, test_connection, suggest_product',
             });
         } catch (error) {
             return sendJson(res, 400, {

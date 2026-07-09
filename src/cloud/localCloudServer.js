@@ -115,7 +115,7 @@ export function createLocalCloudApp({
     app.all('/api/cloud/merchant-setup-token', wire(createCloudMerchantSetupTokenHandler({ store, adminToken, merchantPepper: pepper })));
 
     // Agent (edge node) endpoints.
-    app.all('/api/agent/heartbeat', wire(createHeartbeatHandler({ store, pepper, now })));
+    app.all('/api/agent/heartbeat', wire(createHeartbeatHandler({ store, pepper, now, fetchImpl })));
     app.all('/api/agent/commands', wire(createClaimCommandsHandler({ store, pepper })));
     app.all('/api/agent/events', wire(createEventsHandler({ store, pepper, now, fetchImpl })));
     app.all('/api/agent/command-result', wire(createCommandResultHandler({ store, pepper, now })));
