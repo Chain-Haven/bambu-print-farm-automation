@@ -9,6 +9,7 @@ import {
 import { toStripeForm, verifyStripeSignature } from '../../src/cloud/stripePayments.js';
 import {
     computeStorefrontQuote,
+    createStorefrontCancelHandler,
     createStorefrontCheckoutHandler,
     createStorefrontOrderStatusHandler,
     createStorefrontQuoteHandler,
@@ -515,6 +516,99 @@ describe('storefront recovery sweep (heartbeat path)', () => {
         const after = await store.getPlatformSetting(STOREFRONT_ORDERS_KEY, null);
         expect(after.orders[0].status).toBe('processing');
         expect(after.orders[0].print_job_ids).toHaveLength(2);
+    });
+
+    it('ships a fully-printed order: label bought, tracking emailed, status shipped', async () => {
+        const store = createMemoryCloudStore();
+        await seedSettings(store, { allow_unpaid_orders: true, shipping: { mock: true } });
+        const quoteRes = await invoke(createStorefrontQuoteHandler({ store, now: NOW }), post(quoteBody()));
+        const sent = [];
+        const mailer = { send: async (message) => { sent.push(message); } };
+        await invoke(createStorefrontCheckoutHandler({ store, now: NOW, mailer }), post({
+            ...quoteBody(), ...shippingFields(), quote_token: quoteRes.body.quote_token,
+        }));
+        expect(sent.some((message) => message.subject.includes('Order confirmed'))).toBe(true);
+
+        // Mark every job completed (what the node's lifecycle events do).
+        let state = await store.getPlatformSetting(STOREFRONT_ORDERS_KEY, null);
+        for (const jobId of state.orders[0].print_job_ids) {
+            await store.updatePrintJob(jobId, { status: 'completed' });
+        }
+
+        const result = await sweepStorefrontOrders({ store, now: NOW, mailer, force: true });
+        expect(result.shipped).toBe(1);
+
+        state = await store.getPlatformSetting(STOREFRONT_ORDERS_KEY, null);
+        expect(state.orders[0].status).toBe('shipped');
+        expect(state.orders[0].shipment.tracking_code).toContain('MOCKTRACK');
+        expect(sent.some((message) => message.subject.includes('shipped'))).toBe(true);
+
+        // Idempotent: a second sweep does not re-ship.
+        const again = await sweepStorefrontOrders({ store, now: () => new Date('2026-07-08T13:00:00.000Z'), mailer, force: true });
+        expect(again.shipped).toBe(0);
+    });
+
+    it('parks printed orders at ready_to_ship when no carrier is configured', async () => {
+        const store = createMemoryCloudStore();
+        await seedSettings(store, { allow_unpaid_orders: true });
+        const quoteRes = await invoke(createStorefrontQuoteHandler({ store, now: NOW }), post(quoteBody()));
+        await invoke(createStorefrontCheckoutHandler({ store, now: NOW }), post({
+            ...quoteBody(), ...shippingFields(), quote_token: quoteRes.body.quote_token,
+        }));
+        let state = await store.getPlatformSetting(STOREFRONT_ORDERS_KEY, null);
+        for (const jobId of state.orders[0].print_job_ids) {
+            await store.updatePrintJob(jobId, { status: 'completed' });
+        }
+        await sweepStorefrontOrders({ store, now: NOW, force: true });
+        state = await store.getPlatformSetting(STOREFRONT_ORDERS_KEY, null);
+        expect(state.orders[0].status).toBe('ready_to_ship');
+    });
+
+    it('customer cancel before printing: jobs canceled, Stripe refunded, emails sent', async () => {
+        const store = createMemoryCloudStore();
+        await seedSettings(store, { allow_unpaid_orders: true, stripe: { secret_key: 'sk_test_x', mock: true } });
+        const quoteRes = await invoke(createStorefrontQuoteHandler({ store, now: NOW }), post(quoteBody()));
+        const checkoutRes = await invoke(createStorefrontCheckoutHandler({ store, now: NOW }), post({
+            ...quoteBody(), ...shippingFields(), quote_token: quoteRes.body.quote_token,
+        }));
+        // Give the settled order a payment intent as a real webhook would.
+        let state = await store.getPlatformSetting(STOREFRONT_ORDERS_KEY, null);
+        state.orders[0].payment.provider = 'stripe';
+        state.orders[0].payment.payment_intent = 'pi_mock_1';
+        await store.upsertPlatformSetting(STOREFRONT_ORDERS_KEY, state);
+
+        const sent = [];
+        const cancel = createStorefrontCancelHandler({ store, now: NOW, mailer: { send: async (m) => sent.push(m) } });
+        const res = await invoke(cancel, post({ order_id: checkoutRes.body.order_id, token: checkoutRes.body.order_token }));
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.order.status).toBe('refunded');
+        state = await store.getPlatformSetting(STOREFRONT_ORDERS_KEY, null);
+        expect(state.orders[0].payment.refund_id).toContain('re_mock');
+        for (const jobId of state.orders[0].print_job_ids) {
+            expect((await store.getPrintJobById(jobId)).status).toBe('canceled');
+        }
+        expect(sent.some((message) => message.subject.includes('refund'))).toBe(true);
+
+        // Cancel again -> conflict; wrong token -> not found.
+        const again = await invoke(cancel, post({ order_id: checkoutRes.body.order_id, token: checkoutRes.body.order_token }));
+        expect(again.statusCode).toBe(409);
+    });
+
+    it('refuses cancellation once printing started', async () => {
+        const store = createMemoryCloudStore();
+        await seedSettings(store, { allow_unpaid_orders: true });
+        const quoteRes = await invoke(createStorefrontQuoteHandler({ store, now: NOW }), post(quoteBody()));
+        const checkoutRes = await invoke(createStorefrontCheckoutHandler({ store, now: NOW }), post({
+            ...quoteBody(), ...shippingFields(), quote_token: quoteRes.body.quote_token,
+        }));
+        const state = await store.getPlatformSetting(STOREFRONT_ORDERS_KEY, null);
+        await store.updatePrintJob(state.orders[0].print_job_ids[0], { status: 'printing' });
+
+        const cancel = createStorefrontCancelHandler({ store, now: NOW });
+        const res = await invoke(cancel, post({ order_id: checkoutRes.body.order_id, token: checkoutRes.body.order_token }));
+        expect(res.statusCode).toBe(409);
+        expect(res.body.error).toBe('printing_already_started');
     });
 
     it('throttles between sweeps', async () => {

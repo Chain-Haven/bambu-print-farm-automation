@@ -19,11 +19,14 @@ import { analyzePrintUpload } from './modelAnalysis.js';
 import { normalizeUpload, routeAndDispatchJobFile, storeUploadedJobFile } from './merchantPrintHandlers.js';
 import {
     createStripeCheckoutSession,
+    createStripeRefund,
     isStripeConfigured,
     resolveStripeConfig,
     retrieveStripeCheckoutSession,
     retrieveStripeEvent,
 } from './stripePayments.js';
+import { buyShippingLabel, isShippingConfigured } from './shippingLabels.js';
+import { sendOperatorAlert } from './operatorAlerts.js';
 
 export const STOREFRONT_SETTINGS_KEY = 'storefront_settings';
 export const STOREFRONT_STATE_KEY = 'storefront_state';
@@ -55,9 +58,24 @@ function nonNegativeInt(value, fallback) {
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
+// Default ship-FROM for customer parcels: the farm's dock (same address the
+// filament reorders deliver to).
+const DEFAULT_SHIP_FROM = {
+    full_name: 'PrintKinetix Fulfillment',
+    address_line1: '5151 Mitchelldale St',
+    address_line2: 'A10',
+    city: 'Houston',
+    state_or_region: 'TX',
+    postal_code: '77092',
+    country_code: 'US',
+};
+
 export function normalizeStorefrontSettings(settings) {
     const source = isPlainObject(settings) ? settings : {};
     const stripe = isPlainObject(source.stripe) ? source.stripe : {};
+    const shipping = isPlainObject(source.shipping) ? source.shipping : {};
+    const fromAddress = isPlainObject(shipping.from_address) ? shipping.from_address : {};
+    const parcel = isPlainObject(shipping.parcel) ? shipping.parcel : {};
     return {
         enabled: source.enabled !== false,
         currency: (normalizeString(source.currency, 3) || 'USD').toUpperCase(),
@@ -75,6 +93,36 @@ export function normalizeStorefrontSettings(settings) {
             secret_key: normalizeString(stripe.secret_key, 200),
             webhook_secret: normalizeString(stripe.webhook_secret, 200),
             mock: stripe.mock === true,
+            // Stripe Tax on checkout sessions (needs Tax enabled in Stripe).
+            tax_enabled: stripe.tax_enabled === true,
+        },
+        shipping: {
+            easypost_api_key: normalizeString(shipping.easypost_api_key, 200),
+            mock: shipping.mock === true,
+            // Buy a label + email tracking automatically when every job of an
+            // order completes (heartbeat sweep). Off = orders park at
+            // ready_to_ship for a human.
+            auto_ship: shipping.auto_ship !== false,
+            preferred_service: normalizeString(shipping.preferred_service, 40),
+            from_address: {
+                full_name: normalizeString(fromAddress.full_name) || DEFAULT_SHIP_FROM.full_name,
+                address_line1: normalizeString(fromAddress.address_line1) || DEFAULT_SHIP_FROM.address_line1,
+                address_line2: fromAddress.address_line2 === undefined
+                    ? DEFAULT_SHIP_FROM.address_line2
+                    : normalizeString(fromAddress.address_line2),
+                city: normalizeString(fromAddress.city) || DEFAULT_SHIP_FROM.city,
+                state_or_region: normalizeString(fromAddress.state_or_region, 60) || DEFAULT_SHIP_FROM.state_or_region,
+                postal_code: normalizeString(fromAddress.postal_code, 20) || DEFAULT_SHIP_FROM.postal_code,
+                country_code: (normalizeString(fromAddress.country_code, 2) || DEFAULT_SHIP_FROM.country_code).toUpperCase(),
+                phone_number: normalizeString(fromAddress.phone_number, 30),
+            },
+            parcel: {
+                length_cm: Math.max(1, Number(parcel.length_cm) || 25),
+                width_cm: Math.max(1, Number(parcel.width_cm) || 20),
+                height_cm: Math.max(1, Number(parcel.height_cm) || 15),
+                // Box + padding on top of the printed grams.
+                base_weight_grams: Math.max(0, Number(parcel.base_weight_grams) || 120),
+            },
         },
     };
 }
@@ -86,8 +134,15 @@ export function redactStorefrontSettings(settings) {
         stripe: {
             configured: isStripeConfigured(normalized),
             mock: resolveStripeConfig(normalized).mock,
+            tax_enabled: normalized.stripe.tax_enabled,
             secret_key_set: Boolean(normalized.stripe.secret_key || process.env.STRIPE_SECRET_KEY),
             webhook_secret_set: Boolean(normalized.stripe.webhook_secret || process.env.STRIPE_WEBHOOK_SECRET),
+        },
+        shipping: {
+            ...normalized.shipping,
+            easypost_api_key: undefined,
+            configured: isShippingConfigured(normalized),
+            easypost_api_key_set: Boolean(normalized.shipping.easypost_api_key || process.env.EASYPOST_API_KEY),
         },
     };
 }
@@ -288,14 +343,29 @@ function publicOrderView(order, jobs = []) {
         payment: {
             provider: order.payment?.provider || null,
             status: order.status === 'pending_payment' ? 'awaiting_payment' : (order.paid_at ? 'paid' : order.payment?.status || null),
+            refunded: order.payment?.refund_id ? true : undefined,
         },
         shipping_address: order.shipping_address,
+        shipment: order.shipment ? {
+            carrier: order.shipment.carrier,
+            service: order.shipment.service,
+            tracking_code: order.shipment.tracking_code,
+            shipped_at: order.shipment.shipped_at || null,
+        } : null,
         jobs: jobs.map((job) => ({
             job_id: job.job_id,
             status: job.status,
             printer_id: job.printer_id || null,
         })),
     };
+}
+
+// Best-effort customer email; the funnel must never fail on mail problems.
+async function emailCustomer({ mailer, order, subject, text }) {
+    if (!mailer || !order?.email) return;
+    try {
+        await mailer.send({ to: order.email, subject, text });
+    } catch { /* email is best-effort */ }
 }
 
 // Dispatch a PAID order into the merchant print pipeline: one print job per
@@ -340,15 +410,31 @@ export async function dispatchStorefrontOrder({ store, order, now = () => new Da
     };
 }
 
-export async function markStorefrontOrderPaid({ store, orderId, paymentStatus = 'paid', sessionId = null, now = () => new Date() }) {
+export async function markStorefrontOrderPaid({
+    store,
+    orderId,
+    paymentStatus = 'paid',
+    sessionId = null,
+    paymentIntentId = null,
+    now = () => new Date(),
+    mailer = null,
+    fetchImpl = fetch,
+}) {
     let dispatched = null;
+    let firstSettle = false;
     const updated = await updateOrder(store, orderId, (order) => {
         if (order.paid_at) return order; // already handled
+        firstSettle = true;
         return {
             ...order,
             status: 'paid',
             paid_at: now().toISOString(),
-            payment: { ...(order.payment || {}), status: paymentStatus, session_id: sessionId || order.payment?.session_id || null },
+            payment: {
+                ...(order.payment || {}),
+                status: paymentStatus,
+                session_id: sessionId || order.payment?.session_id || null,
+                payment_intent: paymentIntentId || order.payment?.payment_intent || null,
+            },
         };
     });
     if (!updated) return null;
@@ -356,7 +442,37 @@ export async function markStorefrontOrderPaid({ store, orderId, paymentStatus = 
         dispatched = await dispatchStorefrontOrder({ store, order: updated, now });
         await updateOrder(store, orderId, () => dispatched);
     }
-    return dispatched || updated;
+    const finalOrder = dispatched || updated;
+
+    if (firstSettle) {
+        await emailCustomer({
+            mailer,
+            order: finalOrder,
+            subject: `Order confirmed — we're printing it (${finalOrder.order_id.slice(-8)})`,
+            text: [
+                `Thanks ${finalOrder.customer_name || ''}!`.trim(),
+                '',
+                `Your order for ${finalOrder.quantity} × ${finalOrder.file_name} (${finalOrder.material}) is confirmed and queued on the farm.`,
+                finalOrder.status_url ? `Live status: ${finalOrder.status_url}` : '',
+                '',
+                'You will get another email with tracking as soon as it ships.',
+            ].filter(Boolean).join('\n'),
+        });
+        try {
+            await sendOperatorAlert({
+                store,
+                fetchImpl,
+                mailer,
+                event: {
+                    kind: 'storefront.order_paid',
+                    severity: 'info',
+                    title: `Storefront order paid: ${((finalOrder.quote?.totals?.total_cents || 0) / 100).toFixed(2)} ${finalOrder.quote?.currency || 'USD'}`,
+                    detail: `${finalOrder.quantity} × ${finalOrder.file_name} (${finalOrder.material}) for ${finalOrder.email}. ${asArray(finalOrder.print_job_ids).length} job(s) dispatched.`,
+                },
+            });
+        } catch { /* alerting is best-effort */ }
+    }
+    return finalOrder;
 }
 
 // ---------------------------------------------------------------------------
@@ -469,7 +585,7 @@ export function createStorefrontQuoteHandler({ store, now = () => new Date() }) 
     };
 }
 
-export function createStorefrontCheckoutHandler({ store, now = () => new Date(), fetchImpl = fetch }) {
+export function createStorefrontCheckoutHandler({ store, now = () => new Date(), fetchImpl = fetch, mailer = null }) {
     if (!store) throw new Error('store is required');
     return async function storefrontCheckoutHandler(req, res) {
         if (req.method && req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
@@ -549,6 +665,7 @@ export function createStorefrontCheckoutHandler({ store, now = () => new Date(),
 
             const origin = requestOrigin(req);
             const statusUrl = `${origin}/order?order_id=${orderId}&token=${accessToken}`;
+            order.status_url = statusUrl;
             let checkoutUrl = null;
 
             if (isStripeConfigured(settings)) {
@@ -561,6 +678,7 @@ export function createStorefrontCheckoutHandler({ store, now = () => new Date(),
                     customerEmail: email,
                     successUrl: `${statusUrl}&paid=1`,
                     cancelUrl: `${statusUrl}&canceled=1`,
+                    automaticTax: settings.stripe.tax_enabled,
                     fetchImpl,
                 });
                 order.payment.session_id = session.id;
@@ -590,6 +708,8 @@ export function createStorefrontCheckoutHandler({ store, now = () => new Date(),
                     paymentStatus: order.payment.provider === 'mock' ? 'paid_mock' : 'not_required',
                     sessionId: order.payment.session_id,
                     now,
+                    mailer,
+                    fetchImpl,
                 }) || order;
             }
 
@@ -641,11 +761,110 @@ export function createStorefrontOrderStatusHandler({ store }) {
     };
 }
 
+// Customer self-service cancel: allowed until printing actually starts.
+// Queued/waiting jobs are canceled, paid money is refunded through Stripe,
+// and both sides get notified.
+const CANCELABLE_JOB_STATUSES = new Set(['queued', 'waiting_for_capacity', 'assigned']);
+
+export function createStorefrontCancelHandler({ store, now = () => new Date(), fetchImpl = fetch, mailer = null }) {
+    if (!store) throw new Error('store is required');
+    return async function storefrontCancelHandler(req, res) {
+        if (req.method && req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
+        try {
+            const body = parseBody(req.body);
+            const orderId = normalizeString(body.order_id);
+            const token = normalizeString(body.token);
+            if (!orderId || !token) return sendJson(res, 400, { ok: false, error: 'order_id_and_token_required' });
+
+            const orders = await loadOrders(store);
+            const order = orders.find((entry) => entry.order_id === orderId);
+            const tokenMatches = order && crypto.timingSafeEqual(
+                Buffer.from(String(order.access_token || '').padEnd(64, '0')),
+                Buffer.from(String(token).padEnd(64, '0')),
+            );
+            if (!order || !tokenMatches) return sendJson(res, 404, { ok: false, error: 'order_not_found' });
+
+            if (['canceled', 'refunded', 'shipped', 'payment_expired'].includes(order.status)) {
+                return sendJson(res, 409, { ok: false, error: 'order_not_cancelable', message: `Order is already ${order.status}.` });
+            }
+
+            // Refuse once any piece is physically printing (or done).
+            const jobs = [];
+            for (const jobId of asArray(order.print_job_ids)) {
+                const job = typeof store.getPrintJobById === 'function' ? await store.getPrintJobById(jobId) : null;
+                if (job) jobs.push(job);
+            }
+            const printingStarted = jobs.some((job) => !CANCELABLE_JOB_STATUSES.has(String(job.status || '').toLowerCase()));
+            if (printingStarted) {
+                return sendJson(res, 409, {
+                    ok: false,
+                    error: 'printing_already_started',
+                    message: 'At least one piece is already printing — cancellation is no longer possible.',
+                });
+            }
+
+            // Cancel the queued jobs so the router forgets them.
+            if (typeof store.updatePrintJob === 'function') {
+                for (const job of jobs) {
+                    try {
+                        await store.updatePrintJob(job.job_id, { status: 'canceled' });
+                    } catch { /* per-job best effort */ }
+                }
+            }
+
+            // Refund real payments; offline/mock orders just cancel.
+            const settings = await loadSettings(store);
+            let refundId = null;
+            if (order.paid_at && order.payment?.provider === 'stripe' && order.payment?.payment_intent) {
+                const refund = await createStripeRefund({
+                    settings,
+                    paymentIntentId: order.payment.payment_intent,
+                    fetchImpl,
+                });
+                refundId = refund.id || null;
+            }
+
+            const updated = await updateOrder(store, orderId, (entry) => ({
+                ...entry,
+                status: order.paid_at ? 'refunded' : 'canceled',
+                canceled_at: now().toISOString(),
+                payment: { ...(entry.payment || {}), ...(refundId ? { refund_id: refundId, status: 'refunded' } : {}) },
+            }));
+
+            await emailCustomer({
+                mailer,
+                order: updated,
+                subject: `Order canceled${refundId ? ' — refund issued' : ''} (${orderId.slice(-8)})`,
+                text: refundId
+                    ? 'Your order was canceled before printing started and a full refund was issued to your card. Refunds usually appear within 5-10 business days.'
+                    : 'Your order was canceled before printing started. No payment was captured.',
+            });
+            try {
+                await sendOperatorAlert({
+                    store,
+                    fetchImpl,
+                    mailer,
+                    event: {
+                        kind: 'storefront.order_canceled',
+                        severity: 'info',
+                        title: `Customer canceled order ${orderId.slice(-8)}${refundId ? ' (refunded)' : ''}`,
+                        detail: `${order.quantity} × ${order.file_name} for ${order.email}.`,
+                    },
+                });
+            } catch { /* alerting is best-effort */ }
+
+            return sendJson(res, 200, { ok: true, order: publicOrderView(updated, []) });
+        } catch (error) {
+            return failure(res, error, 'storefront_cancel_failed');
+        }
+    };
+}
+
 // Stripe webhook: the delivered payload is only a hint — the event is
 // re-fetched from Stripe by id with our secret key before any state changes
 // (see stripePayments.js for why). Mock sessions settle at checkout, so a
 // mock webhook is a no-op.
-export function createStorefrontStripeWebhookHandler({ store, now = () => new Date(), fetchImpl = fetch }) {
+export function createStorefrontStripeWebhookHandler({ store, now = () => new Date(), fetchImpl = fetch, mailer = null }) {
     if (!store) throw new Error('store is required');
     return async function storefrontStripeWebhookHandler(req, res) {
         if (req.method && req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
@@ -668,7 +887,16 @@ export function createStorefrontStripeWebhookHandler({ store, now = () => new Da
             if (!orderId) return sendJson(res, 200, { ok: true, received: true, ignored: true });
 
             if (event.type === 'checkout.session.completed' && (session.payment_status === 'paid' || stripeConfig.mock)) {
-                await markStorefrontOrderPaid({ store, orderId, paymentStatus: 'paid', sessionId: session.id, now });
+                await markStorefrontOrderPaid({
+                    store,
+                    orderId,
+                    paymentStatus: 'paid',
+                    sessionId: session.id,
+                    paymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null,
+                    now,
+                    mailer,
+                    fetchImpl,
+                });
             } else if (event.type === 'checkout.session.expired') {
                 await updateOrder(store, orderId, (order) => (
                     order.paid_at ? order : { ...order, status: 'payment_expired' }
@@ -696,19 +924,99 @@ const SWEEP_MIN_INTERVAL_MS = 5 * 60 * 1000;
 const SWEEP_MAX_STRIPE_LOOKUPS = 8;
 export const STOREFRONT_SWEEP_STATE_KEY = 'storefront_sweep_state';
 
-export async function sweepStorefrontOrders({ store, now = () => new Date(), fetchImpl = fetch, force = false } = {}) {
+// When every print job of an order completes, buy the carrier label, mark it
+// shipped, and email the customer their tracking — or park at ready_to_ship
+// when no carrier is configured / auto_ship is off.
+async function shipCompletedOrder({ store, settings, order, now, fetchImpl, mailer }) {
+    const jobIds = asArray(order.print_job_ids);
+    if (jobIds.length === 0 || typeof store.getPrintJobById !== 'function') return null;
+    for (const jobId of jobIds) {
+        const job = await store.getPrintJobById(jobId);
+        if (!job || String(job.status || '').toLowerCase() !== 'completed') return null;
+    }
+
+    if (!settings.shipping.auto_ship || !isShippingConfigured(settings)) {
+        const parked = await updateOrder(store, order.order_id, (entry) => (
+            entry.status === 'processing' ? { ...entry, status: 'ready_to_ship' } : entry
+        ));
+        if (parked?.status === 'ready_to_ship') {
+            await sendOperatorAlert({
+                store,
+                fetchImpl,
+                mailer,
+                event: {
+                    kind: 'storefront.ready_to_ship',
+                    severity: 'info',
+                    title: `Order printed — needs shipping: ${order.order_id.slice(-8)}`,
+                    detail: `${order.quantity} × ${order.file_name} for ${order.email}. Configure EasyPost (shipping settings) to automate labels.`,
+                },
+            });
+        }
+        return parked;
+    }
+
+    const weightGrams = (Number(order.quote?.estimates?.grams_per_piece) || 100) * order.quantity
+        + settings.shipping.parcel.base_weight_grams;
+    const label = await buyShippingLabel({
+        settings,
+        toAddress: order.shipping_address,
+        toName: order.customer_name,
+        toEmail: order.email,
+        fromAddress: settings.shipping.from_address,
+        weightGrams,
+        parcel: settings.shipping.parcel,
+        preferredService: settings.shipping.preferred_service,
+        fetchImpl,
+    });
+
+    const shipped = await updateOrder(store, order.order_id, (entry) => ({
+        ...entry,
+        status: 'shipped',
+        shipment: {
+            ...label,
+            shipped_at: now().toISOString(),
+        },
+    }));
+
+    await emailCustomer({
+        mailer,
+        order: shipped,
+        subject: `Your print shipped — tracking ${label.tracking_code || 'inside'} (${order.order_id.slice(-8)})`,
+        text: [
+            `Good news ${order.customer_name || ''}!`.trim(),
+            '',
+            `Your ${order.quantity} × ${order.file_name} just shipped via ${label.carrier || 'carrier'} ${label.service || ''}.`.trim(),
+            label.tracking_code ? `Tracking number: ${label.tracking_code}` : '',
+            shipped?.status_url ? `Order page: ${shipped.status_url}` : '',
+        ].filter(Boolean).join('\n'),
+    });
+    await sendOperatorAlert({
+        store,
+        fetchImpl,
+        mailer,
+        event: {
+            kind: 'storefront.order_shipped',
+            severity: 'info',
+            title: `Order shipped: ${order.order_id.slice(-8)} (${label.carrier || 'mock'} ${label.tracking_code || ''})`,
+            detail: `Label $${label.rate_usd ?? '—'} · print label: ${label.label_url || 'n/a'}`,
+        },
+    });
+    return shipped;
+}
+
+export async function sweepStorefrontOrders({ store, now = () => new Date(), fetchImpl = fetch, mailer = null, force = false } = {}) {
     if (typeof store?.getPlatformSetting !== 'function' || typeof store?.upsertPlatformSetting !== 'function') {
-        return { skipped: 'store_unsupported', settled: 0, dispatched: 0, expired: 0 };
+        return { skipped: 'store_unsupported', settled: 0, dispatched: 0, expired: 0, shipped: 0 };
     }
     const orders = await loadOrders(store);
-    if (orders.length === 0) return { skipped: 'no_orders', settled: 0, dispatched: 0, expired: 0 };
+    if (orders.length === 0) return { skipped: 'no_orders', settled: 0, dispatched: 0, expired: 0, shipped: 0 };
 
     const nowMs = now().getTime();
     // Throttle state lives in its own key: order writes must not reset it.
     const sweepState = await store.getPlatformSetting(STOREFRONT_SWEEP_STATE_KEY, null) || {};
     const lastSweptMs = sweepState.last_swept_at ? new Date(sweepState.last_swept_at).getTime() : null;
     if (!force && Number.isFinite(lastSweptMs) && nowMs - lastSweptMs < SWEEP_MIN_INTERVAL_MS) {
-        return { skipped: 'recently_swept', settled: 0, dispatched: 0, expired: 0 };
+        return { skipped: 'recently_swept', settled: 0, dispatched: 0, expired: 0, shipped: 0 };
     }
     await store.upsertPlatformSetting(STOREFRONT_SWEEP_STATE_KEY, { last_swept_at: now().toISOString() });
 
@@ -717,12 +1025,13 @@ export async function sweepStorefrontOrders({ store, now = () => new Date(), fet
     let settled = 0;
     let dispatched = 0;
     let expired = 0;
+    let shipped = 0;
 
     // 1) Paid but never dispatched (crash between payment and job creation).
     for (const order of orders) {
         if ((order.status === 'paid' || order.status === 'processing') && asArray(order.print_job_ids).length === 0) {
             try {
-                const updated = await markStorefrontOrderPaid({ store, orderId: order.order_id, now });
+                const updated = await markStorefrontOrderPaid({ store, orderId: order.order_id, now, mailer, fetchImpl });
                 if (asArray(updated?.print_job_ids).length > 0) dispatched += 1;
             } catch { /* keep sweeping */ }
         }
@@ -741,7 +1050,15 @@ export async function sweepStorefrontOrders({ store, now = () => new Date(), fet
                     fetchImpl,
                 });
                 if (session.payment_status === 'paid') {
-                    await markStorefrontOrderPaid({ store, orderId: order.order_id, sessionId: session.id, now });
+                    await markStorefrontOrderPaid({
+                        store,
+                        orderId: order.order_id,
+                        sessionId: session.id,
+                        paymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null,
+                        now,
+                        mailer,
+                        fetchImpl,
+                    });
                     settled += 1;
                 } else if (session.status === 'expired') {
                     await updateOrder(store, order.order_id, (entry) => (
@@ -753,7 +1070,16 @@ export async function sweepStorefrontOrders({ store, now = () => new Date(), fet
         }
     }
 
-    return { settled, dispatched, expired };
+    // 3) Fully printed → buy the label, mark shipped, email tracking.
+    for (const order of orders) {
+        if (order.status !== 'processing' || asArray(order.print_job_ids).length === 0) continue;
+        try {
+            const result = await shipCompletedOrder({ store, settings, order, now, fetchImpl, mailer });
+            if (result?.status === 'shipped') shipped += 1;
+        } catch { /* label problems: next sweep retries */ }
+    }
+
+    return { settled, dispatched, expired, shipped };
 }
 
 // Admin surface: GET settings + recent orders, PATCH settings (Stripe secrets

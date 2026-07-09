@@ -16,9 +16,13 @@ import {
 import { releaseFilamentReservation } from './filamentReservations.js';
 import { planAutoEjectCommands } from './farmAutomation.js';
 import { evaluateFilamentReorders } from './filamentReorder.js';
+import { routeAndDispatchJobFile } from './merchantPrintHandlers.js';
+import { sendOperatorAlert } from './operatorAlerts.js';
 import { pickupUnprintedOrderItems } from './orderPickup.js';
 import { redispatchWaitingJobs } from './printDispatch.js';
 import { sweepStorefrontOrders } from './storefrontHandlers.js';
+
+const PRINTER_SERVICE_STATE_KEY = 'printer_service_state';
 import { deliverMerchantWebhook } from './webhooks.js';
 import { deliverMerchantWebhookEvent } from './merchantWebhookDelivery.js';
 
@@ -54,7 +58,76 @@ async function releaseJobReservation(store, jobId) {
  * sees the spool again), and fire the merchant webhook. Best-effort per event —
  * a bad event must never fail the whole batch.
  */
-async function processJobLifecycleEvents({ store, node, events, now, fetchImpl }) {
+// Failed jobs get one automatic second chance (policy-tunable) before a
+// human is alerted: transient failures (adhesion fluke, brief printer error)
+// clear themselves, and the retry re-routes — possibly to a different printer.
+async function maybeRetryFailedJob({ store, job, now }) {
+    if (typeof store.getPlatformSetting !== 'function' || typeof store.getJobFileById !== 'function') {
+        return { retried: false };
+    }
+    const policy = await store.getPlatformSetting(FARM_AUTOMATION_POLICY_KEY, null) || {};
+    if (policy.auto_retry_failed_jobs === false) return { retried: false };
+    const maxRetries = Number.isFinite(Number(policy.auto_retry_max)) ? Number(policy.auto_retry_max) : 1;
+    const retryCount = Number(job.options?.retry_count) || 0;
+    if (retryCount >= maxRetries) return { retried: false, exhausted: retryCount > 0 };
+
+    const file = await store.getJobFileById(job.file_id);
+    if (!file) return { retried: false };
+    const { job: retryJob } = await routeAndDispatchJobFile({
+        store,
+        merchant: { org_id: job.org_id, merchant_id: job.merchant_id },
+        upload: {
+            name: `${job.name || file.original_name} (retry ${retryCount + 1})`,
+            requirements: file.requirements || {},
+            options: {
+                ...(job.options || {}),
+                retry_count: retryCount + 1,
+                retry_of: job.job_id,
+            },
+        },
+        file,
+        now,
+    });
+    return { retried: true, retry_job_id: retryJob.job_id };
+}
+
+// Print-hours proxy: count completed prints per printer and nudge the
+// operator to service the machine every N prints (policy-tunable).
+async function trackPrinterService({ store, printerId, now, fetchImpl, mailer }) {
+    if (!printerId || typeof store.getPlatformSetting !== 'function') return;
+    const policy = await store.getPlatformSetting(FARM_AUTOMATION_POLICY_KEY, null) || {};
+    const interval = Number.isFinite(Number(policy.maintenance_alert_every_prints))
+        ? Number(policy.maintenance_alert_every_prints)
+        : 200;
+    if (interval <= 0) return;
+
+    const state = await store.getPlatformSetting(PRINTER_SERVICE_STATE_KEY, null) || { printers: {} };
+    const printers = state.printers && typeof state.printers === 'object' ? state.printers : {};
+    const entry = printers[printerId] && typeof printers[printerId] === 'object'
+        ? printers[printerId]
+        : { completed_prints: 0, last_alert_at_count: 0 };
+    entry.completed_prints = (Number(entry.completed_prints) || 0) + 1;
+    entry.updated_at = now().toISOString();
+
+    if (entry.completed_prints - (Number(entry.last_alert_at_count) || 0) >= interval) {
+        entry.last_alert_at_count = entry.completed_prints;
+        await sendOperatorAlert({
+            store,
+            fetchImpl,
+            mailer,
+            event: {
+                kind: 'printer.maintenance_due',
+                severity: 'warning',
+                title: `Maintenance check due: printer ${String(printerId).slice(0, 8)}…`,
+                detail: `${entry.completed_prints} completed prints. Inspect nozzle, belts, and PTFE; adjust farm_automation_policy.maintenance_alert_every_prints to tune this cadence.`,
+            },
+        });
+    }
+    printers[printerId] = entry;
+    await store.upsertPlatformSetting(PRINTER_SERVICE_STATE_KEY, { printers });
+}
+
+async function processJobLifecycleEvents({ store, node, events, now, fetchImpl, mailer = null }) {
     if (typeof store.updatePrintJob !== 'function' || typeof store.getPrintJobById !== 'function') {
         return { processed: 0 };
     }
@@ -89,6 +162,43 @@ async function processJobLifecycleEvents({ store, node, events, now, fetchImpl }
                 try {
                     await releaseJobReservation(store, job.job_id);
                 } catch { /* reservation release is best-effort */ }
+            }
+
+            if (event.event_type === 'print_job.failed') {
+                let retry = { retried: false };
+                try {
+                    retry = await maybeRetryFailedJob({ store, job, now });
+                } catch { /* retry is best-effort */ }
+                try {
+                    await sendOperatorAlert({
+                        store,
+                        fetchImpl,
+                        mailer,
+                        event: retry.retried ? {
+                            kind: 'job.retried',
+                            severity: 'warning',
+                            title: `Print failed, auto-retrying: ${job.name || job.job_id}`,
+                            detail: `Reason: ${event.payload?.reason || 'unknown'}. Retry job ${retry.retry_job_id}.`,
+                        } : {
+                            kind: 'job.failed',
+                            severity: 'critical',
+                            title: `Print FAILED (no retry): ${job.name || job.job_id}`,
+                            detail: `Reason: ${event.payload?.reason || 'unknown'}. Printer ${event.payload?.local_printer_id || job.printer_id || '?'}. Needs a human.`,
+                        },
+                    });
+                } catch { /* alerting is best-effort */ }
+            }
+
+            if (event.event_type === 'print_job.completed') {
+                try {
+                    await trackPrinterService({
+                        store,
+                        printerId: job.printer_id || event.payload?.local_printer_id || null,
+                        now,
+                        fetchImpl,
+                        mailer,
+                    });
+                } catch { /* maintenance tracking is best-effort */ }
             }
 
             if (job.merchant_id && typeof store.findMerchantById === 'function') {
@@ -211,7 +321,7 @@ function parseCommandLimit(query = {}) {
     return Math.max(1, Math.min(raw, 50));
 }
 
-export function createHeartbeatHandler({ store, pepper, now = () => new Date(), fetchImpl = fetch }) {
+export function createHeartbeatHandler({ store, pepper, now = () => new Date(), fetchImpl = fetch, mailer = null }) {
     if (!store) throw new Error('store is required');
 
     return async function heartbeatHandler(req, res) {
@@ -279,9 +389,9 @@ export function createHeartbeatHandler({ store, pepper, now = () => new Date(), 
             try {
                 orderPickup = await pickupUnprintedOrderItems({ store, now });
             } catch { /* never fail a heartbeat over order pickup */ }
-            let storefrontSweep = { settled: 0, dispatched: 0, expired: 0 };
+            let storefrontSweep = { settled: 0, dispatched: 0, expired: 0, shipped: 0 };
             try {
-                storefrontSweep = await sweepStorefrontOrders({ store, now, fetchImpl });
+                storefrontSweep = await sweepStorefrontOrders({ store, now, fetchImpl, mailer });
             } catch { /* never fail a heartbeat over the storefront sweep */ }
 
             return sendJson(res, 200, {
@@ -295,8 +405,12 @@ export function createHeartbeatHandler({ store, pepper, now = () => new Date(), 
                 ...(redispatch.dispatched > 0 ? { waiting_jobs_dispatched: redispatch.dispatched } : {}),
                 ...(reorders.created > 0 ? { filament_reorders_created: reorders.created, filament_reorders_placed: reorders.placed } : {}),
                 ...(orderPickup.dispatched_items > 0 ? { order_items_picked_up: orderPickup.dispatched_items, order_jobs_created: orderPickup.jobs_created } : {}),
-                ...(storefrontSweep.settled + storefrontSweep.dispatched > 0
-                    ? { storefront_orders_settled: storefrontSweep.settled, storefront_orders_dispatched: storefrontSweep.dispatched }
+                ...(storefrontSweep.settled + storefrontSweep.dispatched + (storefrontSweep.shipped || 0) > 0
+                    ? {
+                        storefront_orders_settled: storefrontSweep.settled,
+                        storefront_orders_dispatched: storefrontSweep.dispatched,
+                        storefront_orders_shipped: storefrontSweep.shipped || 0,
+                    }
                     : {}),
             });
         } catch (error) {
@@ -333,7 +447,7 @@ export function createClaimCommandsHandler({ store, pepper }) {
     };
 }
 
-export function createEventsHandler({ store, pepper, now = () => new Date(), fetchImpl = globalThis.fetch }) {
+export function createEventsHandler({ store, pepper, now = () => new Date(), fetchImpl = globalThis.fetch, mailer = null }) {
     if (!store) throw new Error('store is required');
 
     return async function eventsHandler(req, res) {
@@ -353,9 +467,30 @@ export function createEventsHandler({ store, pepper, now = () => new Date(), fet
 
             await store.recordNodeEvents(node, events);
 
+            // Printer trouble the node detected (blocking errors, auto-cancel)
+            // goes straight to the operator's alert channels.
+            for (const event of events) {
+                if (event.event_type !== 'printer.alert' && event.event_type !== 'printer.auto_canceled') continue;
+                try {
+                    await sendOperatorAlert({
+                        store,
+                        fetchImpl,
+                        mailer,
+                        event: {
+                            kind: event.event_type,
+                            severity: event.event_type === 'printer.auto_canceled' ? 'critical' : 'warning',
+                            title: event.event_type === 'printer.auto_canceled'
+                                ? 'Printer auto-canceled a job'
+                                : 'Printer alert',
+                            detail: JSON.stringify(event.payload || {}).slice(0, 500),
+                        },
+                    });
+                } catch { /* alerting is best-effort */ }
+            }
+
             // Node-reported merchant job lifecycle (started/completed/failed):
             // update print_jobs, release filament reservations, fire webhooks.
-            const lifecycle = await processJobLifecycleEvents({ store, node, events, now, fetchImpl });
+            const lifecycle = await processJobLifecycleEvents({ store, node, events, now, fetchImpl, mailer });
 
             return sendJson(res, 200, {
                 ok: true,

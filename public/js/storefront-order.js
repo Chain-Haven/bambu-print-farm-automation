@@ -344,8 +344,13 @@
     pending_payment: ['Awaiting payment', 'warn'],
     paid: ['Paid — queued for printing', 'ok'],
     processing: ['Printing at the farm', 'ok'],
+    ready_to_ship: ['Printed — preparing shipment', 'ok'],
+    shipped: ['Shipped', 'ok'],
     payment_expired: ['Payment expired — order not placed', 'err'],
+    canceled: ['Canceled', 'err'],
+    refunded: ['Canceled — refunded', 'err'],
   };
+  const CANCELABLE_STATUSES = new Set(['pending_payment', 'paid', 'processing']);
 
   async function refreshStatus() {
     try {
@@ -358,12 +363,13 @@
 
       // Progress timeline: Paid → Printing → Done & shipping.
       const jobStatuses = order.jobs.map((job) => String(job.status || '').toLowerCase());
-      const allDone = jobStatuses.length > 0 && jobStatuses.every((status) => ['completed', 'complete', 'finished'].includes(status));
+      const allDone = order.status === 'shipped' || order.status === 'ready_to_ship'
+        || (jobStatuses.length > 0 && jobStatuses.every((status) => ['completed', 'complete', 'finished'].includes(status)));
       const anyPrinting = jobStatuses.some((status) => ['printing', 'queued', 'assigned', 'transforming', 'uploading'].includes(status));
       const stepStates = {
         paid: order.paid_at ? 'done' : (order.status === 'pending_payment' ? 'now' : ''),
         printing: allDone ? 'done' : (anyPrinting || order.status === 'processing' ? 'now' : ''),
-        done: allDone ? 'now' : '',
+        done: order.status === 'shipped' ? 'done' : (allDone ? 'now' : ''),
       };
       document.querySelectorAll('#status-timeline .tstep').forEach((el) => {
         el.classList.remove('done', 'now');
@@ -401,6 +407,16 @@
       const address = order.shipping_address || {};
       $('#status-shipping').textContent =
         `Ships to: ${[address.line1, address.line2, address.city, address.region, address.postal_code, address.country].filter(Boolean).join(', ')}`;
+
+      const tracking = $('#status-tracking');
+      if (order.shipment?.tracking_code) {
+        tracking.hidden = false;
+        tracking.textContent = `📦 ${order.shipment.carrier || 'Carrier'} ${order.shipment.service || ''} — tracking ${order.shipment.tracking_code}`;
+      } else {
+        tracking.hidden = true;
+      }
+
+      $('#status-cancel').hidden = !CANCELABLE_STATUSES.has(order.status);
       showError('#status-error', '');
     } catch (error) {
       showError('#status-error', error.message);
@@ -416,5 +432,21 @@
     refreshStatus();
     setInterval(refreshStatus, 8000);
     $('#status-refresh').addEventListener('click', refreshStatus);
+    $('#status-cancel').addEventListener('click', async () => {
+      if (!window.confirm('Cancel this order? If you already paid, a full refund is issued. This is only possible before printing starts.')) return;
+      const button = $('#status-cancel');
+      button.disabled = true;
+      try {
+        await api('/api/public/storefront/cancel', {
+          method: 'POST',
+          body: { order_id: orderId, token: orderToken },
+        });
+        await refreshStatus();
+      } catch (error) {
+        showError('#status-error', error.message);
+      } finally {
+        button.disabled = false;
+      }
+    });
   }
 })();

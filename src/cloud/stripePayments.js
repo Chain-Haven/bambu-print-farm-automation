@@ -89,6 +89,7 @@ export async function createStripeCheckoutSession({
     customerEmail = null,
     successUrl,
     cancelUrl,
+    automaticTax = false,
     fetchImpl = fetch,
 }) {
     const config = resolveStripeConfig(settings);
@@ -110,6 +111,9 @@ export async function createStripeCheckoutSession({
             success_url: successUrl,
             cancel_url: cancelUrl,
             ...(customerEmail ? { customer_email: customerEmail } : {}),
+            // Stripe Tax computes and collects sales tax on top of the quote
+            // (requires Tax enabled on the Stripe account).
+            ...(automaticTax ? { automatic_tax: { enabled: 'true' } } : {}),
             line_items: [{
                 quantity: 1,
                 price_data: {
@@ -121,6 +125,22 @@ export async function createStripeCheckoutSession({
             metadata: { storefront_order_id: orderId },
             payment_intent_data: { metadata: { storefront_order_id: orderId } },
         },
+    });
+}
+
+// Full refund of a paid checkout (customer canceled before printing began).
+export async function createStripeRefund({ settings, paymentIntentId, fetchImpl = fetch }) {
+    const config = resolveStripeConfig(settings);
+    if (config.mock) {
+        return { id: `re_mock_${paymentIntentId || 'none'}`, status: 'succeeded', mock: true };
+    }
+    if (!paymentIntentId) throw new Error('payment_intent_required');
+    return stripeRequest({
+        config,
+        method: 'POST',
+        path: '/v1/refunds',
+        fetchImpl,
+        params: { payment_intent: paymentIntentId },
     });
 }
 

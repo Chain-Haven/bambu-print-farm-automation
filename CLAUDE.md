@@ -45,6 +45,49 @@ swapped since, re-run `proof_test.js` before concluding anything.
 
 Full write-up is in `DIAGNOSIS.md`.
 
+## Changes already made (July 2026 session — fulfillment loop + alerts + WooCommerce)
+
+1. **Auto-shipping** — `src/cloud/shippingLabels.js`: EasyPost REST adapter
+ (create shipment → cheapest/preferred rate → buy; Basic auth; MOCK
+ simulates). Storefront sweep stage 3: orders whose jobs are ALL completed
+ buy a label, flip to `shipped`, email tracking; without a carrier key they
+ park `ready_to_ship` + alert. Config in `storefront_settings.shipping`
+ (easypost key write-only or `EASYPOST_API_KEY`, from_address defaults to
+ the Houston dock, parcel dims + base weight, `auto_ship` default ON).
+2. **Customer emails** (Resend mailer, best-effort): paid receipt with status
+ link, shipped with tracking, cancel/refund confirmation. Status link stored
+ on the order (`status_url`). Handlers take `mailer`; Vercel functions pass
+ `createMailer()`; heartbeat/events wire it too.
+3. **Cancel/refund** — `POST /api/public/storefront/cancel` {order_id, token}:
+ allowed until any job leaves queued/waiting; cancels jobs, refunds via new
+ `createStripeRefund` (payment_intent captured from webhook/sweep), status
+ `refunded`/`canceled`. UI: cancel button + shipped/refunded statuses +
+ tracking line on /order. **Stripe Tax**: `stripe.tax_enabled` setting →
+ `automatic_tax[enabled]` on Checkout Sessions.
+4. **Operator alerts** — `src/cloud/operatorAlerts.js`: fan-out to
+ `farm_integrations.alerts` channels ({type: discord|slack|webhook|email}).
+ Fired on: job failed (final), job auto-retried, printer.alert/auto_canceled
+ node events, order paid/shipped/canceled, ready_to_ship, maintenance due.
+5. **Auto-retry + maintenance** (agentHandlers): `print_job.failed` →
+ `maybeRetryFailedJob` re-routes the same file once (policy
+ `auto_retry_failed_jobs` ON, `auto_retry_max` 1, marker `options.retry_of`);
+ `print_job.completed` → per-printer counter in `printer_service_state`,
+ alert every `maintenance_alert_every_prints` (200).
+6. **WooCommerce plugin** — `integrations/woocommerce/printkinetix-print-on-
+ demand/` (PHP 8 linted, single-file + assets): merchant pastes API key;
+ product meta box uploads the model to `/api/public/files`; product page
+ customizer (material/color/scale/strength/quality + optional interactive 3D
+ preview via bundled `pkx-model-viewer.js`); paid Woo orders POST
+ `/api/public/orders` with `auto_submit` + shipping address (idempotent
+ `external_order_id` woo-{host}-{id}) → our pickup sweep prints them; hourly
+ cron syncs farm status back to order notes. Download:
+ `GET /api/public/integrations/woocommerce-plugin` (adm-zip on demand,
+ viewer injected; `src/cloud/woocommercePlugin.js`; vercel.json
+ includeFiles). Links on landing + onboarding pages.
+7. Deferred deliberately: slice-to-quote refinement for STEP/OBJ, carrier-rate
+ quoting at checkout, storefront orders → real table, node self-update.
+ Tests: `fulfillment.test.js` (10) + storefront ship/cancel tests (647 total).
+
 ## Changes already made (July 2026 session — 3D viewer + finishing touches on /order)
 
 1. **Interactive 3D preview** — `public/js/model-viewer.js`: dependency-free

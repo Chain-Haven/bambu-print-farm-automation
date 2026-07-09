@@ -50,11 +50,13 @@ import {
 } from './merchantPrintHandlers.js';
 import { createCloudPrintFilesHandler } from './adminPrintHandlers.js';
 import {
+    createStorefrontCancelHandler,
     createStorefrontCheckoutHandler,
     createStorefrontOrderStatusHandler,
     createStorefrontQuoteHandler,
     createStorefrontStripeWebhookHandler,
 } from './storefrontHandlers.js';
+import { createWooPluginDownloadHandler } from './woocommercePlugin.js';
 
 // A self-contained cloud control plane: the SAME handler code the Vercel
 // functions run, wired to an Express app against any store implementation
@@ -115,9 +117,9 @@ export function createLocalCloudApp({
     app.all('/api/cloud/merchant-setup-token', wire(createCloudMerchantSetupTokenHandler({ store, adminToken, merchantPepper: pepper })));
 
     // Agent (edge node) endpoints.
-    app.all('/api/agent/heartbeat', wire(createHeartbeatHandler({ store, pepper, now, fetchImpl })));
+    app.all('/api/agent/heartbeat', wire(createHeartbeatHandler({ store, pepper, now, fetchImpl, mailer: authMailer })));
     app.all('/api/agent/commands', wire(createClaimCommandsHandler({ store, pepper })));
-    app.all('/api/agent/events', wire(createEventsHandler({ store, pepper, now, fetchImpl })));
+    app.all('/api/agent/events', wire(createEventsHandler({ store, pepper, now, fetchImpl, mailer: authMailer })));
     app.all('/api/agent/command-result', wire(createCommandResultHandler({ store, pepper, now })));
 
     // Public merchant endpoints.
@@ -128,11 +130,15 @@ export function createLocalCloudApp({
     app.all('/api/public/print-jobs', wire(createMerchantPrintJobsHandler({ store, pepper, now, fetchImpl })));
     app.all('/api/public/print-jobs/status', wire(createMerchantPrintJobStatusHandler({ store, pepper, now })));
 
-    // Public storefront (no auth): instant quote -> checkout -> status.
+    // Public storefront (no auth): instant quote -> checkout -> status -> cancel.
     app.all('/api/public/storefront/quote', wire(createStorefrontQuoteHandler({ store, now })));
-    app.all('/api/public/storefront/checkout', wire(createStorefrontCheckoutHandler({ store, now, fetchImpl })));
+    app.all('/api/public/storefront/checkout', wire(createStorefrontCheckoutHandler({ store, now, fetchImpl, mailer: authMailer })));
     app.all('/api/public/storefront/orders', wire(createStorefrontOrderStatusHandler({ store })));
-    app.all('/api/public/storefront/stripe-webhook', wire(createStorefrontStripeWebhookHandler({ store, now, fetchImpl })));
+    app.all('/api/public/storefront/cancel', wire(createStorefrontCancelHandler({ store, now, fetchImpl, mailer: authMailer })));
+    app.all('/api/public/storefront/stripe-webhook', wire(createStorefrontStripeWebhookHandler({ store, now, fetchImpl, mailer: authMailer })));
+
+    // Merchant integrations: WooCommerce plugin download.
+    app.all('/api/public/integrations/woocommerce-plugin', wire(createWooPluginDownloadHandler({ rootDir })));
 
     // Public liveness (parity with the Vercel /api/health function) + OpenAPI
     // index, so the landing page status badge and spec links work self-hosted.
