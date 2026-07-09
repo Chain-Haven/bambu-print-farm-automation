@@ -78,11 +78,36 @@ export async function getLwaAccessToken({ credentials, fetchImpl = fetch }) {
     return parsed.access_token;
 }
 
+// PhysicalAddress attribute for the Ordering API's polymorphic Address model.
+// Only emitted when the config carries a complete street address; otherwise
+// orders fall back to the Amazon Business account's default address.
+export function buildShippingAddressAttribute(shippingAddress = {}) {
+    const address = shippingAddress || {};
+    const required = [address.address_line1, address.city, address.state_or_region, address.postal_code, address.country_code];
+    if (required.some((value) => !isNonEmptyString(value))) return null;
+    return {
+        attributeType: 'ShippingAddress',
+        address: {
+            addressType: 'PhysicalAddress',
+            fullName: isNonEmptyString(address.full_name) ? address.full_name.trim() : 'Print Farm Receiving',
+            ...(isNonEmptyString(address.company_name) ? { companyName: address.company_name.trim() } : {}),
+            ...(isNonEmptyString(address.phone_number) ? { phoneNumber: address.phone_number.trim() } : {}),
+            addressLine1: address.address_line1.trim(),
+            ...(isNonEmptyString(address.address_line2) ? { addressLine2: address.address_line2.trim() } : {}),
+            city: address.city.trim(),
+            stateOrRegion: address.state_or_region.trim(),
+            postalCode: address.postal_code.trim(),
+            countryCode: address.country_code.trim().toUpperCase(),
+        },
+    };
+}
+
 // Build a PlaceOrderRequest for one reorder rule. Attributes/expectations use
 // the Ordering API's typed-attribute model (SelectedProductReference, Region,
-// UserEmail, TrialMode, ExpectedUnitPrice). While `trial_mode` is on (the safe
-// default) Amazon treats the order as a test and nothing is charged/shipped —
-// flip it off in the console once a trial order round-trips.
+// UserEmail, ShippingAddress, TrialMode, ExpectedUnitPrice). While
+// `trial_mode` is on (the safe default) Amazon treats the order as a test and
+// nothing is charged/shipped — flip it off in the console once a trial order
+// round-trips.
 export function buildPlaceOrderPayload({ rule, config, externalId, quantity }) {
     if (!isNonEmptyString(externalId)) throw new Error('externalId is required');
     if (!isNonEmptyString(rule?.asin)) throw new Error('rule.asin is required');
@@ -103,6 +128,8 @@ export function buildPlaceOrderPayload({ rule, config, externalId, quantity }) {
     if (isNonEmptyString(config?.user_email)) {
         orderAttributes.push({ attributeType: 'UserEmail', userEmail: config.user_email.trim() });
     }
+    const shippingAttribute = buildShippingAddressAttribute(config?.shipping_address);
+    if (shippingAttribute) orderAttributes.push(shippingAttribute);
     if (isNonEmptyString(config?.purchase_order_number)) {
         orderAttributes.push({ attributeType: 'PurchaseOrderNumber', purchaseOrderNumber: config.purchase_order_number.trim() });
     }

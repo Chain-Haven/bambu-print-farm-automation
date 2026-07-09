@@ -203,6 +203,13 @@ const elements = {
   reorderEvaluate: $('#reorder-evaluate'),
   reorderOutput: $('#reorder-output'),
   reorderCountAms: $('#reorder-count-ams'),
+  reorderShipName: $('#reorder-ship-name'),
+  reorderShipPhone: $('#reorder-ship-phone'),
+  reorderShipLine1: $('#reorder-ship-line1'),
+  reorderShipLine2: $('#reorder-ship-line2'),
+  reorderShipCity: $('#reorder-ship-city'),
+  reorderShipRegion: $('#reorder-ship-region'),
+  reorderShipPostal: $('#reorder-ship-postal'),
   reorderDefaultMin: $('#reorder-default-min'),
   reorderDefaultQty: $('#reorder-default-qty'),
   reorderDefaultPrice: $('#reorder-default-price'),
@@ -2115,6 +2122,14 @@ function renderFilamentOrders(payload) {
   elements.reorderDefaultPrice.value = config.rule_defaults?.max_unit_price_usd || 30;
   elements.reorderDefaultGrams.value = config.rule_defaults?.grams_per_spool || 1000;
   elements.reorderUserEmail.value = config.user_email || '';
+  const shipTo = config.shipping_address || {};
+  elements.reorderShipName.value = shipTo.full_name || '';
+  elements.reorderShipPhone.value = shipTo.phone_number || '';
+  elements.reorderShipLine1.value = shipTo.address_line1 || '';
+  elements.reorderShipLine2.value = shipTo.address_line2 || '';
+  elements.reorderShipCity.value = shipTo.city || '';
+  elements.reorderShipRegion.value = shipTo.state_or_region || '';
+  elements.reorderShipPostal.value = shipTo.postal_code || '';
   elements.reorderClientId.value = config.credentials?.client_id || '';
   elements.reorderClientSecret.placeholder = config.credentials?.client_secret_set ? '(saved — leave blank to keep)' : '(not set)';
   elements.reorderRefreshToken.placeholder = config.credentials?.refresh_token_set ? '(saved — leave blank to keep)' : '(not set)';
@@ -2295,6 +2310,16 @@ function collectFilamentReorderConfig() {
       grams_per_spool: Number(elements.reorderDefaultGrams.value) || 1000,
     },
     user_email: elements.reorderUserEmail.value.trim() || null,
+    shipping_address: {
+      full_name: elements.reorderShipName.value.trim() || null,
+      phone_number: elements.reorderShipPhone.value.trim() || null,
+      address_line1: elements.reorderShipLine1.value.trim() || null,
+      address_line2: elements.reorderShipLine2.value.trim() || null,
+      city: elements.reorderShipCity.value.trim() || null,
+      state_or_region: elements.reorderShipRegion.value.trim() || null,
+      postal_code: elements.reorderShipPostal.value.trim() || null,
+      country_code: 'US',
+    },
     rules: parseJsonField(elements.reorderRulesJson.value, []),
     credentials: {},
   };

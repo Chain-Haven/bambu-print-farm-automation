@@ -449,8 +449,11 @@ describe('AMS-level stock tracking', () => {
         expect(view[0]).toMatchObject({ material: 'PLA', color_hex: '#FFFFFF', usable_spools: 0, tagged: true });
     });
 
-    it('defaults: AMS counting on, rule_defaults populated, rules normalize RGBA colors', () => {
+    it('defaults are fully automated: enabled, auto mode, AMS counting, farm ship-to', () => {
         const config = normalizeReorderConfig({});
+        expect(config.enabled).toBe(true);       // watcher on out of the box
+        expect(config.mode).toBe('auto');        // orders place without a click
+        expect(config.trial_mode).toBe(true);    // …but as Amazon test orders until flipped
         expect(config.count_ams_trays).toBe(true);
         expect(config.rule_defaults).toEqual({
             min_spools: 2,
@@ -458,7 +461,48 @@ describe('AMS-level stock tracking', () => {
             max_unit_price_usd: 30,
             grams_per_spool: 1000,
         });
+        // Spools deliver to the farm's receiving address by default.
+        expect(config.shipping_address).toMatchObject({
+            address_line1: '5151 Mitchelldale St',
+            address_line2: 'A10',
+            city: 'Houston',
+            state_or_region: 'TX',
+            postal_code: '77092',
+            country_code: 'US',
+        });
         expect(normalizeReorderRule({ material: 'pla', color_hex: '00AE42FF' }).color_hex).toBe('#00AE42');
+    });
+
+    it('orders carry the ship-to as an Ordering API ShippingAddress attribute', () => {
+        const config = normalizeReorderConfig({});
+        const payload = buildPlaceOrderPayload({
+            rule: { asin: 'B0TESTASIN', max_unit_price_usd: 20 },
+            config,
+            externalId: 'pkx-x-202607-1',
+            quantity: 2,
+        });
+        const shipping = payload.attributes.find((attribute) => attribute.attributeType === 'ShippingAddress');
+        expect(shipping.address).toMatchObject({
+            addressType: 'PhysicalAddress',
+            addressLine1: '5151 Mitchelldale St',
+            addressLine2: 'A10',
+            city: 'Houston',
+            stateOrRegion: 'TX',
+            postalCode: '77092',
+            countryCode: 'US',
+        });
+
+        // Incomplete address → attribute omitted (account default applies);
+        // absent keys keep defaults, explicit nulls clear.
+        const cleared = normalizeReorderConfig({ shipping_address: { address_line1: null, city: null } });
+        const bare = buildPlaceOrderPayload({
+            rule: { asin: 'B0TESTASIN' },
+            config: cleared,
+            externalId: 'pkx-x-202607-2',
+            quantity: 1,
+        });
+        expect(bare.attributes.some((attribute) => attribute.attributeType === 'ShippingAddress')).toBe(false);
+        expect(cleared.shipping_address.postal_code).toBe('77092'); // untouched key kept its default
     });
 });
 

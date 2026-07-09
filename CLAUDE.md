@@ -112,7 +112,15 @@ Full write-up is in `DIAGNOSIS.md`.
  "Filament Auto-Ordering" panel + "Filament Orders" table on the Automation
  tab. Tests: `tests/cloud/filamentReorder.test.js` (28) incl. heartbeat
  integration; LWA secrets never echo in responses.
-5. **Fully hands-off variant (AMS-level tracking + tagging)** — stock now
+5. **Ships to the farm dock + fully-auto defaults** — every Amazon order
+ carries an Ordering-API `ShippingAddress` attribute (PhysicalAddress);
+ default ship-to is the farm's receiving address (**5151 Mitchelldale St
+ A10, Houston TX 77092**, `DEFAULT_SHIP_TO`), editable in the console
+ ("Ship filament to" fields; absent key = keep default, explicit null =
+ clear; incomplete address → attribute omitted → AB account default).
+ Reorder defaults flipped to hands-off: `enabled` + `mode:'auto'` out of
+ the box (trial_mode still ON + budget caps still gate real spend).
+6. **Fully hands-off variant (AMS-level tracking + tagging)** — stock now
  includes **live AMS tray levels** (`count_ams_trays`, default ON): trays from
  heartbeat-mirrored printers (`capabilities.ams_trays[].live_remaining`,
  Bambu `remain` %; null/-1 = no RFID → counts as full; RGBA colors normalized

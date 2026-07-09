@@ -43,8 +43,8 @@ function asArray(value) {
     return Array.isArray(value) ? value : [];
 }
 
-function normalizeString(value) {
-    return typeof value === 'string' && value.trim() ? value.trim() : null;
+function normalizeString(value, maxLength = 200) {
+    return typeof value === 'string' && value.trim() ? value.trim().slice(0, maxLength) : null;
 }
 
 function normalizeMaterial(value) {
@@ -90,17 +90,55 @@ export function normalizeReorderRule(rule, index = 0) {
     };
 }
 
+// Where Amazon delivers the spools. This farm's receiving dock is the
+// shipped default so a fresh deployment restocks hands-off; every field is
+// editable in the console ("Ship filament to").
+export const DEFAULT_SHIP_TO = {
+    full_name: 'Print Farm Receiving',
+    company_name: 'PrintKinetix',
+    phone_number: null,
+    address_line1: '5151 Mitchelldale St',
+    address_line2: 'A10',
+    city: 'Houston',
+    state_or_region: 'TX',
+    postal_code: '77092',
+    country_code: 'US',
+};
+
+function normalizeShipTo(source) {
+    const address = isPlainObject(source) ? source : {};
+    // Absent key → shipped default; explicit null/'' → deliberately cleared.
+    const pick = (key, max = 100) => (
+        address[key] === undefined ? DEFAULT_SHIP_TO[key] : normalizeString(address[key], max)
+    );
+    return {
+        full_name: pick('full_name'),
+        company_name: pick('company_name'),
+        phone_number: pick('phone_number', 30),
+        address_line1: pick('address_line1'),
+        address_line2: pick('address_line2'),
+        city: pick('city'),
+        state_or_region: pick('state_or_region', 60),
+        postal_code: pick('postal_code', 20),
+        country_code: (pick('country_code', 2) || 'US').toUpperCase(),
+    };
+}
+
 export function normalizeReorderConfig(config) {
     const source = isPlainObject(config) ? config : {};
     const credentials = isPlainObject(source.credentials) ? source.credentials : {};
     const ruleDefaults = isPlainObject(source.rule_defaults) ? source.rule_defaults : {};
     return {
-        enabled: source.enabled === true,
+        // Fully automated by default: the watcher runs on every heartbeat and
+        // places orders on its own. With no rules/credentials it is a no-op,
+        // and trial_mode + the budget caps still gate real spend.
+        enabled: source.enabled !== false,
         vendor: 'amazon_business',
-        // 'approval' = park every reorder for a human click; 'auto' = place
-        // within the caps below without asking.
-        mode: source.mode === 'auto' ? 'auto' : 'approval',
+        // 'auto' = place within the caps without asking; 'approval' = park
+        // every reorder for a human click.
+        mode: source.mode === 'approval' ? 'approval' : 'auto',
         trial_mode: source.trial_mode !== false,
+        shipping_address: normalizeShipTo(source.shipping_address),
         // Count filament loaded in AMS units (live_remaining telemetry from
         // heartbeats) as stock, so ordering works with zero manual inventory.
         count_ams_trays: source.count_ams_trays !== false,
