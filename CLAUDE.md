@@ -45,6 +45,30 @@ swapped since, re-run `proof_test.js` before concluding anything.
 
 Full write-up is in `DIAGNOSIS.md`.
 
+## Changes already made (July 2026 session — MCP server: agents buy prints with USDC)
+
+1. **Remote MCP server at `POST /api/mcp`** (`src/cloud/mcpServer.js`):
+ stateless Streamable HTTP JSON-RPC (initialize/tools list+call/ping;
+ notifications → 202; GET → 405 hint; batch tolerated). Five tools:
+ `farm_info`, `print_quote` (file_url with SSRF guard OR base64; finish
+ options), `print_order` (quote token + shipping address → pending_payment
+ order), `print_pay` (tx hash), `print_status`. Orders reuse the storefront
+ machinery end-to-end (`source:'mcp_agent'`, provider `usdc`), so dispatch,
+ auto-retry, auto-ship labels, and emails all apply. Wired: `api/mcp.js`
+ (Vercel) + localCloudServer; landing "For developers" card documents it.
+2. **USDC per-filament-gram payments** (`src/cloud/usdcPayments.js`):
+ price = grams × `USDC_PRICE_PER_GRAM` (0.05 default) × qty +
+ `USDC_SHIPPING_FLAT` (8), exact 6-decimal base units. Self-custodial:
+ agent transfers to `USDC_WALLET_ADDRESS` (env, Vercel) on `USDC_CHAIN`
+ (base default; ethereum/polygon/arbitrum; token + RPC overridable), then
+ submits the tx hash; verification is read-only RPC
+ (eth_getTransactionReceipt: status 0x1, USDC contract Transfer log to OUR
+ wallet, amount ≥ owed, `USDC_MIN_CONFIRMATIONS` ≥ 2 via eth_blockNumber).
+ One tx settles exactly one order (reuse rejected). MOCK: tx `mock_paid`.
+ Env documented in `.env.example`. Tests: `mcpServer.test.js` (6) — pricing
+ math, on-chain verify matrix (wrong wallet/underpaid/unconfirmed), full
+ agent funnel, tamper/reuse/token attacks, SSRF guard (653 total).
+
 ## Changes already made (July 2026 session — fulfillment loop + alerts + WooCommerce)
 
 1. **Auto-shipping** — `src/cloud/shippingLabels.js`: EasyPost REST adapter

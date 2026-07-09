@@ -57,6 +57,7 @@ import {
     createStorefrontStripeWebhookHandler,
 } from './storefrontHandlers.js';
 import { createWooPluginDownloadHandler } from './woocommercePlugin.js';
+import { createMcpHandler } from './mcpServer.js';
 
 // A self-contained cloud control plane: the SAME handler code the Vercel
 // functions run, wired to an Express app against any store implementation
@@ -139,6 +140,9 @@ export function createLocalCloudApp({
 
     // Merchant integrations: WooCommerce plugin download.
     app.all('/api/public/integrations/woocommerce-plugin', wire(createWooPluginDownloadHandler({ rootDir })));
+
+    // Remote MCP server: AI agents quote, order, pay USDC, and track prints.
+    app.all('/api/mcp', wire(createMcpHandler({ store, now, fetchImpl, mailer: authMailer })));
 
     // Public liveness (parity with the Vercel /api/health function) + OpenAPI
     // index, so the landing page status badge and spec links work self-hosted.
