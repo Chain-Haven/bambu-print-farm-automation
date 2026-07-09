@@ -45,6 +45,40 @@ swapped since, re-run `proof_test.js` before concluding anything.
 
 Full write-up is in `DIAGNOSIS.md`.
 
+## Changes already made (July 2026 session — MCP v2: agent-native commerce + org routing fix)
+
+1. **CRITICAL routing fix**: `ensureStorefrontIdentity` now provisions the
+ walk-in merchant **inside the org that owns the farm nodes** (routing +
+ redispatch are org-scoped; the old separate "Public Storefront" org meant
+ production storefront/agent jobs could NEVER dispatch). Self-heals stored
+ identities created before nodes existed (re-provisions merchant in the node
+ org, keeps quote_secret).
+2. **MCP v2 (`mcpServer.js`, 11 tools)**: adds `farm_capacity` (live printers/
+ queue/lead time + AMS-loaded colors via buildFilamentStockView),
+ `print_preview` (meshPreview.js: shaded isometric SVG returned as MCP image
+ content), `generate_model` (OpenSCAD → STL via new node command
+ `cloud.model.generate`; executor compiles with `openscad` CLI, 90s timeout,
+ 4MB cap, MOCK emits a cube; nodes advertise `can_generate_models`; poll
+ with generation_id), `print_snapshot` (live camera frame via
+ printer.camera.snapshot command round-trip, poll with snapshot_command_id),
+ `cancel_order` (unpaid), `request_refund` (queued + operator alert;
+ admin settles via POST /api/cloud/storefront {action:'mark_refunded'}).
+ Multi-item orders (items[] ≤10, one shipping fee, combined-digest quote
+ token); per-IP token-bucket rate limiting (429 + Retry-After); merchant
+ tier (Bearer pkx_ key → resolveMerchantAuth → bills merchant account,
+ dispatches immediately, no USDC).
+3. **Hands-free USDC settlement**: every anonymous order gets a UNIQUE
+ payable amount (sub-cent dither, collision-checked vs open orders);
+ storefront sweep stage 0 scans Transfer logs to the wallet
+ (`scanUsdcTransfersToWallet`, eth_getLogs from `storefront_sweep_state.
+ usdc_scanned_block` with confirmation-window rewind) and settles matching
+ orders — the agent just pays. Plus EIP-681 URI, per-material rates
+ (`USDC_PRICE_PER_GRAM_<MAT>`), volume break (`USDC_VOLUME_BREAK_GRAMS`/
+ `_DISCOUNT_PCT`), and x402 (`settleX402Payment` via `X402_FACILITATOR_URL`
+ verify→settle; `print_pay` accepts x402_payment; mock 'mock_x402').
+ dist/windows-node rebuilt (executor + capability changes). Tests:
+ mcpServer.test.js rewritten (17) — 664 total.
+
 ## Changes already made (July 2026 session — MCP server: agents buy prints with USDC)
 
 1. **Remote MCP server at `POST /api/mcp`** (`src/cloud/mcpServer.js`):

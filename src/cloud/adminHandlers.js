@@ -26,7 +26,7 @@ import {
     normalizeReorderConfig,
 } from './filamentReorder.js';
 import { searchAmazonBusinessProducts, testAmazonBusinessConnection } from './amazonBusiness.js';
-import { createStorefrontAdminOverview } from './storefrontHandlers.js';
+import { adminMarkStorefrontRefunded, createStorefrontAdminOverview } from './storefrontHandlers.js';
 
 const FARM_AUTOMATION_POLICY_KEY = 'farm_automation_policy';
 const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
@@ -980,8 +980,34 @@ export function createCloudStorefrontHandler({
             }
         }
 
+        if (req.method === 'POST') {
+            try {
+                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+                const body = parseJsonBody(req.body);
+                if (normalizeOptionalString(body.action) === 'mark_refunded') {
+                    const orderId = normalizeOptionalString(body.order_id);
+                    if (!orderId) return sendJson(res, 400, { ok: false, error: 'order_id_required' });
+                    const order = await adminMarkStorefrontRefunded({
+                        store,
+                        orderId,
+                        txHash: normalizeOptionalString(body.tx_hash),
+                        now,
+                    });
+                    const { access_token: _token, file_record: _file, ...redacted } = order;
+                    return sendJson(res, 200, { ok: true, order: redacted });
+                }
+                return sendJson(res, 400, { ok: false, error: 'unknown_action', message: 'action must be mark_refunded' });
+            } catch (error) {
+                return sendJson(res, error.message === 'order_not_found' ? 404 : 400, {
+                    ok: false,
+                    error: error.message === 'order_not_found' ? 'order_not_found' : 'storefront_action_failed',
+                    message: error.message,
+                });
+            }
+        }
+
         if (req.method && req.method !== 'PATCH') {
-            return methodNotAllowed(res, 'GET, PATCH');
+            return methodNotAllowed(res, 'GET, PATCH, POST');
         }
 
         try {

@@ -142,7 +142,7 @@ export function createLocalCloudApp({
     app.all('/api/public/integrations/woocommerce-plugin', wire(createWooPluginDownloadHandler({ rootDir })));
 
     // Remote MCP server: AI agents quote, order, pay USDC, and track prints.
-    app.all('/api/mcp', wire(createMcpHandler({ store, now, fetchImpl, mailer: authMailer })));
+    app.all('/api/mcp', wire(createMcpHandler({ store, now, fetchImpl, mailer: authMailer, pepper })));
 
     // Public liveness (parity with the Vercel /api/health function) + OpenAPI
     // index, so the landing page status badge and spec links work self-hosted.

@@ -27,6 +27,7 @@ import {
 } from './stripePayments.js';
 import { buyShippingLabel, isShippingConfigured } from './shippingLabels.js';
 import { sendOperatorAlert } from './operatorAlerts.js';
+import { resolveUsdcConfig, scanUsdcTransfersToWallet } from './usdcPayments.js';
 
 export const STOREFRONT_SETTINGS_KEY = 'storefront_settings';
 export const STOREFRONT_STATE_KEY = 'storefront_state';
@@ -147,17 +148,42 @@ export function redactStorefrontSettings(settings) {
     };
 }
 
+// The org that actually owns farm nodes. Routing and re-dispatch are
+// org-scoped, so the walk-in merchant MUST live in the same org as the
+// nodes or storefront/agent jobs would park as waiting_for_capacity forever.
+async function resolveFarmOrgId(store) {
+    try {
+        const overview = await store.getCloudOverview({ orgId: null, limit: 50 });
+        const node = asArray(overview?.nodes)[0];
+        return node?.org_id || node?.organization_id || null;
+    } catch {
+        return null;
+    }
+}
+
 // The storefront prints under a platform-owned merchant so every existing
 // pipeline (routing, slicing, dispatch, telemetry, webhooks) applies as-is.
+// Self-healing: if the farm's node org differs from the stored identity
+// (e.g. the identity was provisioned before any node existed), the walk-in
+// merchant is re-provisioned inside the node org so jobs can actually route.
 export async function ensureStorefrontIdentity(store) {
     const state = await store.getPlatformSetting(STOREFRONT_STATE_KEY, null) || {};
-    if (state.merchant_id && state.org_id && state.quote_secret) return state;
+    const farmOrgId = await resolveFarmOrgId(store);
+
+    if (state.merchant_id && state.org_id && state.quote_secret
+        && (!farmOrgId || state.org_id === farmOrgId)) {
+        return state;
+    }
 
     const next = { ...state };
-    if (!next.org_id || !next.merchant_id) {
-        const organization = await store.createOrganization({ name: 'Public Storefront' });
+    if (!next.merchant_id || (farmOrgId && next.org_id !== farmOrgId)) {
+        let orgId = farmOrgId;
+        if (!orgId) {
+            const organization = await store.createOrganization({ name: 'Public Storefront' });
+            orgId = organization.org_id;
+        }
         const merchant = await store.createMerchant({
-            org_id: organization.org_id,
+            org_id: orgId,
             company_name: 'Walk-in Storefront',
             contact_email: 'storefront@printkinetix.local',
             contact_name: 'Storefront Checkout',
@@ -166,7 +192,7 @@ export async function ensureStorefrontIdentity(store) {
             approved_at: new Date().toISOString(),
             metadata: { signup_source: 'storefront_builtin' },
         });
-        next.org_id = organization.org_id;
+        next.org_id = orgId;
         next.merchant_id = merchant.merchant_id;
     }
     if (!next.quote_secret) next.quote_secret = crypto.randomBytes(32).toString('hex');
@@ -370,38 +396,54 @@ async function emailCustomer({ mailer, order, subject, text }) {
 
 // Dispatch a PAID order into the merchant print pipeline: one print job per
 // ordered piece (capacity parking + heartbeat redispatch handle overflow).
+// Supports both single-file orders (order.file_record) and multi-item agent
+// orders (order.items[] each with its own file_record/material/finish).
 export async function dispatchStorefrontOrder({ store, order, now = () => new Date() }) {
     if (asArray(order.print_job_ids).length > 0) return order; // idempotent (webhook retries)
     const identity = await ensureStorefrontIdentity(store);
     const merchant = { org_id: identity.org_id, merchant_id: identity.merchant_id };
-    const finish = normalizeFinishOptions(order.finish);
-    const upload = {
-        name: `${order.file_name} (storefront ${order.order_id.slice(-6)})`,
-        requirements: {
+
+    const lineItems = asArray(order.items).length > 0
+        ? order.items
+        : [{
+            file_record: order.file_record,
+            file_name: order.file_name,
             material: order.material,
-            estimated_grams: order.quote?.estimates?.grams_per_piece,
-            // The customer's color pick becomes a routing requirement: the job
-            // lands on a printer with that filament loaded when one exists.
-            ...(finish.color_hex ? { colors: [finish.color_hex] } : {}),
-        },
-        options: {
-            source: 'storefront',
-            storefront_order_id: order.order_id,
-            finish,
-            // Honored by the slicer-capable node for source models.
-            slice_settings: finishSliceSettings(finish),
-        },
-    };
+            quantity: order.quantity,
+            finish: order.finish,
+            grams_per_piece: order.quote?.estimates?.grams_per_piece,
+        }];
+
     const jobIds = [];
-    for (let piece = 0; piece < order.quantity; piece += 1) {
-        const { job } = await routeAndDispatchJobFile({
-            store,
-            merchant,
-            upload,
-            file: order.file_record,
-            now,
-        });
-        jobIds.push(job.job_id);
+    for (const item of lineItems) {
+        const finish = normalizeFinishOptions(item.finish);
+        const upload = {
+            name: `${item.file_name} (storefront ${order.order_id.slice(-6)})`,
+            requirements: {
+                material: item.material,
+                estimated_grams: item.grams_per_piece,
+                // The customer's color pick becomes a routing requirement: the
+                // job lands on a printer with that filament loaded when one exists.
+                ...(finish.color_hex ? { colors: [finish.color_hex] } : {}),
+            },
+            options: {
+                source: order.source || 'storefront',
+                storefront_order_id: order.order_id,
+                finish,
+                // Honored by the slicer-capable node for source models.
+                slice_settings: finishSliceSettings(finish),
+            },
+        };
+        for (let piece = 0; piece < Math.max(1, item.quantity); piece += 1) {
+            const { job } = await routeAndDispatchJobFile({
+                store,
+                merchant,
+                upload,
+                file: item.file_record,
+                now,
+            });
+            jobIds.push(job.job_id);
+        }
     }
     return {
         ...order,
@@ -860,6 +902,61 @@ export function createStorefrontCancelHandler({ store, now = () => new Date(), f
     };
 }
 
+// USDC refunds require the operator to SEND money, so they are a two-step
+// human-approved flow: the agent/customer files a request (here), the
+// operator pays from their wallet and records it via the admin action below.
+export async function requestStorefrontRefund({ store, orderId, token, reason = null, now = () => new Date(), fetchImpl = fetch, mailer = null }) {
+    const orders = await loadOrders(store);
+    const order = orders.find((entry) => entry.order_id === orderId);
+    const tokenMatches = order && crypto.timingSafeEqual(
+        Buffer.from(String(order.access_token || '').padEnd(64, '0')),
+        Buffer.from(String(token || '').padEnd(64, '0')),
+    );
+    if (!order || !tokenMatches) throw new Error('order_not_found');
+    if (!order.paid_at) throw new Error('order_not_paid');
+    if (order.payment?.refund_request) {
+        return { order_id: orderId, refund_request: order.payment.refund_request, note: 'A refund request is already on file.' };
+    }
+    const request = {
+        status: 'requested',
+        reason: typeof reason === 'string' ? reason.slice(0, 300) : null,
+        requested_at: now().toISOString(),
+    };
+    await updateOrder(store, orderId, (entry) => ({
+        ...entry,
+        payment: { ...(entry.payment || {}), refund_request: request },
+    }));
+    await sendOperatorAlert({
+        store,
+        fetchImpl,
+        mailer,
+        event: {
+            kind: 'storefront.refund_requested',
+            severity: 'warning',
+            title: `Refund requested: ${orderId.slice(-8)} (${order.payment?.amount_usdc || ''} ${order.quote?.currency || ''})`.trim(),
+            detail: `Reason: ${request.reason || 'none given'}. Approve by sending the funds back, then record it in the admin storefront panel (mark_refunded).`,
+        },
+    });
+    return { order_id: orderId, refund_request: request };
+}
+
+// Operator confirms the refund was sent (Stripe already-refunded orders skip
+// this; USDC ones record the outbound transaction hash).
+export async function adminMarkStorefrontRefunded({ store, orderId, txHash = null, now = () => new Date() }) {
+    const updated = await updateOrder(store, orderId, (entry) => ({
+        ...entry,
+        status: 'refunded',
+        payment: {
+            ...(entry.payment || {}),
+            status: 'refunded',
+            refund_request: { ...(entry.payment?.refund_request || {}), status: 'refunded', refunded_at: now().toISOString() },
+            ...(txHash ? { refund_tx_hash: txHash } : {}),
+        },
+    }));
+    if (!updated) throw new Error('order_not_found');
+    return updated;
+}
+
 // Stripe webhook: the delivered payload is only a hint — the event is
 // re-fetched from Stripe by id with our secret key before any state changes
 // (see stripePayments.js for why). Mock sessions settle at checkout, so a
@@ -955,8 +1052,10 @@ async function shipCompletedOrder({ store, settings, order, now, fetchImpl, mail
         return parked;
     }
 
-    const weightGrams = (Number(order.quote?.estimates?.grams_per_piece) || 100) * order.quantity
-        + settings.shipping.parcel.base_weight_grams;
+    const printedGrams = asArray(order.items).length > 0
+        ? order.items.reduce((sum, item) => sum + (Number(item.grams_per_piece) || 100) * Math.max(1, item.quantity || 1), 0)
+        : (Number(order.quote?.estimates?.grams_per_piece) || 100) * order.quantity;
+    const weightGrams = printedGrams + settings.shipping.parcel.base_weight_grams;
     const label = await buyShippingLabel({
         settings,
         toAddress: order.shipping_address,
@@ -1026,6 +1125,48 @@ export async function sweepStorefrontOrders({ store, now = () => new Date(), fet
     let dispatched = 0;
     let expired = 0;
     let shipped = 0;
+
+    // 0) Hands-free USDC settlement: scan the chain for transfers to our
+    //    wallet and match pending agent orders by their UNIQUE amount — the
+    //    agent just pays; no tx-hash submission required.
+    const usdcConfig = resolveUsdcConfig(process.env);
+    const pendingUsdc = orders.filter((order) => order.status === 'pending_payment'
+        && order.payment?.provider === 'usdc' && order.payment?.amount_base_units);
+    if (usdcConfig.enabled && !usdcConfig.mock && pendingUsdc.length > 0) {
+        try {
+            const scanState = await store.getPlatformSetting(STOREFRONT_SWEEP_STATE_KEY, null) || {};
+            const scan = await scanUsdcTransfersToWallet({
+                config: usdcConfig,
+                fromBlock: scanState.usdc_scanned_block || null,
+                fetchImpl,
+            });
+            const byAmount = new Map(pendingUsdc.map((order) => [order.payment.amount_base_units, order]));
+            const usedTxs = new Set(orders.map((order) => order.payment?.tx_hash).filter(Boolean));
+            for (const transfer of scan.transfers) {
+                const order = byAmount.get(transfer.amount_base_units);
+                if (!order || usedTxs.has(transfer.tx_hash)) continue;
+                if (transfer.confirmations < usdcConfig.min_confirmations) continue;
+                byAmount.delete(transfer.amount_base_units);
+                usedTxs.add(transfer.tx_hash);
+                const withTx = (await loadOrders(store)).map((entry) => (entry.order_id === order.order_id
+                    ? { ...entry, payment: { ...entry.payment, tx_hash: transfer.tx_hash, payer: transfer.from } }
+                    : entry));
+                await saveOrders(store, withTx);
+                await markStorefrontOrderPaid({ store, orderId: order.order_id, paymentStatus: 'paid_usdc', now, mailer, fetchImpl });
+                settled += 1;
+            }
+            // Re-scan a confirmation window behind head so young transfers get
+            // another look once they confirm.
+            const nextFrom = scan.head_block
+                ? String(BigInt(scan.head_block) - BigInt(usdcConfig.min_confirmations + 5))
+                : null;
+            await store.upsertPlatformSetting(STOREFRONT_SWEEP_STATE_KEY, {
+                ...scanState,
+                last_swept_at: now().toISOString(),
+                ...(nextFrom ? { usdc_scanned_block: nextFrom } : {}),
+            });
+        } catch { /* RPC hiccups: next sweep rescans */ }
+    }
 
     // 1) Paid but never dispatched (crash between payment and job creation).
     for (const order of orders) {
