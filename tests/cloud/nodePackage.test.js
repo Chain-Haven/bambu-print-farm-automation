@@ -287,10 +287,13 @@ describe('Portable ("no install") node package', () => {
         expect(sh).toContain('get-node.sh');            // auto-download portable Node
     });
 
-    it('portable Node download targets the Raspberry Pi 5 architecture', () => {
+    it('portable Node download targets macOS, Raspberry Pi 5, and Linux x64', () => {
         const sh = createGetNodeSh();
+        expect(sh).toContain('arm64)  NODE_ARCH="darwin-arm64"');       // Apple Silicon
+        expect(sh).toContain('x86_64) NODE_ARCH="darwin-x64"');         // Intel Mac
         expect(sh).toContain('aarch64|arm64) NODE_ARCH="linux-arm64"'); // Pi 5
         expect(sh).toContain('x86_64|amd64)  NODE_ARCH="linux-x64"');
+        expect(sh).toContain('tar.gz');  // macOS bsdtar-safe archive
         expect(sh).not.toContain('\r');
     });
 
