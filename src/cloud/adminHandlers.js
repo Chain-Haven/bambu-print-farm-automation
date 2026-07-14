@@ -123,11 +123,24 @@ function normalizeOrganization(body) {
     };
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// org_id is a Postgres uuid column; a free-text value (e.g. a node name typed
+// into the Org ID field) otherwise reaches Supabase and comes back as a raw
+// 22P02 "invalid input syntax for type uuid" error.
+function normalizeUuid(value, name) {
+    const normalized = normalizeRequiredString(value, name);
+    if (!UUID_PATTERN.test(normalized)) {
+        throw new Error(`${name} must be a UUID (got "${normalized}"). Create an organization first — its org_id is returned by POST /api/cloud/orgs, and the Quickstart form fills it in automatically.`);
+    }
+    return normalized;
+}
+
 function normalizeNodeProvision(body) {
     const source = isPlainObject(body) ? body : {};
 
     return {
-        org_id: normalizeRequiredString(source.org_id, 'org_id'),
+        org_id: normalizeUuid(source.org_id, 'org_id'),
         name: normalizeRequiredString(source.name, 'name'),
         capabilities: isPlainObject(source.capabilities) ? source.capabilities : {},
         token: normalizeOptionalString(source.local_node_token),
