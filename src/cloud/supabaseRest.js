@@ -1162,7 +1162,11 @@ export function createSupabaseRestClient({
                 {
                     method: 'POST',
                     headers: { Prefer: 'return=representation' },
-                    body: decision,
+                    body: {
+                        ...decision,
+                        score: decision.score ?? {},
+                        rejected_candidates: decision.rejected_candidates ?? [],
+                    },
                 },
             );
             return firstRow(rows);

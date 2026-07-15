@@ -244,6 +244,38 @@ describe('merchant Supabase store methods', () => {
         });
     });
 
+    it('normalizes empty no-capacity routing metadata before insert', async () => {
+        const fetchImpl = vi.fn().mockResolvedValueOnce(jsonResponse([{
+            decision_id: 'decision-1',
+            status: 'no_capacity',
+            score: {},
+            rejected_candidates: [],
+        }], 201));
+        const client = createSupabaseRestClient({
+            url: 'https://example.supabase.co',
+            serviceKey: 'service-key',
+            fetchImpl,
+        });
+
+        await client.createRoutingDecision({
+            org_id: 'org-1',
+            merchant_id: 'merchant-1',
+            job_id: 'job-1',
+            selected_node_id: null,
+            selected_printer_id: null,
+            status: 'no_capacity',
+            strategy: 'fastest_fulfillment',
+            score: null,
+            rejected_candidates: null,
+        });
+
+        expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toMatchObject({
+            status: 'no_capacity',
+            score: {},
+            rejected_candidates: [],
+        });
+    });
+
     it('uploads private print artifacts and creates signed download URLs', async () => {
         const fetchImpl = vi.fn()
             .mockResolvedValueOnce(jsonResponse({ Key: 'print-artifacts/org-1/merchant-1/file.gcode.3mf' }, 200))
