@@ -190,13 +190,12 @@ export function createNodePackageReadme({ nodeName = 'Windows NUC', cloudApiUrl 
         '4. Double-click Start Cloud Node.bat.',
         '5. Open http://localhost:3000 on this computer to configure LAN printers.',
         '6. Enable LAN/Developer mode on each Bambu printer and add its IP, serial, and access code.',
-        '7. Return to /cloud, open Local Printer Sync, and queue Discover LAN Printers.',
-        '8. Queue Sync Printer Inventory after printers are saved locally so the cloud command result includes printer, AMS, and filament snapshots.',
-        '9. Verify the node heartbeat is online and check network interfaces if printers live on multiple VLANs or NICs.',
+        '7. Syncing to the cloud is automatic: every heartbeat mirrors registered printers (state + AMS filament) and reports LAN-discovered printers, which appear under "Found on the network" on the /cloud fleet board for one-click adoption.',
+        '8. Verify the node heartbeat is online and check network interfaces if printers live on multiple VLANs or NICs.',
         '',
-        'Cloud sync commands',
-        '-------------------',
-        '- Discover LAN Printers queues cloud.printers.discover. The node returns Bambu SSDP discoveries visible from this Windows machine.',
+        'Cloud sync commands (optional, for on-demand snapshots)',
+        '--------------------------------------------------------',
+        '- Discover LAN Printers queues cloud.printers.discover. The node returns Bambu SSDP discoveries visible from this machine immediately, without waiting for the next heartbeat.',
         '- Sync Printer Inventory queues cloud.printers.sync. The node returns registered local printers, live worker status, AMS tray counts, and saved filament snapshots when available.',
         '',
         'Merchant print flow',
@@ -361,6 +360,30 @@ export function createGetNodePs1() {
     ].join('\r\n');
 }
 
+// macOS double-click launcher. Finder runs .command files in Terminal, so this
+// is the Mac equivalent of "Start Farm Node.bat": it self-heals the exec bits
+// (some unzip tools drop them), clears the quarantine flag best-effort, and
+// hands off to start-farm-node.sh. Keeps the window open on failure so the
+// error is readable.
+export function createStartFarmNodeCommand() {
+    return [
+        '#!/usr/bin/env bash',
+        'cd "$(dirname "$0")"',
+        '',
+        '# Extraction tools sometimes drop the executable bit; restore it.',
+        'chmod +x ./start-farm-node.sh ./get-node.sh ./install-service.sh 2>/dev/null || true',
+        '# Best-effort: clear the macOS quarantine flag so helper scripts run without prompts.',
+        'xattr -dr com.apple.quarantine . 2>/dev/null || true',
+        '',
+        'bash ./start-farm-node.sh || {',
+        '  echo ""',
+        '  echo "The farm node exited with an error (see above)."',
+        '  read -r -p "Press Enter to close this window..."',
+        '}',
+        '',
+    ].join('\n');
+}
+
 // macOS / Linux / Raspberry Pi launcher. Same portable farm-node.cjs, run under
 // Node on ARM64/x64. Uses LF line endings so bash accepts it.
 export function createStartFarmNodeSh() {
@@ -498,7 +521,10 @@ export function createPortableReadme({ nodeName = 'Windows NUC', cloudApiUrl } =
         '---------------',
         '1. Unzip and keep every file in this folder together.',
         '2. Confirm .env is present (it carries CLOUD_API_URL and LOCAL_NODE_TOKEN).',
-        '3. Open Terminal in this folder and run:  bash start-farm-node.sh',
+        '3. Double-click "Start Farm Node.command".',
+        '   - First time only: if macOS blocks it, right-click the file and choose',
+        '     Open (Gatekeeper treats downloaded scripts as unverified).',
+        '   - Or from Terminal:  bash start-farm-node.sh',
         '   - It uses a bundled Node, Node already installed, or downloads a portable',
         '     Node matching your Mac (Apple Silicon or Intel) automatically.',
         '     No Homebrew, no npm, no keys to type.',
@@ -514,9 +540,14 @@ export function createPortableReadme({ nodeName = 'Windows NUC', cloudApiUrl } =
         '',
         'Then, on any platform',
         '---------------------',
-        '- Open http://localhost:3000 on that machine to add LAN printers.',
-        '- Enable LAN/Developer mode on each Bambu printer and add its IP, serial, and access code.',
-        '- Return to /cloud, open Local Printer Sync, and queue Discover LAN Printers, then Sync Printer Inventory.',
+        '- Syncing is automatic: the node heartbeats to the cloud every ~30s, mirrors',
+        '  every registered printer (state + AMS filament), and reports printers it',
+        '  hears on the LAN — they appear under "Found on the network" on the /cloud',
+        '  fleet board, where one click adopts them (you supply the access code).',
+        '- Enable LAN/Developer mode on each Bambu printer so it can be discovered',
+        '  and controlled.',
+        '- Prefer local control? Open http://localhost:3000 on this machine to add',
+        '  printers by IP directly.',
         '',
         'Security model',
         '--------------',
@@ -531,8 +562,9 @@ export function createPortableReadme({ nodeName = 'Windows NUC', cloudApiUrl } =
         '  public/              local dashboard served at http://localhost:3000',
         '  migrations/          applied to the local SQLite database on first run',
         '  sql-wasm.wasm        SQLite engine (WebAssembly)',
-        '  Start Farm Node.bat  Windows double-click launcher',
-        '  start-farm-node.sh   macOS / Raspberry Pi / Linux launcher',
+        '  Start Farm Node.bat      Windows double-click launcher',
+        '  Start Farm Node.command  macOS double-click launcher',
+        '  start-farm-node.sh       macOS / Raspberry Pi / Linux launcher (terminal)',
         '  install-service.sh   optional systemd auto-start on Pi / Linux',
         '  .env                 your cloud credentials (do not share)',
         '',
@@ -577,13 +609,19 @@ export function buildPortableNodePackage({
         }
     }
 
-    // 4. Launchers (Windows + Raspberry Pi / Linux), portable-Node helpers,
-    //    README, per-user env, manifest.
+    // 4. Launchers (Windows + macOS + Raspberry Pi / Linux), portable-Node
+    //    helpers, README, per-user env, manifest. Unix scripts carry 0755 in
+    //    the zip so macOS Archive Utility / unzip extract them executable.
+    const addUnixScript = (entryName, content) => {
+        zip.addFile(entryName, Buffer.from(content, 'utf-8'), '', 0o755);
+        files.push(entryName);
+    };
     addFile('Start Farm Node.bat', Buffer.from(createFarmNodeLauncherBat(), 'utf-8'));
     addFile('get-node.ps1', Buffer.from(createGetNodePs1(), 'utf-8'));
-    addFile('start-farm-node.sh', Buffer.from(createStartFarmNodeSh(), 'utf-8'));
-    addFile('get-node.sh', Buffer.from(createGetNodeSh(), 'utf-8'));
-    addFile('install-service.sh', Buffer.from(createInstallServiceSh(), 'utf-8'));
+    addUnixScript('Start Farm Node.command', createStartFarmNodeCommand());
+    addUnixScript('start-farm-node.sh', createStartFarmNodeSh());
+    addUnixScript('get-node.sh', createGetNodeSh());
+    addUnixScript('install-service.sh', createInstallServiceSh());
     addFile('README-FIRST.txt', Buffer.from(createPortableReadme({
         nodeName,
         cloudApiUrl: normalizedCloudApiUrl,

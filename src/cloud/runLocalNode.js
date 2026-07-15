@@ -4,7 +4,7 @@ import { createLocalNodeAgent } from './localNodeAgent.js';
 import { createLocalNodeClient } from './localNodeClient.js';
 import { createLocalResultOutbox } from './localResultOutbox.js';
 import { collectNetworkInterfaces } from './localNetwork.js';
-import { collectLocalPrinterRecords } from './localPrinterSnapshot.js';
+import { collectLocalPrinterRecords, collectDiscoveredPrinterRecords } from './localPrinterSnapshot.js';
 import systemEvents from '../utils/SystemEvents.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -54,12 +54,19 @@ async function sendHeartbeat(client, status = 'online', resultOutbox = null) {
         log.warn(`Printer snapshot for heartbeat failed: ${error.message}`);
     }
 
+    // LAN discovery rides every heartbeat too (passive SSDP listener), so new
+    // printers show up on the cloud fleet board automatically — no manual
+    // "Discover LAN Printers" command needed. Adoption stays operator-driven
+    // because only the operator knows each printer's access code.
+    const discoveredPrinters = await collectDiscoveredPrinterRecords();
+
     return client.sendHeartbeat({
         status,
         agent_version: process.env.npm_package_version || '0.1.0',
         host_info: {
             ...getHostInfo(),
             network_interfaces: networkInterfaces,
+            discovered_printers: discoveredPrinters,
         },
         capabilities: {
             local_controller: true,

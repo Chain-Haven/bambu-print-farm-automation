@@ -12,6 +12,7 @@ import {
     createGetNodeSh,
     createNodeEnv,
     createNodePackageReadme,
+    createStartFarmNodeCommand,
     createStartFarmNodeSh,
     hasPortableBundle,
 } from '../../src/cloud/nodePackage.js';
@@ -251,7 +252,8 @@ describe('Portable ("no install") node package', () => {
         expect(entries).toContain('public/index.html');
         expect(entries).toContain('Start Farm Node.bat');
         expect(entries).toContain('get-node.ps1');
-        // Cross-platform: Raspberry Pi 5 / Linux launchers ship in the same package.
+        // Cross-platform: macOS + Raspberry Pi 5 / Linux launchers ship in the same package.
+        expect(entries).toContain('Start Farm Node.command');
         expect(entries).toContain('start-farm-node.sh');
         expect(entries).toContain('get-node.sh');
         expect(entries).toContain('install-service.sh');
@@ -265,6 +267,22 @@ describe('Portable ("no install") node package', () => {
         const zip = new AdmZip(buffer);
         expect(zip.readAsText('.env')).toContain('LOCAL_NODE_TOKEN=pkx_node_secret');
         expect(zip.readAsText('.env')).not.toContain('SUPABASE_SERVICE_ROLE_KEY');
+
+        // Unix launchers carry the executable bit in the zip so macOS Archive
+        // Utility / unzip extract them runnable (double-click works).
+        for (const script of ['Start Farm Node.command', 'start-farm-node.sh', 'get-node.sh', 'install-service.sh']) {
+            const entry = zip.getEntry(script);
+            expect((entry.attr >>> 16) & 0o111, `${script} should be executable`).toBeTruthy();
+        }
+    });
+
+    it('macOS double-click launcher hands off to the shared bash launcher', () => {
+        const command = createStartFarmNodeCommand();
+        expect(command.startsWith('#!/usr/bin/env bash')).toBe(true);
+        expect(command).not.toContain('\r');            // LF only
+        expect(command).toContain('start-farm-node.sh'); // shared entry point
+        expect(command).toContain('chmod +x');           // self-heal exec bits
+        expect(command).toContain('com.apple.quarantine');
     });
 
     it('launcher never runs npm install and finds a Node runtime three ways', () => {

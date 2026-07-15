@@ -334,11 +334,38 @@ export function createFleetView(deps) {
       .sort((a, b) => String(b.finished_at || '').localeCompare(String(a.finished_at || '')))[0] || null;
   }
 
+  // Discovered printers arrive two ways: automatically in every node heartbeat
+  // (host_info.discovered_printers — no operator action needed) and, as a
+  // fallback for older nodes, from manually queued cloud.printers.discover
+  // command results. Merge both, deduped by serial/ip, each entry keeping the
+  // node that saw it so adoption goes through the right host.
+  function collectDiscovered() {
+    const seen = new Map();
+    const add = (printer, nodeId) => {
+      if (!printer) return;
+      const key = printer.serial || printer.ip;
+      if (!key || seen.has(key)) return;
+      seen.set(key, { ...printer, node_id: nodeId || null });
+    };
+
+    for (const node of (getState().overview.nodes || [])) {
+      const found = node?.host_info?.discovered_printers;
+      if (!Array.isArray(found)) continue;
+      for (const printer of found) add(printer, node.node_id);
+    }
+
+    const command = latestDiscovery();
+    if (command && Array.isArray(command.result?.printers)) {
+      for (const printer of command.result.printers) add(printer, command.node_id);
+    }
+
+    return Array.from(seen.values());
+  }
+
   function renderDiscovered() {
     const { discovered, discoveredList } = els();
     if (!discovered || !discoveredList) return;
-    const command = latestDiscovery();
-    const found = Array.isArray(command?.result?.printers) ? command.result.printers : [];
+    const found = collectDiscovered();
     const knownIps = new Set((getState().overview.printers || [])
       .map((printer) => printer.capabilities?.ip_hostname || printer.status_snapshot?.ip_hostname)
       .filter(Boolean));
@@ -358,7 +385,6 @@ export function createFleetView(deps) {
         <em>Click to adopt</em>
       </button>
     `).join('');
-    discoveredList.dataset.commandNode = command.node_id || '';
     discoveredList._adoptable = adoptable;
   }
 
@@ -594,7 +620,7 @@ export function createFleetView(deps) {
       if (!chip) return;
       const adoptable = e.discoveredList._adoptable || [];
       const found = adoptable[Number.parseInt(chip.dataset.discoveredIndex, 10)];
-      if (found) openAdoptModal(found, e.discoveredList.dataset.commandNode);
+      if (found) openAdoptModal(found, found.node_id);
     });
 
     e.scan?.addEventListener('click', () => handleScan().catch((error) => showToast(error.message)));

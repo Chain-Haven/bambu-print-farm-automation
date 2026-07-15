@@ -143,11 +143,12 @@
         <li>Start the node. There is <strong>no <code>npm install</code> and no manual Node install</strong> — every dependency is compiled into <code>farm-node.cjs</code>, and the launcher uses a bundled Node runtime, a Node already on the machine, or downloads a portable Node automatically the first time.
           <ul>
             <li><strong>Windows:</strong> double-click <code>Start Farm Node.bat</code>.</li>
+            <li><strong>Mac:</strong> double-click <code>Start Farm Node.command</code> (first time: right-click → Open to pass Gatekeeper).</li>
             <li><strong>Raspberry Pi 5 / Linux:</strong> run <code>bash start-farm-node.sh</code>. The same package runs on arm64 — a Pi 5 makes a great low-power farm controller. Optionally run <code>bash install-service.sh</code> to auto-start on boot and restart on failure (systemd).</li>
           </ul>
         </li>
-        <li>Open <code>http://localhost:3000</code> on that Windows computer and add each Bambu printer with its LAN IP, serial, and access code.</li>
-        <li>Return to <code>/cloud</code>, verify the node heartbeat is online, then queue <strong>Discover LAN Printers</strong> and <strong>Sync Printer Inventory</strong>.</li>
+        <li>Syncing is automatic: the node heartbeats every ~30s, mirrors registered printers (state + AMS filament) to the cloud, and reports printers it hears on the LAN — they appear under <strong>Found on the network</strong> on the <code>/cloud</code> fleet board for one-click adoption (you supply the access code).</li>
+        <li>Prefer manual setup? Open <code>http://localhost:3000</code> on the host machine and add each Bambu printer with its LAN IP, serial, and access code.</li>
       </ol>
     </section>
 
