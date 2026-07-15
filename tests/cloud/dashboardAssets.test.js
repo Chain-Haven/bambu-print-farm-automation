@@ -168,13 +168,14 @@ describe('cloud dashboard assets', () => {
         expect(js).toContain('/api/cloud/node-package');
         expect(js).toContain('/api/cloud/commands');
 
-        // Two Windows download buttons: a no-install portable .zip (works today)
-        // and a single .exe (hosted via FARM_NODE_EXE_URL / built on Windows).
+        // ONE download button: the portable .zip runs on Windows, macOS, and
+        // Linux (per-platform launchers inside), so there is no separate
+        // Windows .exe button anymore.
         expect(html).toContain('id="download-node-portable"');
-        expect(html).toContain('id="download-node-exe"');
+        expect(html).not.toContain('id="download-node-exe"');
+        expect(html).toContain('Windows / Mac / Linux');
         expect(js).toContain("format: 'portable'");
-        expect(js).toContain("format: 'exe'");
-        expect(js).toContain('handleDownloadExe');
+        expect(js).not.toContain('handleDownloadExe');
     });
 
     it('ships the tabbed console: fleet/merchants/nodes/automation with setup at the bottom', () => {
@@ -331,6 +332,10 @@ describe('cloud dashboard assets', () => {
             'live_remaining',
             'remaining_minutes',
             'job-preview',
+            // Discovered printers arrive automatically in node heartbeats —
+            // the board must read host_info.discovered_printers, not only
+            // manually queued discover-command results.
+            'discovered_printers',
         ]) {
             expect(fleet).toContain(marker);
         }

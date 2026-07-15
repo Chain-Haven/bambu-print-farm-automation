@@ -207,7 +207,6 @@ const elements = {
   nodeTokenOutput: $('#node-token-output'),
   downloadButtons: $('#download-buttons'),
   downloadNodePortable: $('#download-node-portable'),
-  downloadNodeExe: $('#download-node-exe'),
   printerSyncForm: $('#printer-sync-form'),
   syncNode: $('#sync-node'),
   syncScanCidrs: $('#sync-scan-cidrs'),
@@ -1844,70 +1843,7 @@ async function handleDownloadPortable() {
       node_name: state.provisionedNode.name,
     },
   });
-  showToast('Portable app downloaded — extract and double-click "Start Farm Node.bat" (no install, auto-fetches Node)');
-}
-
-// The Windows .exe is a single prebuilt binary hosted externally (too large for
-// the serverless bundle). The handler returns either a redirect URL (open it) or
-// a clear "not built yet" message with build instructions.
-async function handleDownloadExe() {
-  if (!state.provisionedNode) {
-    throw new Error('Provision a node first');
-  }
-
-  const token = getAdminToken();
-  if (!token) throw new Error('Admin token is required');
-
-  const response = await fetch('/api/cloud/node-package', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      format: 'exe',
-      cloud_api_url: state.provisionedNode.cloudApiUrl,
-      local_node_token: state.provisionedNode.token,
-      node_name: state.provisionedNode.name,
-    }),
-  });
-
-  const contentType = response.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    const payload = await response.json().catch(() => ({}));
-    if (payload.download_url) {
-      window.open(payload.download_url, '_blank');
-      showToast('Opening the Windows .exe download…');
-      return;
-    }
-    if (payload.error === 'exe_not_built') {
-      showToast('Windows .exe not built yet — see the message below.');
-      if (elements.quickstartOutput) {
-        elements.quickstartOutput.hidden = false;
-        elements.quickstartOutput.textContent = [
-          'Windows .exe not built yet.',
-          '',
-          payload.message || 'Build it on Windows and host it, then set FARM_NODE_EXE_URL.',
-          '',
-          'Build command:  ' + (payload.build_command || 'npm run build:node:exe'),
-          'Or run the "Build Windows .exe" GitHub Action (workflow_dispatch) and attach the artifact to a Release.',
-          '',
-          'The Portable .zip works now — no install required.',
-        ].join('\n');
-      }
-      return;
-    }
-    throw new Error(payload.message || payload.error || `Download failed with ${response.status}`);
-  }
-
-  if (!response.ok) {
-    throw new Error(`Download failed with ${response.status}`);
-  }
-
-  // Self-hosted case: the server streamed a locally-built farm-node.exe.
-  const blob = await response.blob();
-  triggerBlobDownload(blob, 'farm-node.exe');
-  showToast('Windows .exe downloaded');
+  showToast('App downloaded — unzip, then double-click "Start Farm Node (Mac).command" or "Start Farm Node (Windows).bat". On Mac it installs itself to start at every login; printers sync to the cloud automatically.');
 }
 
 async function handleNodeQuickstart(event) {
@@ -1926,7 +1862,7 @@ async function handleNodeQuickstart(event) {
 
   const result = await provisionNode({
     orgId: organization.org_id,
-    name: elements.quickstartNodeName.value.trim() || 'Windows Farm Manager 01',
+    name: elements.quickstartNodeName.value.trim() || 'Farm Manager 01',
     capabilities,
   });
 
@@ -1951,7 +1887,7 @@ async function handleNodeQuickstart(event) {
     await handleDownloadPortable();
   }
 
-  showToast('Windows manager ready');
+  showToast('Farm node ready');
   await refreshOverview();
 }
 
@@ -2314,12 +2250,6 @@ function bindEvents() {
   });
   elements.downloadNodePortable.addEventListener('click', () => {
     handleDownloadPortable().catch((error) => {
-      setApiState('Error', 'error');
-      showToast(error.message);
-    });
-  });
-  elements.downloadNodeExe.addEventListener('click', () => {
-    handleDownloadExe().catch((error) => {
       setApiState('Error', 'error');
       showToast(error.message);
     });

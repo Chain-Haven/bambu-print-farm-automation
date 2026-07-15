@@ -258,7 +258,7 @@ function buildReadiness({ overview, automationPlan, now }) {
             'Windows edge agent online',
             nodes.some((node) => isNodeFreshlyOnline(node, nowMs)),
             true,
-            'Provision a node in Farm Nodes, download the Windows package, and double-click "Start Farm Node.bat" (no install needed).',
+            'Provision a node in Farm Nodes, download the app, and double-click "Start Farm Node (Windows).bat" or "Start Farm Node (Mac).command" (no install needed).',
         ),
         readinessGate(
             'printer_inventory',

@@ -25,7 +25,9 @@ import {
     createGetNodeSh,
     createInstallServiceSh,
     createPortableReadme,
+    createStartFarmNodeCommand,
     createStartFarmNodeSh,
+    createUninstallFarmNodeCommand,
 } from '../src/cloud/nodePackage.js';
 
 const require = createRequire(import.meta.url);
@@ -102,10 +104,12 @@ function copyAssets() {
 
 function writeLauncher() {
     // Reuse the exact launchers the download handler ships, so local and served
-    // bundles stay identical. Windows + Raspberry Pi / Linux.
-    fs.writeFileSync(path.join(OUT_DIR, 'Start Farm Node.bat'), createFarmNodeLauncherBat());
+    // bundles stay identical. Windows + macOS + Raspberry Pi / Linux.
+    fs.writeFileSync(path.join(OUT_DIR, 'Start Farm Node (Windows).bat'), createFarmNodeLauncherBat());
     fs.writeFileSync(path.join(OUT_DIR, 'get-node.ps1'), createGetNodePs1());
     const sh = [
+        ['Start Farm Node (Mac).command', createStartFarmNodeCommand()],
+        ['Uninstall Farm Node.command', createUninstallFarmNodeCommand()],
         ['start-farm-node.sh', createStartFarmNodeSh()],
         ['get-node.sh', createGetNodeSh()],
         ['install-service.sh', createInstallServiceSh()],
@@ -113,9 +117,9 @@ function writeLauncher() {
     for (const [name, content] of sh) {
         const target = path.join(OUT_DIR, name);
         fs.writeFileSync(target, content);
-        fs.chmodSync(target, 0o755); // executable for local Pi/Linux testing
+        fs.chmodSync(target, 0o755); // executable for local Mac/Pi/Linux testing
     }
-    log('wrote Windows (.bat/.ps1) + Pi/Linux (.sh) launchers');
+    log('wrote Windows (.bat/.ps1) + macOS (.command) + Pi/Linux (.sh) launchers');
 }
 
 function writeReadme() {

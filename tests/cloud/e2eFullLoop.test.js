@@ -156,7 +156,8 @@ describe('full farm loop end to end (local cloud, real handlers over HTTP)', () 
         // Portable bundle: no npm install, no source tree.
         expect(entries).toContain('farm-node.cjs');
         expect(entries).toContain('sql-wasm.wasm');
-        expect(entries).toContain('Start Farm Node.bat');
+        expect(entries).toContain('Start Farm Node (Windows).bat');
+        expect(entries).toContain('Start Farm Node (Mac).command');
         expect(entries).toContain('get-node.ps1');
         expect(entries).toContain('start-farm-node.sh');
         expect(entries).toContain('.env');
@@ -167,7 +168,7 @@ describe('full farm loop end to end (local cloud, real handlers over HTTP)', () 
         expect(env).toContain(`CLOUD_API_URL=${cloud.baseUrl}`);
         expect(env).toContain(`LOCAL_NODE_TOKEN=${localNodeToken}`);
 
-        const launcher = zip.readAsText('Start Farm Node.bat');
+        const launcher = zip.readAsText('Start Farm Node (Windows).bat');
         expect(launcher).toContain('farm-node.cjs');
         expect(launcher).toContain('get-node.ps1'); // auto-fetches portable Node if missing
     });

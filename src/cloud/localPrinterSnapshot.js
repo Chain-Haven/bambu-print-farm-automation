@@ -196,4 +196,43 @@ export async function collectLocalPrinterRecords(options = {}) {
     });
 }
 
-export default { buildSyncedPrinterRecord, collectLocalPrinterRecords, getBuildVolumeForModel };
+/**
+ * Snapshot of LAN-discovered (SSDP) printers for the heartbeat, so the cloud
+ * fleet board can show "Found on the network" without anyone queueing a
+ * cloud.printers.discover command. Passive listening only — the SSDP socket
+ * stays open for the life of the node, and each heartbeat just reads the
+ * current table. Best-effort: returns [] when discovery can't run (no UDP,
+ * MOCK printers only, etc.).
+ */
+export async function collectDiscoveredPrinterRecords({ limit = 24 } = {}) {
+    try {
+        const [{ RuntimeSupervisor }, { getDiscoveryInstance }] = await Promise.all([
+            import('../runtime/RuntimeSupervisor.js'),
+            import('../services/BambuDiscovery.js'),
+        ]);
+        const supervisor = RuntimeSupervisor.getInstance();
+        const discovery = supervisor?.discovery || getDiscoveryInstance();
+        supervisor?._syncDiscoverySerials?.();
+        discovery.start?.();
+
+        const found = discovery.getDiscovered?.() || [];
+        return found
+            .filter((printer) => printer && (printer.ip || printer.source_ip))
+            .slice(0, limit)
+            .map((printer) => ({
+                serial: printer.serial || null,
+                name: printer.name || null,
+                model: printer.model || null,
+                model_code: printer.model_code || null,
+                ip: printer.ip || printer.source_ip,
+                connection_mode: printer.connection_mode || null,
+                signal: Number.isFinite(printer.signal) ? printer.signal : null,
+                already_added: printer.already_added === true,
+                last_seen: Number.isFinite(printer.last_seen) ? new Date(printer.last_seen).toISOString() : null,
+            }));
+    } catch {
+        return [];
+    }
+}
+
+export default { buildSyncedPrinterRecord, collectLocalPrinterRecords, collectDiscoveredPrinterRecords, getBuildVolumeForModel };
