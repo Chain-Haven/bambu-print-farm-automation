@@ -340,10 +340,12 @@ describe('cloud organization handler', () => {
 });
 
 describe('cloud node provisioning handler', () => {
+    const ORG_UUID = '0b6f5f6e-9c1d-4f5e-8a2b-3c4d5e6f7a8b';
+
     it('provisions a node with a hashed token and returns the raw token once', async () => {
         const node = {
             node_id: 'node-1',
-            org_id: 'org-1',
+            org_id: ORG_UUID,
             name: 'Windows NUC',
             status: 'offline',
         };
@@ -363,7 +365,7 @@ describe('cloud node provisioning handler', () => {
                 method: 'POST',
                 headers: { authorization: 'Bearer admin-secret' },
                 body: {
-                    org_id: 'org-1',
+                    org_id: ORG_UUID,
                     name: 'Windows NUC',
                     capabilities: { max_concurrent_jobs: 4 },
                     token_hash: 'client-spoof',
@@ -373,7 +375,7 @@ describe('cloud node provisioning handler', () => {
         );
 
         expect(store.createFarmNode).toHaveBeenCalledWith({
-            org_id: 'org-1',
+            org_id: ORG_UUID,
             name: 'Windows NUC',
             token_hash: hashNodeToken('pkx_node_generated_secret', 'pepper'),
             capabilities: { max_concurrent_jobs: 4 },
@@ -384,6 +386,31 @@ describe('cloud node provisioning handler', () => {
             node,
             local_node_token: 'pkx_node_generated_secret',
         });
+    });
+
+    it('rejects a non-UUID org_id before it reaches the store (regression: "Mac" typed into Org ID)', async () => {
+        const store = { createFarmNode: vi.fn() };
+        const handler = createCloudNodeProvisionHandler({
+            store,
+            adminToken: 'admin-secret',
+            pepper: 'pepper',
+        });
+        const res = createMockResponse();
+
+        await handler(
+            {
+                method: 'POST',
+                headers: { authorization: 'Bearer admin-secret' },
+                body: { org_id: 'Mac', name: 'Mac' },
+            },
+            res,
+        );
+
+        expect(store.createFarmNode).not.toHaveBeenCalled();
+        expect(res.statusCode).toBe(400);
+        expect(res.body.error).toBe('provision_node_failed');
+        expect(res.body.message).toContain('org_id must be a UUID');
+        expect(res.body.message).toContain('"Mac"');
     });
 });
 

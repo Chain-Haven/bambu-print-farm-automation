@@ -341,6 +341,12 @@ function getOrgId() {
   return elements.orgId.value.trim();
 }
 
+// org_id is a database UUID; anything else (a name typed into the field)
+// gets rejected by the cloud with a confusing Postgres error.
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value || '');
+}
+
 function getRowLimit() {
   const parsed = Number.parseInt(elements.rowLimit.value, 10);
   if (!Number.isFinite(parsed)) return 50;
@@ -1798,9 +1804,14 @@ async function provisionNode({ orgId, name, capabilities }) {
 
 async function handleProvisionNode(event) {
   event.preventDefault();
+  const orgId = elements.nodeOrgId.value.trim();
+  if (!isUuid(orgId)) {
+    showToast('Org ID must be an organization UUID — create an org first (or use Quickstart, which does it for you)');
+    return;
+  }
   const capabilities = parseJsonField(elements.nodeCapabilities.value, {});
   const result = await provisionNode({
-    orgId: elements.nodeOrgId.value.trim(),
+    orgId,
     name: elements.nodeName.value.trim(),
     capabilities,
   });
@@ -1905,9 +1916,11 @@ async function handleNodeQuickstart(event) {
   const capabilities = buildQuickstartCapabilities();
   const currentOrgId = getOrgId();
 
-  if (currentOrgId) {
+  if (isUuid(currentOrgId)) {
     organization = { org_id: currentOrgId, name: elements.quickstartOrgName.value.trim() || 'Bambu Farm' };
   } else {
+    // Ignore stray non-UUID text in the org field — create a real org instead
+    // of sending the text to the uuid column.
     organization = await createOrganization(elements.quickstartOrgName.value.trim() || 'Bambu Farm');
   }
 
