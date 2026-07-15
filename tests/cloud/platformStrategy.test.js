@@ -117,7 +117,7 @@ describe('platform strategy planner', () => {
             expect.objectContaining({
                 gate: 'edge_agent_online',
                 status: 'blocked',
-                next_action: expect.stringContaining('Start Farm Node.bat'),
+                next_action: expect.stringContaining('Start Farm Node (Windows).bat'),
             }),
             expect.objectContaining({
                 gate: 'inventory_traceability',

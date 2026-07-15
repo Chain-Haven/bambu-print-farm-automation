@@ -360,26 +360,111 @@ export function createGetNodePs1() {
     ].join('\r\n');
 }
 
-// macOS double-click launcher. Finder runs .command files in Terminal, so this
-// is the Mac equivalent of "Start Farm Node.bat": it self-heals the exec bits
-// (some unzip tools drop them), clears the quarantine flag best-effort, and
-// hands off to start-farm-node.sh. Keeps the window open on failure so the
-// error is readable.
+// macOS one-click installer/launcher. Finder runs .command files in Terminal.
+// Double-clicking it deploys the node as a launchd LaunchAgent: it starts
+// immediately, starts again at every login, and restarts automatically if it
+// crashes (KeepAlive). Re-running it is safe — it reinstalls and restarts.
+// Works on every macOS launchctl generation: `bootstrap` (10.14+) with a
+// `load -w` fallback for older systems.
+export const MAC_LAUNCH_AGENT_LABEL = 'com.printkinetix.farm-node';
+
 export function createStartFarmNodeCommand() {
     return [
         '#!/usr/bin/env bash',
         'cd "$(dirname "$0")"',
+        'DIR="$(pwd)"',
+        `LABEL="${MAC_LAUNCH_AGENT_LABEL}"`,
+        'PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"',
+        '',
+        'echo "PrintKinetix Farm Node — Mac setup"',
+        'echo "=================================="',
         '',
         '# Extraction tools sometimes drop the executable bit; restore it.',
-        'chmod +x ./start-farm-node.sh ./get-node.sh ./install-service.sh 2>/dev/null || true',
+        'chmod +x ./start-farm-node.sh ./get-node.sh 2>/dev/null || true',
         '# Best-effort: clear the macOS quarantine flag so helper scripts run without prompts.',
         'xattr -dr com.apple.quarantine . 2>/dev/null || true',
         '',
-        'bash ./start-farm-node.sh || {',
-        '  echo ""',
-        '  echo "The farm node exited with an error (see above)."',
-        '  read -r -p "Press Enter to close this window..."',
-        '}',
+        'if [ ! -f ".env" ]; then',
+        '  echo "Missing .env next to this launcher (it carries your cloud credentials)."',
+        '  echo "Re-download the app from the cloud console — the .env is generated into the zip."',
+        '  read -r -p "Press Enter to close this window..." || true',
+        '  exit 1',
+        'fi',
+        '',
+        '# Always keep a portable Node inside this folder: the login service runs',
+        '# with a minimal PATH, so Homebrew/nvm installs are invisible to it.',
+        '# Fetching now (with visible progress) keeps the background service',
+        '# deterministic on every Mac.',
+        'if [ ! -x "./node/bin/node" ]; then',
+        '  echo "Fetching a portable Node runtime for this Mac (one time)..."',
+        '  bash ./get-node.sh',
+        'fi',
+        '',
+        'mkdir -p "$HOME/Library/LaunchAgents" ./data',
+        '',
+        '# Install the LaunchAgent: run now, run at every login, restart on crash.',
+        'cat > "$PLIST" <<PLIST_EOF',
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+        '<plist version="1.0">',
+        '<dict>',
+        '  <key>Label</key><string>$LABEL</string>',
+        '  <key>ProgramArguments</key>',
+        '  <array>',
+        '    <string>/bin/bash</string>',
+        '    <string>$DIR/start-farm-node.sh</string>',
+        '  </array>',
+        '  <key>WorkingDirectory</key><string>$DIR</string>',
+        '  <key>RunAtLoad</key><true/>',
+        '  <key>KeepAlive</key><true/>',
+        '  <key>StandardOutPath</key><string>$DIR/data/farm-node.log</string>',
+        '  <key>StandardErrorPath</key><string>$DIR/data/farm-node.log</string>',
+        '</dict>',
+        '</plist>',
+        'PLIST_EOF',
+        '',
+        '# (Re)load it: modern launchctl first, legacy fallback for older macOS.',
+        'launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || launchctl unload "$PLIST" 2>/dev/null || true',
+        'if ! launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null; then',
+        '  launchctl load -w "$PLIST"',
+        'fi',
+        '',
+        'echo ""',
+        'echo "Farm node installed and running."',
+        'echo "  - Starts automatically every time you log in to this Mac."',
+        'echo "  - Restarts by itself if it ever crashes."',
+        'echo "  - Logs: $DIR/data/farm-node.log"',
+        'echo "  - To remove it later: double-click \\"Uninstall Farm Node.command\\"."',
+        'echo ""',
+        'echo "Waiting for the local dashboard to come up..."',
+        'for i in $(seq 1 30); do',
+        '  if curl -s -o /dev/null "http://localhost:3000"; then',
+        '    echo "Dashboard is up — opening http://localhost:3000"',
+        '    open "http://localhost:3000"',
+        '    break',
+        '  fi',
+        '  sleep 1',
+        'done',
+        '',
+        'echo ""',
+        'read -r -p "All done — press Enter to close this window..." || true',
+        '',
+    ].join('\n');
+}
+
+// macOS uninstaller: stops the LaunchAgent and removes the login item. The
+// folder itself is left alone so nothing is deleted without the user doing it.
+export function createUninstallFarmNodeCommand() {
+    return [
+        '#!/usr/bin/env bash',
+        `LABEL="${MAC_LAUNCH_AGENT_LABEL}"`,
+        'PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"',
+        '',
+        'launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || launchctl unload "$PLIST" 2>/dev/null || true',
+        'rm -f "$PLIST"',
+        'echo "Farm node service removed — it will no longer start at login."',
+        'echo "You can delete this folder to remove the app completely."',
+        'read -r -p "Press Enter to close this window..." || true',
         '',
     ].join('\n');
 }
@@ -504,30 +589,36 @@ export function createPortableReadme({ nodeName = 'Windows NUC', cloudApiUrl } =
         `Node: ${nodeName || 'Windows NUC'}`,
         `Cloud: ${cloudApiUrl || 'configured in .env'}`,
         '',
+        'START HERE — one double-click per platform',
+        '------------------------------------------',
+        '  Mac:      double-click  "Start Farm Node (Mac).command"',
+        '  Windows:  double-click  "Start Farm Node (Windows).bat"',
+        '  Linux/Pi: run           bash start-farm-node.sh',
+        '',
         'This is a self-contained build. It does NOT need `npm install` and has no',
         'source tree — every dependency is compiled into farm-node.cjs. The same',
         'package runs on Windows, macOS (Apple Silicon or Intel), a Raspberry Pi 5',
-        '(arm64), and Linux x64.',
-        '',
-        'To run on Windows',
-        '-----------------',
-        '1. Keep every file in this folder together.',
-        '2. Confirm .env is present (it carries CLOUD_API_URL and LOCAL_NODE_TOKEN).',
-        '3. Double-click "Start Farm Node.bat".',
-        '   - It uses a bundled Node runtime (\\node), Node already on the PC, or',
-        '     downloads a portable Node the first time. No manual install, no keys to type.',
+        '(arm64), and Linux x64. Your cloud credentials are already inside (.env) —',
+        'there is nothing to type.',
         '',
         'To run on a Mac',
         '---------------',
         '1. Unzip and keep every file in this folder together.',
-        '2. Confirm .env is present (it carries CLOUD_API_URL and LOCAL_NODE_TOKEN).',
-        '3. Double-click "Start Farm Node.command".',
-        '   - First time only: if macOS blocks it, right-click the file and choose',
-        '     Open (Gatekeeper treats downloaded scripts as unverified).',
-        '   - Or from Terminal:  bash start-farm-node.sh',
-        '   - It uses a bundled Node, Node already installed, or downloads a portable',
-        '     Node matching your Mac (Apple Silicon or Intel) automatically.',
-        '     No Homebrew, no npm, no keys to type.',
+        '2. Double-click "Start Farm Node (Mac).command".',
+        '   - First time only: if macOS says it cannot verify the developer,',
+        '     right-click the file and choose Open, then Open again.',
+        '   - It installs itself as a login service: starts now, starts every time',
+        '     you log in, and restarts by itself if it crashes. It fetches a',
+        '     portable Node runtime automatically (no Homebrew, no npm) and opens',
+        '     the dashboard at http://localhost:3000 when ready.',
+        '3. To remove it later, double-click "Uninstall Farm Node.command".',
+        '',
+        'To run on Windows',
+        '-----------------',
+        '1. Keep every file in this folder together.',
+        '2. Double-click "Start Farm Node (Windows).bat".',
+        '   - It uses a bundled Node runtime (\\node), Node already on the PC, or',
+        '     downloads a portable Node the first time. No manual install, no keys to type.',
         '',
         'To run on a Raspberry Pi 5 / Linux',
         '----------------------------------',
@@ -562,11 +653,12 @@ export function createPortableReadme({ nodeName = 'Windows NUC', cloudApiUrl } =
         '  public/              local dashboard served at http://localhost:3000',
         '  migrations/          applied to the local SQLite database on first run',
         '  sql-wasm.wasm        SQLite engine (WebAssembly)',
-        '  Start Farm Node.bat      Windows double-click launcher',
-        '  Start Farm Node.command  macOS double-click launcher',
-        '  start-farm-node.sh       macOS / Raspberry Pi / Linux launcher (terminal)',
-        '  install-service.sh   optional systemd auto-start on Pi / Linux',
-        '  .env                 your cloud credentials (do not share)',
+        '  Start Farm Node (Mac).command      macOS one-click install (runs now + at every login)',
+        '  Uninstall Farm Node.command        macOS: remove the login service',
+        '  Start Farm Node (Windows).bat      Windows double-click launcher',
+        '  start-farm-node.sh                 Raspberry Pi / Linux launcher (terminal)',
+        '  install-service.sh                 optional systemd auto-start on Pi / Linux',
+        '  .env                               your cloud credentials (do not share)',
         '',
     ].join('\r\n');
 }
@@ -616,9 +708,10 @@ export function buildPortableNodePackage({
         zip.addFile(entryName, Buffer.from(content, 'utf-8'), '', 0o755);
         files.push(entryName);
     };
-    addFile('Start Farm Node.bat', Buffer.from(createFarmNodeLauncherBat(), 'utf-8'));
+    addFile('Start Farm Node (Windows).bat', Buffer.from(createFarmNodeLauncherBat(), 'utf-8'));
     addFile('get-node.ps1', Buffer.from(createGetNodePs1(), 'utf-8'));
-    addUnixScript('Start Farm Node.command', createStartFarmNodeCommand());
+    addUnixScript('Start Farm Node (Mac).command', createStartFarmNodeCommand());
+    addUnixScript('Uninstall Farm Node.command', createUninstallFarmNodeCommand());
     addUnixScript('start-farm-node.sh', createStartFarmNodeSh());
     addUnixScript('get-node.sh', createGetNodeSh());
     addUnixScript('install-service.sh', createInstallServiceSh());

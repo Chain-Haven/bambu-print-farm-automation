@@ -142,8 +142,8 @@
         <li>Extract the app to a stable folder such as <code>C:\PrintKinetix</code>.</li>
         <li>Start the node. There is <strong>no <code>npm install</code> and no manual Node install</strong> — every dependency is compiled into <code>farm-node.cjs</code>, and the launcher uses a bundled Node runtime, a Node already on the machine, or downloads a portable Node automatically the first time.
           <ul>
-            <li><strong>Windows:</strong> double-click <code>Start Farm Node.bat</code>.</li>
-            <li><strong>Mac:</strong> double-click <code>Start Farm Node.command</code> (first time: right-click → Open to pass Gatekeeper).</li>
+            <li><strong>Mac:</strong> double-click <code>Start Farm Node (Mac).command</code> (first time: right-click → Open to pass Gatekeeper). It installs itself as a login service — starts now, at every login, and restarts if it crashes; remove it later with <code>Uninstall Farm Node.command</code>.</li>
+            <li><strong>Windows:</strong> double-click <code>Start Farm Node (Windows).bat</code>.</li>
             <li><strong>Raspberry Pi 5 / Linux:</strong> run <code>bash start-farm-node.sh</code>. The same package runs on arm64 — a Pi 5 makes a great low-power farm controller. Optionally run <code>bash install-service.sh</code> to auto-start on boot and restart on failure (systemd).</li>
           </ul>
         </li>

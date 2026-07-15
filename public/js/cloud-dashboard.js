@@ -1843,7 +1843,7 @@ async function handleDownloadPortable() {
       node_name: state.provisionedNode.name,
     },
   });
-  showToast('App downloaded — unzip, then double-click "Start Farm Node.bat" (Windows) or "Start Farm Node.command" (Mac). Printers sync to the cloud automatically.');
+  showToast('App downloaded — unzip, then double-click "Start Farm Node (Mac).command" or "Start Farm Node (Windows).bat". On Mac it installs itself to start at every login; printers sync to the cloud automatically.');
 }
 
 async function handleNodeQuickstart(event) {
@@ -1862,7 +1862,7 @@ async function handleNodeQuickstart(event) {
 
   const result = await provisionNode({
     orgId: organization.org_id,
-    name: elements.quickstartNodeName.value.trim() || 'Windows Farm Manager 01',
+    name: elements.quickstartNodeName.value.trim() || 'Farm Manager 01',
     capabilities,
   });
 
@@ -1887,7 +1887,7 @@ async function handleNodeQuickstart(event) {
     await handleDownloadPortable();
   }
 
-  showToast('Windows manager ready');
+  showToast('Farm node ready');
   await refreshOverview();
 }
 

@@ -14,6 +14,7 @@ import {
     createNodePackageReadme,
     createStartFarmNodeCommand,
     createStartFarmNodeSh,
+    createUninstallFarmNodeCommand,
     hasPortableBundle,
 } from '../../src/cloud/nodePackage.js';
 
@@ -250,10 +251,11 @@ describe('Portable ("no install") node package', () => {
         expect(entries).toContain('migrations/001_initial.sql');
         expect(entries).toContain('migrations/002_more.sql');
         expect(entries).toContain('public/index.html');
-        expect(entries).toContain('Start Farm Node.bat');
+        expect(entries).toContain('Start Farm Node (Windows).bat');
         expect(entries).toContain('get-node.ps1');
         // Cross-platform: macOS + Raspberry Pi 5 / Linux launchers ship in the same package.
-        expect(entries).toContain('Start Farm Node.command');
+        expect(entries).toContain('Start Farm Node (Mac).command');
+        expect(entries).toContain('Uninstall Farm Node.command');
         expect(entries).toContain('start-farm-node.sh');
         expect(entries).toContain('get-node.sh');
         expect(entries).toContain('install-service.sh');
@@ -270,19 +272,36 @@ describe('Portable ("no install") node package', () => {
 
         // Unix launchers carry the executable bit in the zip so macOS Archive
         // Utility / unzip extract them runnable (double-click works).
-        for (const script of ['Start Farm Node.command', 'start-farm-node.sh', 'get-node.sh', 'install-service.sh']) {
+        for (const script of ['Start Farm Node (Mac).command', 'Uninstall Farm Node.command', 'start-farm-node.sh', 'get-node.sh', 'install-service.sh']) {
             const entry = zip.getEntry(script);
             expect((entry.attr >>> 16) & 0o111, `${script} should be executable`).toBeTruthy();
         }
     });
 
-    it('macOS double-click launcher hands off to the shared bash launcher', () => {
+    it('macOS launcher installs a login LaunchAgent that runs the shared bash launcher', () => {
         const command = createStartFarmNodeCommand();
         expect(command.startsWith('#!/usr/bin/env bash')).toBe(true);
-        expect(command).not.toContain('\r');            // LF only
+        expect(command).not.toContain('\r');             // LF only
         expect(command).toContain('start-farm-node.sh'); // shared entry point
         expect(command).toContain('chmod +x');           // self-heal exec bits
         expect(command).toContain('com.apple.quarantine');
+        // Deploys as a self-healing login service on every macOS generation.
+        expect(command).toContain('LaunchAgents');
+        expect(command).toContain('<key>RunAtLoad</key><true/>');
+        expect(command).toContain('<key>KeepAlive</key><true/>');
+        expect(command).toContain('launchctl bootstrap'); // modern macOS
+        expect(command).toContain('launchctl load -w');   // legacy fallback
+        expect(command).toContain('open "http://localhost:3000"');
+        // The login service runs with a minimal PATH, so a portable Node is
+        // always fetched into the folder up front.
+        expect(command).toContain('get-node.sh');
+    });
+
+    it('macOS uninstaller removes the LaunchAgent without deleting files', () => {
+        const uninstall = createUninstallFarmNodeCommand();
+        expect(uninstall).toContain('launchctl bootout');
+        expect(uninstall).toContain('rm -f "$PLIST"');
+        expect(uninstall).not.toContain('rm -rf');
     });
 
     it('launcher never runs npm install and finds a Node runtime three ways', () => {
