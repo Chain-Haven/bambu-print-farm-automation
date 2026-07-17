@@ -101,5 +101,69 @@ else {
     check(`case top at z≈12 (T0 max z ${maxZbyTool.get(0)})`, Math.abs((maxZbyTool.get(0) ?? 0) - 12) < 0.45);
 }
 
+// ===== Bottom-face logo: flush inlay in the FIRST layers =====
+// A solid logo (the guaranteed case). The engine absorbs strokes ≲3mm wide
+// into the surrounding filament ON LAYER 1 ONLY — so thin frame-style logos
+// may show the case color on the outermost underside layer (documented in
+// CustomizationCompositor.js; verified empirically 2026-07-17).
+console.log('\n=== Compositor: bottom-face logo — flush 0.5mm inlay, first-two-layers ===');
+{
+    const solidLogoSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="5" y="5" width="90" height="90" fill="black"/></svg>`;
+    const composed = await composeCustomizedPlate({
+        baseBuffer: caseStl,
+        baseName: 'case.stl',
+        placements: [
+            { asset_buffer: Buffer.from(solidLogoSvg), original_name: 'logo.svg', face: 'bottom', width_mm: 20, color: '#000000' },
+        ],
+        baseColor: '#e23a3a',
+        printerModel: 'P1S',
+    });
+    const r = await SliceService.slice({
+        modelName: 'bottom_logo_case.stl',
+        modelBuffers: composed.modelBuffers,
+        options: { printer_model: 'P1S', filaments: composed.filaments, groups: composed.groups, colors: composed.colors },
+    });
+    if (!r.ok) { console.log(`  FAIL slice: ${r.code} — ${r.error}`); failures++; }
+    else {
+        const { content: g } = await extractGcodeFrom3mf(r.gcode3mf, 'b.gcode.3mf');
+        fs.writeFileSync(path.join(OUT, 'compositor_bottom.gcode'), g);
+        let z = 0, tool = 0, x = 0, y = 0, started = false;
+        let logoMinZ = 1e9, logoMaxZ = -1e9, anyBelowBed = false;
+        let l1T0 = 0, l1T1 = 0; // first-layer ownership in the logo interior
+        for (const line of g.split('\n')) {
+            if (line.includes('EXECUTABLE_BLOCK_START')) started = true;
+            if (!started) continue;
+            const tm = line.match(/^T(\d{1,3})\s*$/);
+            if (tm && +tm[1] < 100) { tool = +tm[1]; continue; }
+            if (!/^G[123] /.test(line)) continue;
+            const gz = line.match(/ Z([-\d.]+)/); if (gz) z = parseFloat(gz[1]);
+            const gx = line.match(/ X([-\d.]+)/), gy = line.match(/ Y([-\d.]+)/), ge = line.match(/ E([-\d.]+)/);
+            const nx = gx ? parseFloat(gx[1]) : x, ny = gy ? parseFloat(gy[1]) : y;
+            if (ge && parseFloat(ge[1]) > 0 && (gx || gy)) {
+                const mx = (x + nx) / 2, my = (y + ny) / 2;
+                if (z < -0.01) anyBelowBed = true;
+                // logo XY footprint: 20mm at bed center → 118..138
+                if (mx >= 118 && mx <= 138 && my >= 118 && my <= 138 && tool === 1) {
+                    logoMinZ = Math.min(logoMinZ, z); logoMaxZ = Math.max(logoMaxZ, z);
+                }
+                // interior probe, clear of the logo's walls
+                if (mx >= 122 && mx <= 134 && my >= 122 && my <= 134 && Math.abs(z - 0.2) < 0.01) {
+                    if (tool === 0) l1T0++; else if (tool === 1) l1T1++;
+                }
+                x = nx; y = ny;
+                continue;
+            }
+            x = nx; y = ny;
+        }
+        check(`logo (T1) prints only in the first layers (z ${logoMinZ.toFixed(2)}..${logoMaxZ.toFixed(2)})`,
+            logoMinZ <= 0.25 && logoMaxZ <= 0.65);
+        check(`underside (layer 1) is logo-colored: T1 only in the interior (T1 ${l1T1}, T0 ${l1T0})`,
+            l1T1 > 5 && l1T0 === 0);
+        check(`nothing extrudes below the bed`, !anyBelowBed);
+        const ft = (g.match(/; filament_type = (.+)/) || [])[1] || '';
+        check(`dual filament output (${ft.trim()})`, ft.includes(';'));
+    }
+}
+
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' FAILURE(S)'}`);
 process.exit(failures === 0 ? 0 : 1);

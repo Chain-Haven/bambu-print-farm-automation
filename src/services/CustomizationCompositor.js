@@ -19,9 +19,17 @@
 // from outside the case: +x right, +y up). mode: 'emboss' (proud, default)
 // or 'engrave'/'deboss'/'inlay' (near-flush colored inlay, 0.2mm proud).
 //
+// BOTTOM-face logos default to 0.5mm thick, flush inlays: they occupy the
+// case's first ~2 layers and read on the underside. ENGINE LIMITATION
+// (verified empirically): on the FIRST layer only, the engine absorbs
+// NARROW color regions (strokes ≲3mm wide) into the surrounding filament —
+// solid/wide logo areas keep their color from layer 1; hairline strokes may
+// show the case color on the outermost underside layer.
+//
 // The engine still does ALL slicing — the compositor only builds geometry.
 
 import * as THREE from 'three';
+import { Evaluator, Brush, SUBTRACTION } from 'three-bvh-csg';
 import { svgToLogoGeometry, LOGO_THICKNESS_MM } from '../../public/js/logo3d.js';
 import { parseFont, buildTextGeometry } from '../../public/js/text3d.js';
 import { geomFromSTLBuffer, geometryToBinarySTL } from './TextTemplateService.js';
@@ -96,7 +104,10 @@ async function buildPlacementGeometry(placement) {
         if (!geo) throw new Error(`SVG asset ${placement.original_name || placement.asset_file_id} has no fillable shapes`);
         return geo;
     }
-    // Binary STL asset: recenter to the same convention and scale to width_mm.
+    // Binary STL asset: recenter to the same convention, scale XY to
+    // width_mm, and normalize thickness to 0.5mm (placement.thickness_mm
+    // overrides) — logos are thin surface marks, not 3D inserts, and 0.5mm
+    // keeps them inside the first couple of layers on a bottom face.
     const geo = geomFromSTLBuffer(buf);
     geo.computeBoundingBox();
     const bb = geo.boundingBox;
@@ -105,7 +116,9 @@ async function buildPlacementGeometry(placement) {
     geo.translate(-center.x, -center.y, -bb.min.z);
     const maxXY = Math.max(size.x, size.y) || 1;
     const s = widthMm / maxXY;
-    geo.scale(s, s, 1); // XY to requested width; keep the modeled thickness
+    const wantThick = Number(placement.thickness_mm) > 0 ? Number(placement.thickness_mm) : LOGO_THICKNESS_MM;
+    const sz = size.z > 0 ? wantThick / size.z : 1;
+    geo.scale(s, s, sz);
     return geo;
 }
 
@@ -151,10 +164,16 @@ export async function composeCustomizedPlate({ baseBuffer, baseName = 'case.stl'
         const thickness = geo.boundingBox.max.z - geo.boundingBox.min.z;
 
         // Mode → how deep the asset sits in the surface.
+        // BOTTOM face is always a FLUSH inlay: the logo occupies the case's
+        // first ~0.5mm (the first two layers print in the logo's color and it
+        // reads on the underside) — anything proud of the bottom would poke
+        // below the build plate.
         const mode = String(p.mode || 'emboss').toLowerCase();
-        const sink = (mode === 'engrave' || mode === 'deboss' || mode === 'inlay')
-            ? Math.max(ATTACH_SINK_MM, thickness - INLAY_PROUD_MM)
-            : ATTACH_SINK_MM;
+        const sink = faceKey === 'bottom'
+            ? thickness
+            : (mode === 'engrave' || mode === 'deboss' || mode === 'inlay')
+                ? Math.max(ATTACH_SINK_MM, thickness - INLAY_PROUD_MM)
+                : ATTACH_SINK_MM;
 
         // Orient: logo local x→u, y→v, z→n (outward face normal), then spin
         // about the normal by rotation_deg.
@@ -183,8 +202,32 @@ export async function composeCustomizedPlate({ baseBuffer, baseName = 'case.stl'
         geo.translate(anchor.x, anchor.y, anchor.z);
 
         const hex = resolveColorSpec(p.color) || (resolvedBase === '#000000' ? '#ffffff' : '#000000');
-        composedParts.push({ geo, slot: colorSlot(hex), name: p.text ? `text_${i}.stl` : `logo_${i}.stl` });
-        summary.push(`${p.text ? `text "${p.text}"` : (p.original_name || p.asset_file_id || 'asset')} → ${faceKey}${p.x_mm || p.y_mm ? ` @(${p.x_mm || 0},${p.y_mm || 0})` : ''} ${mode} ${hex}`);
+        const flush = sink >= thickness - 0.01;
+        composedParts.push({ geo, slot: colorSlot(hex), name: p.text ? `text_${i}.stl` : `logo_${i}.stl`, flush });
+        summary.push(`${p.text ? `text "${p.text}"` : (p.original_name || p.asset_file_id || 'asset')} → ${faceKey}${p.x_mm || p.y_mm ? ` @(${p.x_mm || 0},${p.y_mm || 0})` : ''} ${mode}${flush ? '/flush' : ''} ${hex}`);
+    }
+
+    // FLUSH inlays (bottom-face logos, engrave mode) are fully EMBEDDED in the
+    // case, and the engine's later-part-wins overlap rule does NOT hold on the
+    // very first layer (engine-verified: a flush bottom logo printed its
+    // visible underside layer in the CASE color). Make ownership unambiguous:
+    // CARVE the inlay's volume out of the base with real CSG so the parts
+    // never overlap. Proud embosses keep the proven 0.2mm-sink overlap.
+    let baseGeo = base;
+    const flushParts = composedParts.filter(p => p.flush);
+    if (flushParts.length) {
+        const evaluator = new Evaluator();
+        evaluator.attributes = ['position', 'normal'];
+        let brush = new Brush(baseGeo);
+        brush.updateMatrixWorld();
+        for (const p of flushParts) {
+            const cut = new Brush(p.geo);
+            cut.updateMatrixWorld();
+            brush = evaluator.evaluate(brush, cut, SUBTRACTION);
+            brush.updateMatrixWorld();
+        }
+        baseGeo = brush.geometry;
+        log.info(`Carved ${flushParts.length} flush inlay(s) out of the base (CSG)`);
     }
 
     // Position the whole assembly on the bed: base center → bed center, base
@@ -193,13 +236,13 @@ export async function composeCustomizedPlate({ baseBuffer, baseName = 'case.stl'
     const dx = bed.x / 2 - (bb.min.x + bb.max.x) / 2;
     const dy = bed.y / 2 - (bb.min.y + bb.max.y) / 2;
     const dz = -bb.min.z;
-    base.translate(dx, dy, dz);
+    baseGeo.translate(dx, dy, dz);
     for (const part of composedParts) part.geo.translate(dx, dy, dz);
 
     // Base first, assets after — within a merged group the LATER part wins the
     // shared volume, which is exactly the show-through we need.
     const modelBuffers = [
-        { name: baseName.replace(/\.[^.]+$/, '') + '.stl', buffer: geometryToBinarySTL(base), filament: baseSlot },
+        { name: baseName.replace(/\.[^.]+$/, '') + '.stl', buffer: geometryToBinarySTL(baseGeo), filament: baseSlot },
         ...composedParts.map(p => ({ name: p.name, buffer: geometryToBinarySTL(p.geo), filament: p.slot })),
     ];
     const groups = modelBuffers.map(() => 0); // one merged object
