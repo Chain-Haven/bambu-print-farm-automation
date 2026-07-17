@@ -124,6 +124,14 @@ class ApiClient {
     // Slicer
     getSliceBackends() { return this.request('GET', '/slice/backends'); }
     sliceModel(formData) { return this.upload('/slice', formData); }
+    saveTextTemplate(formData) { return this.upload('/slice/templates', formData); }
+    getTextTemplates() { return this.request('GET', '/slice/templates'); }
+    fillTextTemplate(id, body) { return this.request('POST', `/slice/templates/${id}/fill`, body); }
+
+    // Custom colors (shared: slicer / AMS)
+    getCustomColors() { return this.request('GET', '/colors/custom'); }
+    saveCustomColor(name, hex) { return this.request('POST', '/colors/custom', { name, hex }); }
+    deleteCustomColor(hex) { return this.request('DELETE', `/colors/custom/${hex.replace('#', '')}`); }
 
     // Events
     getEvents(params = {}) { return this.request('GET', `/events?${new URLSearchParams(params)}`); }
