@@ -91,6 +91,37 @@ export async function queuePrintDispatchCommand({
     const downloadUrl = await store.createSignedPrintArtifactUrl(file.storage_path, SIGNED_URL_TTL_SECONDS);
     const amsMapping = buildAmsMappingForPrinter(selectedPrinter, requirements);
 
+    // Storefront customization: resolve each placement's asset file to a
+    // signed download URL so the NODE can fetch the logo and compose it into
+    // the case at slice time. A placement whose asset can't be resolved is
+    // passed through WITHOUT a URL — the node fails that job loudly instead
+    // of silently printing a bare case.
+    let customization = null;
+    if (isSource && isPlainObject(options.customization)) {
+        const src = options.customization;
+        const placementsIn = Array.isArray(src.placement) ? src.placement
+            : Array.isArray(src.placements) ? src.placements : [];
+        const placements = [];
+        for (const entry of placementsIn) {
+            if (!isPlainObject(entry)) continue;
+            const out = { ...entry };
+            if (entry.asset_file_id && !entry.text && typeof store.getJobFileById === 'function') {
+                try {
+                    const asset = await store.getJobFileById(entry.asset_file_id);
+                    if (asset?.storage_path) {
+                        out.download_url = await store.createSignedPrintArtifactUrl(asset.storage_path, SIGNED_URL_TTL_SECONDS);
+                        out.original_name = asset.original_name || null;
+                    }
+                } catch { /* leave URL absent — node reports it */ }
+            }
+            placements.push(out);
+        }
+        if (placements.length || src.color || src.material) {
+            customization = { ...src, placement: undefined, placements };
+            delete customization.placement;
+        }
+    }
+
     return store.createNodeCommand({
         org_id: orgId,
         node_id: route.selected_node_id,
@@ -113,6 +144,7 @@ export async function queuePrintDispatchCommand({
             ...(isSource ? {
                 printer_model: selectedPrinter?.model || null,
                 slice_settings: isPlainObject(options.slice_settings) ? options.slice_settings : null,
+                ...(customization ? { customization } : {}),
             } : {}),
             issued_at: now().toISOString(),
         },

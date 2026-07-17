@@ -45,7 +45,7 @@ function loadFontById(fontId) {
     return fontCache.get(file);
 }
 
-function geomFromSTLBuffer(buf) {
+export function geomFromSTLBuffer(buf) {
     const { vertices, triangles } = parseBinarySTL(buf);
     const pos = [];
     for (let t = 0; t < triangles.length; t++) {
@@ -58,7 +58,7 @@ function geomFromSTLBuffer(buf) {
     return g;
 }
 
-function geometryToBinarySTL(geom) {
+export function geometryToBinarySTL(geom) {
     const pos = geom.attributes.position.array;
     const triCount = Math.floor(pos.length / 9);
     const buf = Buffer.alloc(84 + triCount * 50);
