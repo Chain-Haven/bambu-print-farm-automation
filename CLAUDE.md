@@ -26,24 +26,71 @@ npm run dev           # auto-reloads on file changes (best for development)
 Or double-click **`Start Antigravity.bat`** (Windows) — it stops any server already on
 port 3000, starts a fresh one, and opens the dashboard. Keep its console window open.
 
-## THE core problem (read this first)
+## THE core problem — RESOLVED (2026-07-17): it was the project_file URL, not the SD card
 
-The long-standing blocker was described as "can't send large looped files to the printer."
-Investigation of the evidence logs (`evidence_output*.log`, `experiments_output.log`,
-`final_evidence_output.log`) shows that is a **misdiagnosis**:
+The historic "can't send large looped files / 0500-C010 MicroSD exception" failures were
+**our bug, not printer hardware**. Root cause (hardware-verified on a sibling farm build,
+2026-07-03 → 07-07, and now ported here):
 
-- FTPS upload **works** — remote `SIZE` matches local bytes every time.
-- The MQTT `project_file` start command is **accepted** (`result: success`)…
-- …but the printer **never leaves IDLE**, even for a **known-good Bambu Studio file already on the SD card** (Experiment 1). If even Bambu's own file won't start, the cause is not this code.
-- The status stream carries a persistent **`print_error: 83935248` = `0x0500C010`**, which `src/utils/PrinterErrors.js` maps to **"MicroSD card read/write exception" (blocking)** — present even at idle.
+- The start command used `url: ftp:///sdcard/cache/<file>` — but **the FTPS root IS the
+  SD card**, so the firmware looked for a nonexistent `/sdcard/sdcard/...` path and
+  reported a bogus **0500-C010 "MicroSD card read/write exception"**.
+- The corrected `ftp:///cache/<file>` form works for small files but makes the firmware
+  re-fetch the file and **chokes on multi-MB files with the same bogus SD error**
+  (3.2 MB failed, 117 KB fine — byte-identical upload verified by md5 re-download).
+- **`file:///sdcard/cache/<file>` is the reliable PRIMARY form** (the printer reads the
+  already-uploaded file directly). `startJob` sends it first and retries once with
+  `ftp:///cache/` for firmware variants.
 
-**Conclusion: the blocker is a failing/!faulty printer MicroSD card, not the software.**
-Fix is hardware: reseat → format in the printer → replace with a high-endurance card.
-**To confirm current state, run `node proof_test.js`** (known-good control vs. generated
-artifact, direct FTPS+MQTT). NOTE: evidence logs are from Feb–Mar 2026; if the card was
-swapped since, re-run `proof_test.js` before concluding anything.
+The old diagnosis ("failing MicroSD card", below in `DIAGNOSIS.md`) is retained for
+history but is **superseded** — those printers were healthy all along. `proof_test.js`
+still predates the fix and uses the old URL form; don't treat its output as evidence
+without updating it.
 
-Full write-up is in `DIAGNOSIS.md`.
+## Changes already made (2026-07-17 session — start-reliability port from the local farm build)
+
+Ported the hardware-verified start pipeline hardening from the sibling Antigravity farm
+build (all covered by `tests/runtime/startReliability.test.js` + updated
+`printCompletionLoop.test.js`):
+
+1. **project_file URL fix** — `BambuMqttClient.startPrint` defaults to
+   `file:///sdcard/cache/<file>`; `startJob` retries once with `ftp:///cache/<file>`
+   (see "THE core problem — RESOLVED" above). `flow_cali`/`vibration_cali` now default
+   **OFF** (Bambu bakes the saved K-factor into sliced gcode; the start-of-print flow
+   cali extrudes test filament — "nozzle in the air, filament falling"). Opt in per job
+   via `transform_overrides.flow_cali`.
+2. **startJob hardening** — standing-print-error preflight (clean_print_error + 8s
+   recheck, fail fast with decoded remediation instead of burning the 60s ACK timeout),
+   self-heal recovery for error-state printers (`PrinterWorker.recoverFromError`:
+   dismiss + re-home for 0300-40xx homing faults), 2 start attempts with URL fallback,
+   stuck-start watchdog (ACKed but 0% + blocking error for 4 min → stop + fail loudly),
+   positive-state ACK (only `printing`/`paused` counts — "not idle" false-ACKed from the
+   dismissed-FAILED state), AMS default-to-first-tray when a job has no tray config on an
+   AMS printer (use_ams:false hangs on the external spool holder, 07FF-C006), retryable
+   `failed` jobs, and **auto-failover** to an idle same-geometry printer on printer-local
+   errors (kill switch `JOB_AUTO_FAILOVER=false`; slot_map jobs never fail over).
+3. **File↔printer model guard** — `submit()` reads the file's `printer_model_id` from
+   `Metadata/slice_info.config` (registry: `modelFromSliceInfoId`), prefers it for the
+   transform dialect, and `startJob` refuses a file↔printer geometry mismatch with a 409
+   (P1S gcode on an A1 = garbage prints; 3 real incidents). Override:
+   `transform_overrides.allow_model_mismatch`.
+4. **Bambu FAILED-state semantics** — gcode_state=FAILED with **no active error code**
+   is dismissed-cancel residue, not a fault: the worker now reads it as `idle` (queue/
+   failover see the printer as available; no human screen-tap needed on a farm), and
+   preflight blocks on `paused` (starting over a paused print wrecks it).
+5. **Error decoding** — vendored the official Bambu error table
+   (`assets/bambu_error_codes.json`, ~530 print errors + ~4000 HMS codes), `decodeHms()`,
+   curated remediation for 0300-4000 (Z-homing) and 1200-8001 (filament-change failure);
+   HMS numeric attr/code coercion + zero-padded module check (0500 = storage; 0300 is
+   motion and is no longer misflagged as an SD fault).
+6. **Restart resilience** — `_readoptActiveJob` (re-adopt a running print's job after a
+   server restart) and `_reconcileOrphanedJobs` (settle jobs stranded 'printing' when the
+   print ended while the server was offline — FINISH → late completion with bookkeeping
+   only, anything else → failed/retryable). AMS status pushes now MERGE (an incremental
+   `{tray_tar}` push no longer wipes the tray inventory until the next pushall).
+7. **onJobCompleted** skips the accessory ejection pass when the job's gcode already
+   contains the transform's cooldown+sweep (`transform_report.insertionPoint`) — with an
+   ejector fitted the accessory pass would double-eject and stall the repeat chain.
 
 ## Changes already made (July 2026 session — console overhaul + models + drop-in printing)
 
@@ -267,9 +314,9 @@ In `src/api/routes/printers.js`, `src/runtime/PrinterWorker.js`, `src/mqtt/Bambu
 
 ## Known issues / good next steps
 
-- **Run `proof_test.js` against the real printer** to confirm whether the SD card is still the blocker. (Requires being on the same network as the printer — Claude Code can do this; the Cowork sandbox could not.)
+- ~~Run `proof_test.js` to confirm the SD-card blocker~~ — superseded: the "SD card" errors were the project_file URL bug, fixed 2026-07-17. A real-hardware smoke of the new start pipeline (file:/// primary + ftp:/// fallback) is still worth one run on this repo's build.
 - ~~No automated tests~~ — stale: `npm test` now runs 560+ vitest tests (auth, stores, routing, transform round-trips per model, offline e2e full loop). On a loaded machine cap concurrency: `npx vitest run --maxWorkers=2`.
-- **Start-print URL is inconsistent** across code/scripts (`ftp://`, `ftp:///cache/`, `ftp:///sdcard/cache/`). Pin down the correct form once the printer can start prints.
+- ~~Start-print URL is inconsistent~~ — resolved 2026-07-17: `file:///sdcard/cache/` is primary, `ftp:///cache/` is the retry fallback (see "THE core problem — RESOLVED"). The ad-hoc root scripts (`proof_test.js`, `experiments.js`, …) still carry old URL forms — update before trusting them.
 - **Repo is heavy** — `uploads/` holds ~1.2 GB of artifacts (incl. 100 MB debug `.gcode`). It is gitignored; archive/delete the local folder when convenient.
 - New-model eject geometry (P2S / X2D / H2 / A2L in `Automator.MODEL_DEFAULTS`) is derived from published bed sizes — validate sweep lanes + park coordinates on real hardware before unattended loops.
 - Orca preset names for the new models (`SliceService.ORCA_PRESETS`) assume a current OrcaSlicer install; a missing preset returns a clear `preset_missing` error with the path.

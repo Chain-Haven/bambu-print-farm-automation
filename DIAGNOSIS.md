@@ -2,6 +2,20 @@
 
 _Diagnosis run: 2026-06-23. Environment: Node v22.22.3, sandboxed Linux, MOCK_MODE._
 
+> ## ⚠️ 2026-07-17 ADDENDUM — SD-card conclusion SUPERSEDED
+>
+> The "failing MicroSD card" conclusion below turned out to be wrong. The true root
+> cause, found and hardware-verified on the sibling Antigravity farm build (2026-07-03 →
+> 07-07) and now ported into this repo, was the **`project_file` URL in the MQTT start
+> command**: `ftp:///sdcard/cache/<file>` points at a nonexistent path (the FTPS root IS
+> the SD card), which the firmware reports as a bogus **0500-C010 "MicroSD card
+> read/write exception"** — the exact signature below. `ftp:///cache/<file>` fixes small
+> files but still chokes on multi-MB files; **`file:///sdcard/cache/<file>` is the
+> reliable form** and is now the primary URL in `BambuMqttClient.startPrint` (with an
+> `ftp:///cache/` retry fallback in `startJob`). The printers and their SD cards were
+> healthy all along. See CLAUDE.md "THE core problem — RESOLVED" for details.
+> `proof_test.js` and the evidence logs below predate the fix and use the old URL form.
+
 ## Summary
 
 The application is healthy and runs. It boots, serves the dashboard, authenticates,
@@ -10,6 +24,7 @@ on a real sample file. **No defect in this codebase prevents sending files to th
 
 The original blocker ("can't send large looped files to the printer") is, on the evidence,
 **a failing printer MicroSD card** — not a software bug. Details below.
+_(Superseded — see the 2026-07-17 addendum above.)_
 
 ---
 

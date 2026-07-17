@@ -135,20 +135,33 @@ export class BambuMqttClient {
     /**
      * Send print start command (Bambu LAN protocol).
      * After uploading a .3mf to /cache/ via FTPS, this tells the printer to open it.
+     *
+     * url: the FTPS root IS the SD card, so `ftp:///sdcard/cache/x` points at a
+     * nonexistent /sdcard/sdcard/... path and the firmware reports a bogus
+     * 0500-C010 "MicroSD card" error. `file:///sdcard/cache/x` is the PRIMARY
+     * form — the `ftp:///cache/x` form makes the firmware re-fetch the file
+     * and chokes the same way on multi-MB files (3.2MB failed, 117KB fine;
+     * hardware-verified 2026-07-07). Callers may pass an explicit url to try
+     * the alternate form on retry.
+     *
+     * flowCali/vibrationCali default OFF: Bambu bakes the saved K-factor into
+     * sliced gcode, so a per-print recalibration is redundant — and flow-cali
+     * extrudes test filament at start (looks like "nozzle in the air, filament
+     * falling"). bed_leveling stays on (ABL finds the plate).
      */
-    startPrint({ filename, plateNumber = 1, useAms = true, amsMapping = [] }) {
+    startPrint({ filename, plateNumber = 1, useAms = true, amsMapping = [], url = null, flowCali = false, vibrationCali = false }) {
         const payload = {
             print: {
                 sequence_id: String(Date.now()),
                 command: 'project_file',
                 param: `Metadata/plate_${plateNumber}.gcode`,
                 subtask_name: filename.replace(/\.gcode\.3mf$/i, '').replace(/\.3mf$/i, ''),
-                url: `ftp:///sdcard/cache/${filename}`,
+                url: url || `file:///sdcard/cache/${filename}`,
                 bed_type: 'auto',
                 timelapse: false,
                 bed_leveling: true,
-                flow_cali: true,
-                vibration_cali: true,
+                flow_cali: flowCali === true,
+                vibration_cali: vibrationCali === true,
                 layer_inspect: false,
                 use_ams: useAms,
                 ams_mapping: amsMapping,
@@ -158,7 +171,7 @@ export class BambuMqttClient {
                 task_id: '0',
             }
         };
-        log.info(`Starting print: ${filename} (plate ${plateNumber})`);
+        log.info(`Starting print: ${filename} (plate ${plateNumber}, url ${payload.print.url})`);
         return this.publish(payload);
     }
 

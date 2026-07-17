@@ -6,7 +6,7 @@ import { PrinterModel } from '../models/Printer.js';
 import { EventModel } from '../models/Event.js';
 import { CommandBus } from './CommandBus.js';
 import { automate } from '../gcode/Automator.js';
-import { automatorModelKey } from '../models/PrinterModels.js';
+import { automatorModelKey, normalizeModel, modelFromSliceInfoId } from '../models/PrinterModels.js';
 import { extractGcodeFrom3mf, repack3mf } from '../gcode/AutomatorZip.js';
 import { executeEjectionSequence } from './EjectionService.js';
 import { createLogger } from '../utils/logger.js';
@@ -19,6 +19,23 @@ import { getUploadRoot } from '../utils/uploadPaths.js';
 
 const log = createLogger('JobOrchestrator');
 const UPLOADS_DIR = getUploadRoot();
+
+/**
+ * What printer model was this .gcode.3mf sliced for? Reads printer_model_id
+ * from Metadata/slice_info.config and resolves it through the model registry.
+ * Returns the registry id ('A1', 'P1S', 'X1C', …) or null when undeclared /
+ * unknown (minimal 3MFs have no slice_info — the guard then simply skips).
+ */
+async function detectFileModel(rawBuffer3mf) {
+    if (!rawBuffer3mf) return null;
+    try {
+        const AdmZip = (await import('adm-zip')).default;
+        const si = new AdmZip(rawBuffer3mf).readAsText('Metadata/slice_info.config');
+        const m = si?.match(/printer_model_id" value="([^"]+)"/);
+        if (!m) return null;
+        return modelFromSliceInfoId(m[1])?.id || null;
+    } catch { return null; }
+}
 
 export class JobOrchestrator {
     static wsBroadcast = null;
@@ -79,6 +96,11 @@ export class JobOrchestrator {
             const sourcePath = path.join(UPLOADS_DIR, `${job.job_id}_${fileName}`);
             fs.writeFileSync(sourcePath, fileContent);
 
+            // What printer model was this FILE sliced for? Drives the
+            // transform dialect and the start-time file↔printer guard.
+            const fileModel = await detectFileModel(rawBuffer3mf);
+            if (fileModel) log.info(`File declares printer model: ${fileModel}`);
+
             if (skip_transform) {
                 // === RAW MODE: Skip transform, use file as-is ===
                 const rawFileName = fileName.replace(/\.gcode$/i, '.AG.gcode');
@@ -87,7 +109,7 @@ export class JobOrchestrator {
 
                 JobModel.update(job.job_id, {
                     transformed_file_name: rawFileName,
-                    transform_report: { skipped: true, reason: 'User requested raw upload' },
+                    transform_report: { skipped: true, reason: 'User requested raw upload', file_model: fileModel, allow_model_mismatch: transform_overrides?.allow_model_mismatch },
                     diff_summary: { sections_changed: [], raw_mode: true },
                     status: printer_id ? 'assigned' : 'queued',
                 });
@@ -114,8 +136,13 @@ export class JobOrchestrator {
                 // like "Bambu X1C" map to their real Automator geometry key
                 // ("X1") instead of silently falling back to P1S. A wildcard
                 // profile ('*') defers to the assigned printer's model.
+                // Precedence: explicit override > the FILE's own declared
+                // model (slice_info printer_model_id — the purge anchors and
+                // eject dialect are properties of the FILE, so this beats
+                // profile/printer guesses) > profile > assigned printer.
                 const printerRow = printer_id ? PrinterModel.findById(printer_id) : null;
                 const rawModel = transform_overrides?.printer_model
+                    || fileModel
                     || (profile.printer_model && profile.printer_model !== '*' ? profile.printer_model : null)
                     || printerRow?.model
                     || 'P1S';
@@ -190,6 +217,8 @@ export class JobOrchestrator {
                             mode: transform_mode,
                             transform_error: transformError,
                             gcode_entry_name: gcodeEntryName,
+                            file_model: fileModel,
+                            allow_model_mismatch: transform_overrides?.allow_model_mismatch,
                         },
                         diff_summary: { raw_mode: true },
                         status: printer_id ? 'assigned' : 'queued',
@@ -238,7 +267,9 @@ export class JobOrchestrator {
                 // Store the gcode entry name so startPrint knows which plate to reference
                 JobModel.update(job.job_id, {
                     transformed_file_name: primaryFileName,
-                    transform_report: { ...report, files_written: filesWritten, gcode_entry_name: gcodeEntryName },
+                    // flow_cali: explicit override only — startJob defaults the
+                    // firmware's flow calibration OFF (see startPrint).
+                    transform_report: { ...report, files_written: filesWritten, gcode_entry_name: gcodeEntryName, flow_cali: transform_overrides?.flow_cali, file_model: fileModel, allow_model_mismatch: transform_overrides?.allow_model_mismatch },
                     diff_summary: { automator_v3: true, loops: automatorConfig.loopsN },
                     status: printer_id ? 'assigned' : 'queued',
                 });
@@ -282,7 +313,12 @@ export class JobOrchestrator {
      * Start a job: deterministic pipeline — Preflight → Upload → Start → Monitor.
      * Fully instrumented with monotonic ms timing for every stage.
      */
-    static async startJob(jobId) {
+    static async startJob(jobId, _opts = {}) {
+        const failoverDepth = _opts.failoverDepth || 0;
+        // Errors local to the assigned PRINTER (storage fault, unreachable,
+        // refuses to start…) are eligible for automatic failover to another
+        // idle printer of the same model — config/file errors are not.
+        const printerLocalError = (msg) => { const e = new Error(msg); e.printerLocal = true; return e; };
         const { performance } = await import('node:perf_hooks');
         const t0 = performance.now();
         const debugTrace = [];
@@ -311,7 +347,9 @@ export class JobOrchestrator {
         const job = JobModel.findById(jobId);
         if (!job) { releaseLock(); throw new Error('Job not found'); }
         if (!job.printer_id) { releaseLock(); throw new Error('Job not assigned to a printer'); }
-        if (!['queued', 'assigned'].includes(job.status)) {
+        // 'failed' is allowed so a job stranded by a printer fault can be
+        // retried (or failed over) — the pipeline re-runs from preflight.
+        if (!['queued', 'assigned', 'failed'].includes(job.status)) {
             releaseLock();
             throw new Error(`Cannot start job: status is ${job.status}`);
         }
@@ -338,7 +376,26 @@ export class JobOrchestrator {
                 throw new Error('Preflight failed: No printer worker');
             }
 
-            const preflight = worker.getPreflightStatus();
+            let preflight = worker.getPreflightStatus();
+            if (!preflight.ok) {
+                // SELF-HEAL: a canceled/failed print leaves gcode_state=FAILED
+                // plus a residual print_error, which reads as 'error' state and
+                // would block every start until a human taps OK on the screen.
+                // Bambu Studio dismisses it with clean_print_error — do the
+                // same when the ONLY blockers are that standing error pair,
+                // then re-check. A real fault persists and still blocks below.
+                const residueOnly = preflight.errors.length > 0 && preflight.errors.every(e =>
+                    e.startsWith('BLOCKED:') || e === 'Printer is in error state');
+                if (residueOnly && worker.latestStatus?.print_error && worker.mqttClient?.connected) {
+                    const decoded = decodePrintError(worker.latestStatus.print_error);
+                    stage('STANDING_PRINT_ERROR_AUTOCLEAR', { error: decoded?.formatted });
+                    // Dismiss + re-home for homing failures (a print homes first
+                    // anyway; an obstructed bed fails the home and still blocks)
+                    const recovery = await worker.recoverFromError();
+                    stage(recovery.recovered ? 'STANDING_PRINT_ERROR_RECOVERED' : 'STANDING_PRINT_ERROR_PERSISTS_AFTER_RECOVERY', { steps: recovery.steps });
+                    preflight = recovery.preflight;
+                }
+            }
             if (!preflight.ok) {
                 const errMsg = preflight.errors.join('; ');
                 stage('PREFLIGHT_FAIL', errMsg);
@@ -347,6 +404,32 @@ export class JobOrchestrator {
             }
             stage('PREFLIGHT_OK', { state: preflight.state, nozzle: preflight.nozzle_temp, bed: preflight.bed_temp, warnings: preflight.warnings });
             broadcastPhase('preflight', 'ok', { state: preflight.state, nozzle_temp: preflight.nozzle_temp, bed_temp: preflight.bed_temp, warnings: preflight.warnings });
+
+            // ========== PHASE 1.5: STANDING PRINTER ERROR ==========
+            // A blocking print_error that exists BEFORE we start (e.g. 0500-C010
+            // MicroSD fault) means the print can never begin — the old flow
+            // uploaded anyway and burned the full 60s ACK timeout. Clear it,
+            // give the printer a moment, and fail fast if it comes back.
+            if (!worker.mockMode) {
+                let standing = worker.latestStatus?.print_error;
+                if (standing && standing !== 0) {
+                    const decoded = decodePrintError(standing);
+                    stage('STANDING_PRINT_ERROR', { error: decoded.formatted, message: decoded.message });
+                    if (worker.mqttClient) {
+                        worker.mqttClient.cleanPrintError();
+                        await new Promise(r => setTimeout(r, 8000));
+                        standing = worker.latestStatus?.print_error;
+                    }
+                    if (standing && standing !== 0) {
+                        const still = decodePrintError(standing);
+                        stage('STANDING_PRINT_ERROR_PERSISTS', { error: still.formatted });
+                        broadcastPhase('preflight', 'failed', `Printer has a standing error: ${still.message} [${still.formatted}]`);
+                        throw printerLocalError(`Preflight failed: printer reports ${still.message} [${still.formatted}]. ` +
+                            `${(still.remediation || []).slice(0, 2).join('; ')}`);
+                    }
+                    stage('STANDING_PRINT_ERROR_CLEARED');
+                }
+            }
 
             // ========== PHASE 2: FILE READ ==========
             stage('FILE_READ_START');
@@ -384,6 +467,30 @@ export class JobOrchestrator {
 
             stage('ARTIFACT_VALIDATION_OK', { type: '.gcode.3mf', gcode_entry: gcodeEntry, plate: plateNumber, remote_file: remoteFileName });
 
+            // ========== FILE ↔ PRINTER MODEL GUARD ==========
+            // A file sliced for one machine printed on another (P1S gcode on
+            // an A1, three real incidents) produces garbage lines at best and
+            // crashes at worst. Refuse outright — a mismatch is never what a
+            // farm wants. Compared at the Automator-geometry level (P1P ≡ P1S);
+            // unknown models skip the guard. Override:
+            // transform_overrides.allow_model_mismatch.
+            {
+                const fileModelRec = normalizeModel(job.transform_report?.file_model);
+                const printerModelRec = normalizeModel(printer.model);
+                if (fileModelRec && printerModelRec
+                    && automatorModelKey(fileModelRec.id) !== automatorModelKey(printerModelRec.id)
+                    && job.transform_report?.allow_model_mismatch !== true) {
+                    stage('FILE_PRINTER_MODEL_MISMATCH', { file_model: fileModelRec.short, printer_model: printerModelRec.short });
+                    const msg = `This file is sliced for a ${fileModelRec.short} but "${printer.name}" is a ${printerModelRec.short}. Wrong-machine gcode prints badly or fails. Re-slice the model for ${printerModelRec.short}, or assign a ${fileModelRec.short} printer.`;
+                    broadcastPhase('preflight', 'failed', msg);
+                    releaseLock();
+                    const guardErr = new Error(`Start refused: ${msg}`);
+                    guardErr.status = 409; // surfaces the real message to the UI instead of a generic 500
+                    throw guardErr;
+                }
+                if (fileModelRec && printerModelRec) stage('FILE_PRINTER_MODEL_OK', { model: fileModelRec.short });
+            }
+
             // ========== PHASE 3+4+5: FTPS REACHABILITY / UPLOAD / RESOLUTION ==========
             if (worker.mockMode) {
                 // MOCK_MODE: no real printer — skip the network phases so the full
@@ -399,7 +506,7 @@ export class JobOrchestrator {
                 stage(ftpsReachable ? 'FTPS_REACHABILITY_OK' : 'FTPS_REACHABILITY_FAIL');
                 if (!ftpsReachable) {
                     broadcastPhase('upload', 'failed', 'FTPS port 990 not reachable.');
-                    throw new Error('Upload failed: FTPS not reachable');
+                    throw printerLocalError('Upload failed: FTPS not reachable');
                 }
 
                 // ========== PHASE 4: FTPS UPLOAD (delegated, returns its own trace) ==========
@@ -432,7 +539,7 @@ export class JobOrchestrator {
                     if (errLower.includes('microsd') || errLower.includes('read/write') || errLower.includes('storage') || errLower.includes('sd card')) {
                         stage('PRINTER_ERROR_DETECTED', { type: 'SD_STORAGE', raw: uploadResult.error });
                     }
-                    throw new Error(`Upload failed: ${uploadResult.error}`);
+                    throw printerLocalError(`Upload failed: ${uploadResult.error}`);
                 }
 
                 stage('UPLOAD_COMPLETE', { bytes: uploadResult.bytesUploaded, verified: uploadResult.verified });
@@ -460,55 +567,72 @@ export class JobOrchestrator {
 
             const run = JobRunModel.create({ job_id: jobId, printer_id: job.printer_id });
 
-            if (worker.mockMode || worker.mqttClient) {
-                let amsMapping = [];
-                if (job.ams_roles?.slot_map) amsMapping = Object.values(job.ams_roles.slot_map);
-
-                // Build validated start payload
-                const startPayload = {
-                    filename: remoteFileName,
-                    plateNumber,
-                    useAms: amsMapping.length > 0,
-                    amsMapping,
-                };
-
-                // Final payload validation
-                if (!startPayload.filename.endsWith('.3mf')) {
-                    stage('REMOTE_START_PAYLOAD_INVALID', { reason: 'filename not .3mf', payload: startPayload });
-                    releaseLock();
-                    throw new Error('Start payload invalid: filename must be .3mf');
-                }
-
-                stage('START_PAYLOAD_VALIDATED', { filename: startPayload.filename, plate: startPayload.plateNumber, ams: startPayload.useAms });
-
-                if (worker.mockMode) {
-                    await worker._startPrint(startPayload); // simulated print
-                    worker.activeJobId = jobId;
-                    stage('MOCK_START_COMMAND_SENT');
-                } else {
-                    worker.mqttClient.startPrint(startPayload);
-                    worker.activeJobId = jobId;
-                    stage('MQTT_START_COMMAND_SENT');
-                }
-            } else {
+            if (!worker.mockMode && !worker.mqttClient) {
                 stage('START_PRINT_FAIL', 'MQTT not available');
                 broadcastPhase('start', 'failed', 'MQTT client not available');
                 releaseLock();
                 throw new Error('Start failed: MQTT client not available');
             }
 
+            // AMS mapping. Re-read ams_roles from the DB NOW, not from the
+            // pipeline's snapshot: the upload takes ~15s and the operator may
+            // change the tray pick during it — the fresh value must win.
+            const amsRoles = JobModel.findById(jobId)?.ams_roles ?? job.ams_roles;
+            let amsMapping = [];
+            if (amsRoles?.slot_map) {
+                amsMapping = Object.values(amsRoles.slot_map);
+                stage('AMS_MANUAL_MAPPING', { slot_map: amsRoles.slot_map, mapping: amsMapping });
+            }
+
+            // A job with NO ams config on a printer that HAS an AMS must still
+            // use it — use_ams:false makes the printer try the EXTERNAL spool
+            // holder and hang at the pre-print stage with an AMS error
+            // (07FF-C006, nozzle parked hot, progress 0 — seen on hardware).
+            // Default to the first tray and say so loudly.
+            const hasAms = !!(worker.latestStatus?.ams?.ams?.length);
+            if (!amsMapping.length && hasAms) {
+                amsMapping = [0];
+                stage('AMS_DEFAULTED_FIRST_TRAY', { reason: 'job has no ams_roles but printer has an AMS — using tray 1. Set the tray mapping on the job to control this.' });
+            }
+
+            // Flow (dynamic extrusion) calibration: DEFAULT OFF — Bambu bakes
+            // the saved K-factor into sliced gcode, and the firmware's start-of-
+            // print recalibration extrudes test filament ("nozzle in the air,
+            // filament falling"). Opt in per job via transform_overrides.flow_cali.
+            const flowCali = job.transform_report?.flow_cali === true;
+            stage('FLOW_CALI_DECISION', { flow_cali: flowCali });
+
+            // Build validated start payload
+            const startPayload = {
+                filename: remoteFileName,
+                plateNumber,
+                useAms: amsMapping.length > 0,
+                amsMapping,
+                flowCali,
+            };
+
+            // Final payload validation
+            if (!startPayload.filename.endsWith('.3mf')) {
+                stage('REMOTE_START_PAYLOAD_INVALID', { reason: 'filename not .3mf', payload: startPayload });
+                releaseLock();
+                throw new Error('Start payload invalid: filename must be .3mf');
+            }
+
+            stage('START_PAYLOAD_VALIDATED', { filename: startPayload.filename, plate: startPayload.plateNumber, ams: startPayload.useAms });
+
             // Wait for printer state transition (ACK)
             // PRIORITY: state change (idle → printing) = definitive success signal.
             // print_error codes may appear transiently during file loading — don't block on them.
             // Only fail if printer stays idle for the full timeout AND has a new error.
-            stage('WAITING_FOR_PRINTER_ACK', { timeout_ms: 60000 });
             const ackTimeout = 60000; // large looped files can take longer to load from storage
-            const ackResult = await new Promise((resolve) => {
+            const waitForAck = () => new Promise((resolve) => {
                 const start = Date.now();
                 let lastSeenError = null;
                 const check = setInterval(() => {
-                    // PRIMARY CHECK: did the printer start?
-                    if (worker.state !== 'idle') {
+                    // PRIMARY CHECK: did the printer start? Must be a POSITIVE
+                    // printing state — "not idle" would false-ACK when starting
+                    // from the dismissed-failed-print state (state 'error').
+                    if (worker.state === 'printing' || worker.state === 'paused') {
                         clearInterval(check);
                         resolve({ acked: true, newState: worker.state });
                         return;
@@ -533,13 +657,53 @@ export class JobOrchestrator {
                 }, 500);
             });
 
+            let ackResult;
+            if (worker.mockMode) {
+                await worker._startPrint(startPayload); // simulated print
+                worker.activeJobId = jobId;
+                stage('MOCK_START_COMMAND_SENT');
+                stage('WAITING_FOR_PRINTER_ACK', { timeout_ms: ackTimeout });
+                ackResult = await waitForAck();
+            } else {
+                // Up to 2 attempts on THIS printer: transient errors (SD hiccup,
+                // missed command) often clear after clean_print_error + resend.
+                // The retry also switches to the alternate file-URL form.
+                // file:///sdcard/cache is PRIMARY: the ftp:/// form makes the
+                // firmware re-fetch the file and throws a bogus 0500-C010 "SD
+                // card" error on multi-MB files (3.2MB failed, 117KB was fine —
+                // hardware-verified with a byte-identical upload).
+                const urlForms = [
+                    `file:///sdcard/cache/${remoteFileName}`,
+                    `ftp:///cache/${remoteFileName}`,
+                ];
+                for (let attempt = 1; attempt <= urlForms.length; attempt++) {
+                    if (attempt > 1) {
+                        stage('START_RETRY_SAME_PRINTER', { attempt });
+                        if (worker.latestStatus?.print_error) worker.mqttClient.cleanPrintError();
+                        await new Promise(r => setTimeout(r, 5000));
+                    }
+                    const url = urlForms[attempt - 1];
+                    worker.mqttClient.startPrint({ ...startPayload, url });
+                    worker.activeJobId = jobId;
+                    stage('MQTT_START_COMMAND_SENT', { attempt, url });
+                    stage('WAITING_FOR_PRINTER_ACK', { timeout_ms: ackTimeout, attempt });
+                    ackResult = await waitForAck();
+                    if (ackResult.acked) break;
+                }
+            }
+
             if (ackResult.acked) {
                 stage('PRINTER_ACK_OK', { new_state: ackResult.newState });
                 broadcastPhase('start', 'ok', { printer_state: ackResult.newState });
+                // STUCK-START WATCHDOG: "printing" + blocking error + 0 progress
+                // minutes after the ACK means the printer hung at the pre-print
+                // stage (e.g. filament path) with the nozzle parked hot. Stop
+                // the print, fail the job loudly — never leave it silently hung.
+                if (!worker.mockMode) this._armStuckStartWatchdog(jobId, job.printer_id, worker);
             } else if (ackResult.blockedError) {
                 stage('START_PRINT_BLOCKED');
                 broadcastPhase('start', 'failed', `Printer stayed idle with error: ${ackResult.blockedError.message} [${ackResult.blockedError.formatted}]`);
-                throw new Error(`Start failed: Printer stayed idle — ${ackResult.blockedError.message} [${ackResult.blockedError.formatted}]`);
+                throw printerLocalError(`Start failed: Printer stayed idle — ${ackResult.blockedError.message} [${ackResult.blockedError.formatted}]`);
             } else {
                 // No state transition within the window. A print that actually started
                 // would have left IDLE within seconds, so "still idle, no confirmation" is
@@ -555,7 +719,7 @@ export class JobOrchestrator {
                     : `Printer accepted the command but did not begin printing within ${ackTimeout / 1000}s (still idle, no error). The file may be unreadable on the printer's storage, or the printer is waiting on an on-screen confirmation.`;
                 broadcastPhase('start', 'failed', detail);
                 log.warn(`Printer ${job.printer_id} did not ACK start within ${ackTimeout}ms (stayed idle)`);
-                throw new Error(`Start failed: ${detail}`);
+                throw printerLocalError(`Start failed: ${detail}`);
             }
 
             stage('FIRST_TELEMETRY_STATE_AFTER_START', {
@@ -601,6 +765,29 @@ export class JobOrchestrator {
             this._broadcast('job.send_failed', { job_id: jobId, error: err.message, send_trace: sendTrace, debug_trace: debugTrace });
             this._broadcast('job.status_changed', { job_id: jobId, status: 'failed' });
 
+            // ========== AUTO-FAILOVER ==========
+            // The assigned printer is the problem (storage fault, unreachable,
+            // refuses to start) — hand the job to another idle printer of the
+            // same model instead of stranding it. Jobs with an explicit
+            // slot_map never fail over (tray indices are printer-specific).
+            // Kill switch: JOB_AUTO_FAILOVER=false.
+            if (err.printerLocal && failoverDepth < 2
+                && process.env.JOB_AUTO_FAILOVER !== 'false'
+                && !job.ams_roles?.slot_map) {
+                const candidate = await this._pickFailoverPrinter(job, printer);
+                if (candidate) {
+                    stage('FAILOVER_REASSIGNED', { from: printer.name, to: candidate.name, reason: err.message });
+                    log.warn(`Auto-failover: job ${job.name} moves ${printer.name} -> ${candidate.name} (${err.message})`);
+                    JobModel.update(jobId, { printer_id: candidate.printer_id, status: 'assigned' });
+                    this._broadcast('job.updated', JobModel.findById(jobId));
+                    // The job continues on the new printer — this attempt's
+                    // failure is not terminal (no retry-requeue, no cloud
+                    // job.failed emission).
+                    return await this.startJob(jobId, { failoverDepth: failoverDepth + 1 });
+                }
+                stage('FAILOVER_NO_CANDIDATE', { model: printer.model });
+            }
+
             // Opt-in auto-retry: if the job set max_retries and this is not a
             // known-blocking hardware fault, requeue it and kick the next-job
             // flow (bounded by max_retries; a no-op unless the job opted in).
@@ -629,10 +816,81 @@ export class JobOrchestrator {
     }
 
     /**
+     * Watch a freshly-ACKed print for a hung start: still 0% with a blocking
+     * print_error after several checks → stop the print (heaters off), mark
+     * the job failed, broadcast. Transient errors that the printer recovers
+     * from (progress moves, error clears) disarm the watchdog.
+     */
+    static _armStuckStartWatchdog(jobId, printerId, worker, { intervalMs = 60000, strikes = 4 } = {}) {
+        let hits = 0, checks = 0;
+        const timer = setInterval(() => {
+            checks++;
+            const job = JobModel.findById(jobId);
+            if (!job || job.status !== 'printing') return clearInterval(timer);
+            const progress = worker.latestStatus?.progress ?? 0;
+            const err = worker.latestStatus?.print_error;
+            if (progress > 0 || worker.state !== 'printing') return clearInterval(timer); // healthy or finished
+            if (err && err !== 0) {
+                hits++;
+                if (hits >= strikes) {
+                    clearInterval(timer);
+                    const decoded = decodePrintError(err);
+                    log.error(`Stuck start on ${printerId}: 0% for ${checks} min with ${decoded?.formatted || err} — stopping print, failing job ${job.name}`);
+                    try { worker.mqttClient?.stopPrint(); } catch { /* best effort */ }
+                    // Dismiss the FAILED-dialog residue our own stop leaves behind
+                    for (const delay of [8000, 20000]) {
+                        setTimeout(() => { try { if (worker.latestStatus?.print_error) worker.clearPrintError(); } catch { /* best effort */ } }, delay);
+                    }
+                    JobModel.update(jobId, { status: 'failed' });
+                    EventModel.create({
+                        entity_type: 'job', entity_id: jobId,
+                        event_type: 'job.stuck_start',
+                        payload: { error: decoded, waited_min: checks },
+                    });
+                    this._broadcast('job.send_failed', { job_id: jobId, error: `Print never started: ${decoded?.message || err} [${decoded?.formatted || ''}] — stopped after ${checks} min at 0%` });
+                    this._broadcast('job.status_changed', { job_id: jobId, status: 'failed' });
+                    systemEvents.emit('job.failed', { job: JobModel.findById(jobId), printer_id: printerId, reason: 'stuck_start' });
+                }
+            } else {
+                hits = 0; // error cleared — give it time
+            }
+            if (checks >= 15) clearInterval(timer); // hard cap: stop watching after 15 min
+        }, intervalMs);
+        timer.unref?.(); // never keep the process alive just for a watchdog
+    }
+
+    /**
+     * Pick an idle, error-free printer with the same Automator geometry to
+     * fail a job over to (P1P ≡ P1S). Printers the cloud/queue already gave
+     * work to are skipped so failover can't butt into another job's printer.
+     */
+    static async _pickFailoverPrinter(job, failedPrinter) {
+        const { RuntimeSupervisor } = await import('../runtime/RuntimeSupervisor.js');
+        const supervisor = RuntimeSupervisor.getInstance();
+        if (!supervisor) return null;
+        const wantedKey = automatorModelKey(failedPrinter.model);
+        for (const p of PrinterModel.findAll()) {
+            if (p.printer_id === failedPrinter.printer_id) continue;
+            if (automatorModelKey(p.model) !== wantedKey) continue;
+            const worker = supervisor.getWorker(p.printer_id);
+            if (!worker) continue;
+            if (worker.state !== 'idle') continue;
+            if (worker.latestStatus?.print_error) continue;
+            if (worker.activeJobId) continue;
+            return p;
+        }
+        return null;
+    }
+
+    /**
      * Handle job completion (called when printer reports done).
      * Producer: PrinterWorker completion detection via RuntimeSupervisor.
+     * opts.reconcile: the FINISH was detected late (server was offline when
+     * the print ended) — do the bookkeeping but take NO physical actions
+     * (no ejection sequence, no auto-starts): hours may have passed and the
+     * bed state is unknown.
      */
-    static async onJobCompleted(jobId, printerId) {
+    static async onJobCompleted(jobId, printerId, opts = {}) {
         const job = JobModel.findById(jobId);
         if (!job) return;
         // Idempotency: only a job we believe is printing can complete. A stale or
@@ -653,9 +911,13 @@ export class JobOrchestrator {
         const profile = job.profile_id ? GcodeProfileModel.findById(job.profile_id) : null;
 
         // Trigger the hardware ejection sequence (no-op with a clear event when
-        // no ejector accessory is fitted — in-gcode sweep ejection has already
-        // run inside the print file by the time FINISH is reported).
-        if (profile) {
+        // no ejector accessory is fitted). SKIPPED for jobs whose gcode already
+        // contains the transform's cooldown+sweep (transform_report
+        // .insertionPoint) — by the time FINISH is reported the part is already
+        // ejected, and with an ejector fitted the accessory pass would
+        // double-eject (and stall the repeat chain on its cool-wait).
+        const ejectionInGcode = !!job.transform_report?.insertionPoint;
+        if (profile && !ejectionInGcode && !opts.reconcile) {
             log.info(`Triggering ejection for job ${jobId}`);
             try {
                 const ejectResult = await executeEjectionSequence({
@@ -688,7 +950,11 @@ export class JobOrchestrator {
             });
             // Auto-start next repeat
             this._broadcast('job.updated', JobModel.findById(jobId)); // Notify repeat count change
-            await this.startJob(jobId);
+            if (opts.reconcile) {
+                log.info(`Job ${job.name}: repeat NOT auto-started (late-reconciled completion) — left 'assigned', start it from the Jobs page`);
+            } else {
+                await this.startJob(jobId);
+            }
         } else {
             JobModel.update(jobId, { status: 'completed', repeat_remaining: 0 });
             EventModel.create({
@@ -705,7 +971,7 @@ export class JobOrchestrator {
             systemEvents.emit('job.completed', { job: JobModel.findById(jobId), printer_id: printerId });
 
             // Auto-start next queued job for this printer
-            await this._autoStartNextJob(printerId);
+            if (!opts.reconcile) await this._autoStartNextJob(printerId);
         }
     }
 
