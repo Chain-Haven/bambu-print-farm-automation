@@ -310,6 +310,68 @@ export class JobOrchestrator {
     }
 
     /**
+     * Submit a job from a stored job_template — the ONE shared code path for
+     * the HTTP route (POST /job-templates/:id/submit) and any automated
+     * dispatcher, so the 3MF-extract/override-merge logic is never duplicated.
+     * overrides: { name, printer_id, profile_id, repeat_total, ams_roles,
+     *              transform_overrides, skip_transform, metadata } — all
+     * optional; template values are the defaults.
+     */
+    static async submitFromJobTemplate(templateId, overrides = {}) {
+        const { JobTemplateModel } = await import('../models/JobTemplate.js');
+        const tmpl = JobTemplateModel.findById(templateId);
+        if (!tmpl) { const e = new Error('Template not found'); e.status = 404; throw e; }
+        if (!tmpl.source_file_path || !fs.existsSync(tmpl.source_file_path)) {
+            const e = new Error('Template has no stored file — upload a G-code file first');
+            e.status = 400; throw e;
+        }
+
+        // Read the stored file as binary buffer (might be 3MF/ZIP)
+        const rawBuffer = fs.readFileSync(tmpl.source_file_path);
+        let fileContent;
+        let fileName = tmpl.source_file_name;
+        let rawBuffer3mf = null;
+        let originalFileName3mf = null;
+
+        const { isZipFile, is3mfFilename, extractGcodeFrom3mf: extract3mfSmart } = await import('../gcode/Extract3mf.js');
+        if (isZipFile(rawBuffer) || is3mfFilename(fileName)) {
+            rawBuffer3mf = rawBuffer;
+            originalFileName3mf = tmpl.source_file_name;
+            const extracted = await extract3mfSmart(rawBuffer, fileName);
+            fileContent = extracted.content;
+            if (extracted.entryName) {
+                fileName = extracted.entryName.split('/').pop() || fileName;
+            }
+        } else {
+            fileContent = rawBuffer.toString('utf-8');
+        }
+
+        // Merge: caller overrides take precedence over template defaults
+        const templateOverrides = tmpl.transform_overrides || {};
+        const mergedOverrides = { ...templateOverrides, ...(overrides.transform_overrides || {}) };
+        const skipTransform = !!(mergedOverrides.skip_transform || overrides.skip_transform);
+        const amsRoles = overrides.ams_roles !== undefined ? overrides.ams_roles : (tmpl.ams_roles || null);
+
+        const job = await this.submit({
+            name: overrides.name || tmpl.name,
+            printer_id: overrides.printer_id !== undefined ? overrides.printer_id : (tmpl.printer_id || null),
+            profile_id: overrides.profile_id || tmpl.profile_id || null,
+            repeat_total: parseInt(overrides.repeat_total, 10) || tmpl.repeat_total || 1,
+            ams_roles: amsRoles,
+            fileContent,
+            fileName,
+            skip_transform: skipTransform,
+            transform_overrides: mergedOverrides,
+            rawBuffer3mf,
+            originalFileName3mf,
+            metadata: overrides.metadata || null,
+        });
+
+        JobTemplateModel.recordUse(tmpl.template_id);
+        return job;
+    }
+
+    /**
      * Start a job: deterministic pipeline — Preflight → Upload → Start → Monitor.
      * Fully instrumented with monotonic ms timing for every stage.
      */

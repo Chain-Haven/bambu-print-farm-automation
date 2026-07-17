@@ -1801,7 +1801,7 @@ route('/jobs', async (el) => {
         ${j.transformed_file_name ? html`<a class="btn btn-sm" href="${api.getJobDownloadUrl(j.job_id)}" title="Download" download>Download</a>` : ''}
         <button class="btn btn-sm btn-danger" onclick="if(confirm('Delete this job record?')) { api.deleteJob('${j.job_id}').catch(e=>toast(e.message,'error')); }" title="Delete">Delete</button>
     ` : html`
-        ${['queued', 'assigned'].includes(j.status) ? html`<button class="btn btn-sm btn-success" onclick="api.startJob('${j.job_id}').catch(e=>toast(e.message,'error'))">Start</button>` : ''}
+        ${['queued', 'assigned'].includes(j.status) ? html`<button class="btn btn-sm btn-success" onclick="startJobWithAms('${j.job_id}')">Start</button>` : ''}
         ${!['completed', 'canceled', 'failed'].includes(j.status) ? html`<button class="btn btn-sm btn-danger" onclick="api.cancelJob('${j.job_id}').catch(e=>toast(e.message,'error'))">Cancel</button>` : ''}
         ${j.transformed_file_name ? html`<a class="btn btn-sm" href="${api.getJobDownloadUrl(j.job_id)}" title="Download transformed G-code" download>⬇️</a>` : ''}
     `;
@@ -3880,16 +3880,12 @@ function showSaveTemplateModal(profiles, printers) {
   };
 }
 
-window.saveJobAsTemplate = async function (jobId, name, profileId, printerId, repeatTotal) {
+window.saveJobAsTemplate = async function (jobId, name) {
+  // Server-side copy: recovers the job's original print file into the template
+  // (a template without a file can't be sent to the queue).
   try {
-    const formData = new FormData();
-    formData.append('name', `${name} (template)`);
-    formData.append('description', `Saved from job ${jobId.slice(0, 8)}`);
-    formData.append('profile_id', profileId || '');
-    formData.append('printer_id', printerId || '');
-    formData.append('repeat_total', String(repeatTotal || 1));
-    await api.createJobTemplate(formData);
-    toast('Job saved as template!', 'success');
+    const tmpl = await api.createJobTemplateFromJob(jobId, { name: `${name} (template)` });
+    toast(`Job saved as template with file "${tmpl.source_file_name}"!`, 'success');
     navigateTo('/jobs');
   } catch (err) { toast(err.message, 'error'); }
 };
@@ -3902,10 +3898,38 @@ window.quickSubmitTemplate = async function(templateId, templateName) {
   // Disable all send-to-queue buttons while in-flight
   document.querySelectorAll('[onclick*="quickSubmitTemplate"]').forEach(b => { b.disabled = true; b.textContent = 'Sending…'; });
   try {
-    await api.submitFromTemplate(templateId, {
-      name: templateName,
-    });
-    toast(`"${templateName}" sent to queue!`, 'success');
+    // A template with a printer assigned AUTO-STARTS on submit — so ask for
+    // the spool mapping BEFORE submitting (preselected with the template's
+    // saved picks). Twice a user picked a color afterwards and got the saved
+    // one; the prompt makes the choice land in the start command.
+    const body = { name: templateName };
+    try {
+      const tmpl = await api.getJobTemplate(templateId);
+      if (tmpl.printer_id) {
+        const printer = await api.getPrinter(tmpl.printer_id);
+        const hasAms = !!printer?.status_snapshot?.ams?.ams?.length || !!printer?.capabilities?.ams;
+        if (hasAms) {
+          let ams = null;
+          try { ams = await api.getPrinterAms(tmpl.printer_id); } catch { ams = null; }
+          const picked = await showAmsSpoolModal({
+            printer, ams,
+            colors: tmpl.ams_roles?.colors || [],
+            material: tmpl.ams_roles?.material || null,
+            defaults: tmpl.ams_roles,
+            confirmLabel: 'Send & Start',
+          });
+          if (!picked) return; // user canceled — don't submit at all
+          body.ams_roles = picked;
+        }
+      }
+    } catch { /* prompt is best-effort — fall back to template defaults */ }
+
+    const job = await api.submitFromTemplate(templateId, body);
+    if (job?.status === 'printing' || (job?.printer_id && job?.status === 'assigned')) {
+      toast(`"${templateName}" started printing${body.ams_roles ? ' with your spool picks' : " with the template's saved spool mapping"}.`, 'success');
+    } else {
+      toast(`"${templateName}" sent to queue!`, 'success');
+    }
     if (window.jobRefreshHandler) window.jobRefreshHandler();
   } catch (err) {
     toast(err.message, 'error');

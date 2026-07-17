@@ -1,20 +1,24 @@
 // src/api/routes/jobTemplates.js — Job Template CRUD endpoints (with file upload)
 import { Router } from 'express';
 import { JobTemplateModel } from '../../models/JobTemplate.js';
+import { JobModel } from '../../models/Job.js';
+import { repack3mf, buildGcode3mf } from '../../gcode/AutomatorZip.js';
 import { requireAuth } from '../../auth/auth.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import multer from 'multer';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getUploadPath } from '../../utils/uploadPaths.js';
+import { getUploadRoot, getUploadPath } from '../../utils/uploadPaths.js';
 
 const router = Router();
+// Vercel-aware paths (this repo runs the API serverless too).
+const UPLOADS_DIR = getUploadRoot();
 const TEMPLATES_DIR = getUploadPath('templates');
+const AG_MARKER = ';===== ANTIGRAVITY AUTOMATION START =====';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } }); // 200MB
 
-function ensureTemplatesDir() {
-    fs.mkdirSync(TEMPLATES_DIR, { recursive: true });
-}
+// Ensure templates directory exists
+if (!fs.existsSync(TEMPLATES_DIR)) fs.mkdirSync(TEMPLATES_DIR, { recursive: true });
 
 // List all templates
 router.get('/', requireAuth, asyncHandler(async (req, res) => {
@@ -55,7 +59,6 @@ router.post('/', requireAuth, upload.single('file'), asyncHandler(async (req, re
         });
 
         // Save file with template_id prefix
-        ensureTemplatesDir();
         source_file_path = path.join(TEMPLATES_DIR, `${tmpl.template_id}_${source_file_name}`);
         fs.writeFileSync(source_file_path, req.file.buffer);
 
@@ -98,7 +101,6 @@ router.patch('/:id', requireAuth, upload.single('file'), asyncHandler(async (req
         if (existing.source_file_path && fs.existsSync(existing.source_file_path)) {
             fs.unlinkSync(existing.source_file_path);
         }
-        ensureTemplatesDir();
         updates.source_file_name = req.file.originalname;
         updates.source_file_path = path.join(TEMPLATES_DIR, `${req.params.id}_${req.file.originalname}`);
         fs.writeFileSync(updates.source_file_path, req.file.buffer);
@@ -128,66 +130,107 @@ router.get('/:id/file', requireAuth, asyncHandler(async (req, res) => {
     res.download(tmpl.source_file_path, tmpl.source_file_name);
 }));
 
-// Submit job directly from template (uses stored file)
-router.post('/:id/submit', requireAuth, asyncHandler(async (req, res) => {
-    const tmpl = JobTemplateModel.findById(req.params.id);
-    if (!tmpl) return res.status(404).json({ error: 'Template not found' });
-    if (!tmpl.source_file_path || !fs.existsSync(tmpl.source_file_path)) {
-        return res.status(400).json({ error: 'Template has no stored file — upload a G-code file first' });
+// Create a template FROM an existing job. Copies the job's ORIGINAL
+// (pre-transform) print file into the template so it is immediately
+// submittable — a template without a file cannot be sent to the queue.
+router.post('/from-job/:jobId', requireAuth, asyncHandler(async (req, res) => {
+    const job = JobModel.findById(req.params.jobId);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    const sourcePath = job.source_file_name ? path.join(UPLOADS_DIR, `${job.job_id}_${job.source_file_name}`) : null;
+    if (!sourcePath || !fs.existsSync(sourcePath)) {
+        return res.status(410).json({
+            error: `The original file for job "${job.name}" is no longer on disk — cannot save a submittable template. Re-slice the model, or create a template manually with a file upload.`,
+        });
     }
+    const originalGcode = fs.readFileSync(sourcePath, 'utf-8');
 
-    // Read the stored file as binary buffer (might be 3MF/ZIP)
-    const rawBuffer = fs.readFileSync(tmpl.source_file_path);
-    let fileContent;
-    let fileName = tmpl.source_file_name;
-
-    // Track if input is 3MF — MUST pass raw buffer for repacking
-    let rawBuffer3mf = null;
-    let originalFileName3mf = null;
-
-    // Check if it's a 3MF file
-    const { isZipFile, is3mfFilename, extractGcodeFrom3mf } = await import('../../gcode/Extract3mf.js');
-    if (isZipFile(rawBuffer) || is3mfFilename(fileName)) {
-        rawBuffer3mf = rawBuffer;
-        originalFileName3mf = tmpl.source_file_name;
-        const extracted = await extractGcodeFrom3mf(rawBuffer, fileName);
-        fileContent = extracted.content;
-        if (extracted.entryName) {
-            fileName = extracted.entryName.split('/').pop() || fileName;
-        }
+    // Recover the original .gcode.3mf. The pre-transform package is never kept
+    // on disk, but the transformed one is — swapping the untransformed gcode
+    // back into it reproduces the original (thumbnails/slice metadata intact).
+    // Plain-gcode jobs get a minimal printer-shaped wrapper instead; a bare
+    // .gcode can never start (startJob requires a .gcode.3mf artifact).
+    const entryName = job.transform_report?.gcode_entry_name || null;
+    const transformedPath = job.transformed_file_name ? path.join(UPLOADS_DIR, `${job.job_id}_${job.transformed_file_name}`) : null;
+    let fileBuffer, source_file_name;
+    if (entryName && transformedPath && /\.3mf$/i.test(transformedPath) && fs.existsSync(transformedPath)) {
+        fileBuffer = repack3mf(fs.readFileSync(transformedPath), entryName, originalGcode);
+        source_file_name = job.transformed_file_name.replace(/\.AG\.gcode\.3mf$/i, '.gcode.3mf');
     } else {
-        fileContent = rawBuffer.toString('utf-8');
+        fileBuffer = buildGcode3mf([{ index: 1, gcode: originalGcode }]);
+        source_file_name = job.source_file_name.replace(/\.gcode$/i, '') + '.gcode.3mf';
     }
 
-    // Allow overrides from request body
-    const { name, printer_id, profile_id, repeat_total, transform_overrides: bodyOverrides } = req.body;
+    // Carry over the settings the job ACTUALLY ran with (from the transform
+    // report), so re-submitting the template reproduces the same ejection.
+    const r = job.transform_report;
+    let transform_overrides = {};
+    if (originalGcode.includes(AG_MARKER) || r?.skipped) {
+        // Source already contains ejection gcode — transforming again would
+        // double the cooldown/eject blocks.
+        transform_overrides.skip_transform = true;
+    } else if (r) {
+        // printer_model is deliberately NOT copied: the source job's report
+        // can carry a wrong/stale model (a P1S-configured job that ran on an
+        // A1 gave the A1 P1S eject coordinates AND compounded the filament-
+        // cutter drift). Leaving it unset lets submit resolve the model from
+        // the ACTUAL assigned printer every time.
+        transform_overrides = {
+            n_loops: r.loopsN,
+            cooldown_mode: r.cooldownMode,
+            release_temp_c: r.releaseTempC,
+            sweep_z_mm: r.sweepZMm,
+            z_clear_travel_mm: r.zClearClamped,
+        };
+        if (r.cooldownMode === 'time') transform_overrides.cool_time_min = r.coolTimeMin;
+        else if (r.m190RepeatCount) transform_overrides.max_wait_min = Math.round(r.m190RepeatCount * 1.5); // each M190 line covers ~90s
+        for (const k of Object.keys(transform_overrides)) {
+            if (transform_overrides[k] === undefined || transform_overrides[k] === null) delete transform_overrides[k];
+        }
+    }
 
-    // Merge: request body overrides take precedence over template defaults
-    const templateOverrides = tmpl.transform_overrides || {};
-    const runtimeOverrides = typeof bodyOverrides === 'string' ? JSON.parse(bodyOverrides) : (bodyOverrides || {});
-    const overrides = { ...templateOverrides, ...runtimeOverrides };
-
-    // Handle skip_transform flag
-    const skipTransform = overrides.skip_transform || req.body.skip_transform;
-
-    // Import and use JobOrchestrator to submit
-    const { JobOrchestrator } = await import('../../services/JobOrchestrator.js');
-    const job = await JobOrchestrator.submit({
-        name: name || tmpl.name,
-        printer_id: printer_id || tmpl.printer_id || null,
-        profile_id: profile_id || tmpl.profile_id || null,
-        repeat_total: parseInt(repeat_total) || tmpl.repeat_total || 1,
-        ams_roles: tmpl.ams_roles || null,
-        fileContent,
-        fileName,
-        skip_transform: skipTransform ? true : false,
-        transform_overrides: overrides,
-        rawBuffer3mf,
-        originalFileName3mf,
+    const tmpl = JobTemplateModel.create({
+        name: req.body.name || `${job.name} (template)`,
+        description: req.body.description || `Saved from job ${job.job_id.slice(0, 8)}`,
+        profile_id: job.profile_id || null,
+        printer_id: job.printer_id || null,
+        source_file_name,
+        source_file_path: null,
+        ams_roles: job.ams_roles || null,
+        repeat_total: job.repeat_total || 1,
+        tags: [],
+        transform_overrides,
     });
+    const source_file_path = path.join(TEMPLATES_DIR, `${tmpl.template_id}_${source_file_name}`);
+    fs.writeFileSync(source_file_path, fileBuffer);
+    const updated = JobTemplateModel.update(tmpl.template_id, { source_file_name, source_file_path });
+    res.status(201).json(updated);
+}));
 
-    // Record template usage
-    JobTemplateModel.recordUse(tmpl.template_id);
+// Submit job directly from template (uses stored file). The heavy lifting
+// (file read, 3MF extract, override merge, submit) lives in the shared
+// JobOrchestrator.submitFromJobTemplate() — order intake uses the same path.
+router.post('/:id/submit', requireAuth, asyncHandler(async (req, res) => {
+    const { name, printer_id, profile_id, repeat_total, transform_overrides: bodyOverrides, ams_roles: bodyAmsRoles } = req.body;
+
+    // Spool selection override — the UI prompts for trays BEFORE submitting,
+    // because a template with a printer assigned auto-starts immediately and
+    // would otherwise always print with the template's SAVED mapping.
+    const amsRoles = bodyAmsRoles !== undefined
+        ? (typeof bodyAmsRoles === 'string' ? JSON.parse(bodyAmsRoles) : bodyAmsRoles)
+        : undefined; // undefined = keep template default
+    const runtimeOverrides = typeof bodyOverrides === 'string' ? JSON.parse(bodyOverrides) : (bodyOverrides || {});
+
+    const { JobOrchestrator } = await import('../../services/JobOrchestrator.js');
+    const job = await JobOrchestrator.submitFromJobTemplate(req.params.id, {
+        name,
+        printer_id: printer_id || undefined,
+        profile_id,
+        repeat_total,
+        ams_roles: amsRoles,
+        transform_overrides: runtimeOverrides,
+        skip_transform: req.body.skip_transform,
+    });
 
     res.status(201).json(job);
 }));

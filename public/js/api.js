@@ -112,6 +112,7 @@ class ApiClient {
     getJobTemplates() { return this.request('GET', '/job-templates'); }
     getJobTemplate(id) { return this.request('GET', `/job-templates/${id}`); }
     createJobTemplate(formData) { return this.upload('/job-templates', formData); }
+    createJobTemplateFromJob(jobId, data = {}) { return this.request('POST', `/job-templates/from-job/${jobId}`, data); }
     updateJobTemplate(id, data) { return this.request('PATCH', `/job-templates/${id}`, data); }
     deleteJobTemplate(id) { return this.request('DELETE', `/job-templates/${id}`); }
     submitFromTemplate(id, overrides = {}) { return this.request('POST', `/job-templates/${id}/submit`, overrides); }
