@@ -331,6 +331,25 @@ export class BambuMqttClient {
         ].join('\n'));
     }
 
+    /**
+     * Real AMS filament change (cut + retract + feed) — the procedure the
+     * printer's own screen uses. target = GLOBAL tray index, 255 = unload.
+     * (The load/unloadFilament helpers above are naive gcode that never touch
+     * the AMS.)
+     */
+    amsChangeFilament(target = 255, currTemp = 220, tarTemp = 220) {
+        log.info(`AMS filament change → ${target === 255 ? 'UNLOAD' : `tray ${target + 1}`} (curr ${currTemp}°C, tar ${tarTemp}°C)`);
+        return this.publish({
+            print: {
+                sequence_id: '0',
+                command: 'ams_change_filament',
+                target,
+                curr_temp: currTemp,
+                tar_temp: tarTemp,
+            },
+        });
+    }
+
     /** Set speed profile. level: 1=silent, 2=standard, 3=sport, 4=ludicrous */
     setSpeedProfile(level) {
         const names = { 1: 'Silent', 2: 'Standard', 3: 'Sport', 4: 'Ludicrous' };

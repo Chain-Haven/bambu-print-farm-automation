@@ -4,6 +4,7 @@ import { PrinterRegistry } from '../../services/PrinterRegistry.js';
 import { AmsService } from '../../services/AmsService.js';
 import { requireAuth, requireAdmin } from '../../auth/auth.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { decodePrintError, decodeHms } from '../../utils/PrinterErrors.js';
 
 const router = Router();
 
@@ -22,7 +23,13 @@ async function withLiveState(printers) {
         const snap = { ...(p.status_snapshot || {}) };
         if (!connected) snap.state = 'offline';
         else if (w?.state && w.state !== 'unknown') snap.state = w.state;
-        return { ...p, connected, status_snapshot: snap };
+        // Decoded active error + HMS entries, so the UI can show the actual
+        // messages and the same options the printer's own screen offers
+        const print_error_decoded = snap.print_error ? decodePrintError(snap.print_error) : null;
+        const hms_decoded = Array.isArray(snap.hms_errors) && snap.hms_errors.length
+            ? snap.hms_errors.map(h => decodeHms(h.attr, h.code))
+            : [];
+        return { ...p, connected, status_snapshot: snap, print_error_decoded, hms_decoded };
     });
     return Array.isArray(printers) ? enriched : enriched[0];
 }
@@ -277,9 +284,12 @@ router.get('/:id/diagnostics', requireAuth, asyncHandler(async (req, res) => {
     // Check for SD errors
     if (diag.sd_health.hms_errors.length > 0) {
         for (const h of diag.sd_health.hms_errors) {
-            const code = h.attr?.toString(16) || '';
-            const msg = String(h.code ?? '').toLowerCase(); // numeric on Bambu — coerce before string ops
-            if (code.includes('0300') || msg.includes('sd') || msg.includes('storage')) {
+            // attr hex must be zero-padded or the module prefix never
+            // matches; storage module is 0500 (0300 is motion/mechanical
+            // and must NOT be flagged as an SD fault).
+            const code = (h.attr ?? 0).toString(16).padStart(8, '0');
+            const msg = String(h.code ?? '').toLowerCase();
+            if (code.startsWith('0500') || msg.includes('sd') || msg.includes('storage')) {
                 diag.sd_health.has_sd_error = true;
             }
         }
@@ -398,17 +408,48 @@ router.post('/:id/control', requireAdmin, asyncHandler(async (req, res) => {
 
     const { action } = req.body;
 
+    // Motion/filament actions during an active print would wreck it (the
+    // firmware usually refuses, but never rely on that). Print-control and
+    // passive actions (pause/resume/stop/light/speed/clear_error) stay allowed.
+    const MOTION_ACTIONS = ['home', 'move', 'bed_level', 'extrude', 'retract', 'load_filament', 'unload_filament', 'ams_change', 'set_z_offset'];
+    if (MOTION_ACTIONS.includes(action) && ['printing', 'paused'].includes(worker.state)) {
+        return res.status(409).json({ error: `Cannot run "${action}" while the printer is ${worker.state} — pause/stop the print first.` });
+    }
+
     // Job-lifecycle controls go through the worker so its state machine stays in
     // sync with the cloud/CommandBus path (avoids UI vs. real-state drift).
     if (action === 'pause' || action === 'resume' || action === 'stop') {
         const result = action === 'pause' ? worker._pausePrint()
             : action === 'resume' ? worker._resumePrint()
                 : worker._stopPrint();
+        if (action === 'stop') {
+            // Stopping a SYSTEM print also fails its job record so the queue/
+            // tracking stays consistent.
+            if (worker.activeJobId) {
+                const { JobModel } = await import('../../models/Job.js');
+                const j = JobModel.findById(worker.activeJobId);
+                if (j && j.status === 'printing') JobModel.update(worker.activeJobId, { status: 'failed' });
+                worker.activeJobId = null;
+            }
+            // Bambu leaves gcode_state=FAILED + a residual print_error after a
+            // commanded stop (the on-screen "print failed" dialog). Dismiss it
+            // automatically — like Bambu Studio's OK tap — so the printer
+            // returns to idle instead of blocking every future start.
+            for (const delay of [8000, 20000]) {
+                setTimeout(() => { if (worker.latestStatus?.print_error) worker.clearPrintError(); }, delay);
+            }
+        }
         return res.json({ ok: true, action, ...result });
     }
     if (action === 'clear_error') {
         const ok = worker.clearPrintError();
         return res.json({ ok: ok !== false, action });
+    }
+    if (action === 'recover') {
+        // Full recovery: dismiss error + re-home if the firmware holds a
+        // homing failure. Slow (up to ~45s) — responds when done.
+        const result = await worker.recoverFromError();
+        return res.json({ ok: result.recovered, action, ...result });
     }
 
     const mqtt = worker.mqttClient;
@@ -416,6 +457,8 @@ router.post('/:id/control', requireAdmin, asyncHandler(async (req, res) => {
     let ok = false;
 
     switch (action) {
+        // Real AMS change (cut + retract + feed) — target = global tray id, 255 = unload
+        case 'ams_change': ok = mqtt.amsChangeFilament(req.body.target ?? 255, req.body.curr_temp || 220, req.body.tar_temp || 220); break;
         case 'light_on':  ok = mqtt.setLight(true); break;
         case 'light_off': ok = mqtt.setLight(false); break;
         case 'set_fan':   ok = mqtt.setFan(req.body.fan || 1, req.body.speed ?? 128); break;

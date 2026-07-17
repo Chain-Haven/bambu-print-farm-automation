@@ -105,6 +105,7 @@ class ApiClient {
         return `${this.baseUrl}/jobs/${id}/download?type=${type}&token=${this.token}`;
     }
     deleteJob(id) { return this.request('DELETE', `/jobs/${id}`); }
+    recoverPrinter(id) { return this.request('POST', `/printers/${id}/control`, { action: 'recover' }); }
     clearJobHistory() { return this.request('DELETE', '/jobs/history'); }
 
     // Job Templates

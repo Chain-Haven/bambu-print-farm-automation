@@ -452,18 +452,18 @@ route('/printers', async (el) => {
             <h3 style="font-size:1rem;font-weight:700;">${p.name}</h3>
             <p style="font-size:0.8rem;color:var(--text-muted);">${p.model}</p>
           </div>
-          <span class="status-dot ${(p.status_snapshot?.state === 'idle' || p.status_snapshot?.state === 'printing') ? 'online' : (p.status_snapshot?.state === 'offline' ? 'offline' : 'unknown')}"></span>
+          <span data-pstate-dot="${p.printer_id}" class="status-dot ${(p.status_snapshot?.state === 'idle' || p.status_snapshot?.state === 'printing') ? 'online' : (p.status_snapshot?.state === 'offline' ? 'offline' : 'unknown')}"></span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:0.8rem;color:var(--text-secondary);">
           <span>${p.ip_hostname}</span>
-          ${statusBadge(p.status_snapshot?.state || 'unknown')}
+          <span data-pstate-badge="${p.printer_id}">${statusBadge(p.status_snapshot?.state || 'unknown')}</span>
         </div>
-        ${p.status_snapshot?.progress !== undefined ? html`
+        <div data-pstate-prog="${p.printer_id}" style="${p.status_snapshot?.progress !== undefined && p.status_snapshot?.state === 'printing' ? '' : 'display:none;'}">
           <div class="progress-bar" style="margin-top:0.75rem;">
-            <div class="progress-bar-fill" style="width:${p.status_snapshot.progress}%"></div>
+            <div class="progress-bar-fill" style="width:${p.status_snapshot?.progress || 0}%"></div>
           </div>
-          <div style="font-size:0.73rem;color:var(--text-muted);margin-top:0.3rem;">${p.status_snapshot.progress}% complete</div>
-        ` : ''}
+          <div class="pstate-prog-label" style="font-size:0.73rem;color:var(--text-muted);margin-top:0.3rem;">${p.status_snapshot?.progress || 0}% complete</div>
+        </div>
         <div style="font-size:0.73rem;color:var(--text-muted);margin-top:0.5rem;">Last seen: ${timeAgo(p.last_seen)}</div>
       </a>
     `).join('');
@@ -471,7 +471,39 @@ route('/printers', async (el) => {
 
   // Add printer wizard
   $('#add-printer-btn').onclick = () => showAddPrinterModal();
+
+  // LIVE STATUS: poll every second while this page is open (WS pushes land
+  // in between, but polling guarantees a 1s worst-case refresh — previously
+  // the page needed a manual reload to see state changes).
+  const listTimer = setInterval(async () => {
+    if ((location.hash.slice(1) || '') !== '/printers') { clearInterval(listTimer); return; }
+    try {
+      const ps = await api.getPrinters();
+      for (const p of ps) _applyStatusToListCard(p.printer_id, p.status_snapshot || {});
+    } catch { /* transient — next tick retries */ }
+  }, 1000);
 });
+
+// Update one printer card on the list page in place (used by the 1s poll
+// AND the live WebSocket push).
+function _applyStatusToListCard(printerId, s) {
+  const state = s.state || 'unknown';
+  const dot = document.querySelector(`[data-pstate-dot="${printerId}"]`);
+  if (dot) dot.className = `status-dot ${(state === 'idle' || state === 'printing') ? 'online' : (state === 'offline' ? 'offline' : 'unknown')}`;
+  const badge = document.querySelector(`[data-pstate-badge="${printerId}"]`);
+  if (badge) badge.innerHTML = statusBadge(s.print_error ? 'blocked' : state);
+  const prog = document.querySelector(`[data-pstate-prog="${printerId}"]`);
+  if (prog) {
+    const show = s.progress !== undefined && state === 'printing';
+    prog.style.display = show ? '' : 'none';
+    if (show) {
+      const fill = prog.querySelector('.progress-bar-fill');
+      if (fill) fill.style.width = `${s.progress}%`;
+      const label = prog.querySelector('.pstate-prog-label');
+      if (label) label.textContent = `${s.progress}% complete`;
+    }
+  }
+}
 
 // ===== PRINTER DETAIL =====
 route('/printers/:id', async (el, { id }) => {
@@ -494,20 +526,18 @@ route('/printers/:id', async (el, { id }) => {
     </div>
 
     <div class="grid-2">
-      <!-- Status Card -->
+      <!-- Status Card (ids are the live-update hooks for the 1s poll + WS push) -->
       <div class="card">
-        <div class="card-header"><h3>Status</h3>${statusBadge(printer.status_snapshot?.print_error ? 'blocked' : (printer.status_snapshot?.state || 'unknown'))}</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;font-size:0.85rem;">
+        <div class="card-header"><h3>Status</h3><span id="printer-status-badge">${statusBadge(printer.status_snapshot?.print_error ? 'blocked' : (printer.status_snapshot?.state || 'unknown'))}</span></div>
+        <div id="printer-telemetry" style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;font-size:0.85rem;">
           <div><span style="color:var(--text-muted);">Bed Temp:</span> ${printer.status_snapshot?.bed_temp ?? '—'}°C</div>
           <div><span style="color:var(--text-muted);">Nozzle:</span> ${printer.status_snapshot?.nozzle_temp ?? '—'}°C</div>
           <div><span style="color:var(--text-muted);">Progress:</span> ${printer.status_snapshot?.progress ?? '—'}%</div>
           <div><span style="color:var(--text-muted);">Layer:</span> ${printer.status_snapshot?.layer ?? '—'}/${printer.status_snapshot?.total_layers ?? '—'}</div>
         </div>
-        ${printer.status_snapshot?.progress !== undefined ? html`
-          <div class="progress-bar" style="margin-top:1rem;">
-            <div class="progress-bar-fill" style="width:${printer.status_snapshot.progress}%"></div>
-          </div>
-        ` : ''}
+        <div id="printer-progress-wrap" class="progress-bar" style="margin-top:1rem;${printer.status_snapshot?.progress !== undefined ? '' : 'display:none;'}">
+          <div id="printer-progress-fill" class="progress-bar-fill" style="width:${printer.status_snapshot?.progress || 0}%"></div>
+        </div>
       </div>
 
       <!-- BLOCKED Alert (print_error) -->
@@ -595,14 +625,25 @@ route('/printers/:id', async (el, { id }) => {
         </div>
         <div id="printer-controls-content" style="padding:0.75rem;">
 
+          <!-- Active printer error: decoded message + the same options the
+               printer's own screen offers (populated by refreshPrintControlButtons) -->
+          <div id="printer-error-panel" style="display:none;margin-bottom:1rem;background:rgba(251,191,36,0.07);border:1px solid var(--warning,#fbbf24);border-radius:var(--radius-md,10px);padding:0.85rem;"></div>
+
+          <!-- Print Control (pause/resume/stop the current job) -->
+          <div style="margin-bottom:1rem;">
+            <div style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:0.5rem;">Print Control</div>
+            <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;">
+              <button class="btn btn-sm btn-warning" id="pc-pause" onclick="printCtrl('${id}','pause')">⏸ Pause</button>
+              <button class="btn btn-sm btn-success" id="pc-resume" onclick="printCtrl('${id}','resume')">▶ Resume</button>
+              <button class="btn btn-sm btn-danger" id="pc-stop" onclick="printCtrl('${id}','stop')">⏹ Stop</button>
+              <button class="btn btn-sm btn-warning" id="pc-recover" onclick="recoverPrinter('${id}')" title="Dismiss the printer error and re-home if needed — the software equivalent of tapping OK/Retry on the printer screen">⚠️ Clear Error &amp; Recover</button>
+              <span id="pc-state" style="font-size:0.78rem;color:var(--text-muted);"></span>
+            </div>
+          </div>
+
           <!-- Quick Actions -->
           <div style="margin-bottom:1rem;">
             <div style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:0.5rem;">Quick Actions</div>
-            <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:0.5rem;">
-              <button class="btn btn-sm" onclick="pCtrl('${id}','pause')" title="Pause the current print">⏸ Pause</button>
-              <button class="btn btn-sm" onclick="pCtrl('${id}','resume')" title="Resume the current print">▶ Resume</button>
-              <button class="btn btn-sm btn-danger" onclick="if(confirm('Stop the current print? This cannot be undone.'))pCtrl('${id}','stop')" title="Stop the current print">⏹ Stop</button>
-            </div>
             <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;">
               <button class="btn btn-sm" id="ctrl-light-btn" onclick="toggleLight('${id}')" style="min-width:100px;">💡 Light On</button>
               <button class="btn btn-sm" onclick="pCtrl('${id}','home',{axes:'all'})">🏠 Home All</button>
@@ -710,7 +751,7 @@ route('/printers/:id', async (el, { id }) => {
                 <span style="font-size:0.8rem;font-weight:600;">Speed Profile</span>
                 <div class="btn-group" style="gap:0.2rem;">
                   <button class="btn btn-sm" onclick="setSpeedProfile('${id}',2)" title="Revert to Standard" style="font-size:0.7rem;">↺ Reset</button>
-                  <button class="btn btn-sm btn-primary" onclick="applyOverride('${id}','speed_profile',window._pendingSpeedProfile||2)" style="font-size:0.7rem;">▶ Apply</button>
+                  <button class="btn btn-sm btn-primary" onclick="applyOverride('${id}','speed_profile',_pendingSpeedProfile||2)" style="font-size:0.7rem;">▶ Apply</button>
                 </div>
               </div>
               <div style="display:flex;gap:0.35rem;">
@@ -764,8 +805,8 @@ route('/printers/:id', async (el, { id }) => {
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
                 <span style="font-size:0.8rem;font-weight:600;">Z-Offset <span id="ctrl-zoff-val" style="color:var(--primary);">0.00mm</span></span>
                 <div class="btn-group" style="gap:0.2rem;">
-                  <button class="btn btn-sm" onclick="window._zOff=0;updZOff()" style="font-size:0.7rem;">↺ Reset</button>
-                  <button class="btn btn-sm btn-primary" onclick="applyOverride('${id}','z_offset',window._zOff)" style="font-size:0.7rem;">▶ Apply</button>
+                  <button class="btn btn-sm" onclick="_zOff=0;updZOff()" style="font-size:0.7rem;">↺ Reset</button>
+                  <button class="btn btn-sm btn-primary" onclick="applyOverride('${id}','z_offset',_zOff)" style="font-size:0.7rem;">▶ Apply</button>
                 </div>
               </div>
               <div style="display:flex;gap:0.35rem;align-items:center;justify-content:center;">
@@ -813,6 +854,15 @@ route('/printers/:id', async (el, { id }) => {
 
   // Check for print_error BLOCKED state
   checkBlockedStatus(id);
+
+  // Wire up the pause/resume/stop buttons AND the Status card to the
+  // printer's live state — 1s cadence so state changes (printing/idle/…)
+  // show up without a manual page reload.
+  refreshPrintControlButtons(id);
+  const pcTimer = setInterval(() => {
+    if ((location.hash.slice(1) || '') !== `/printers/${id}`) { clearInterval(pcTimer); return; }
+    refreshPrintControlButtons(id);
+  }, 1000);
 
   // Start camera feed if camera is available
   if (printer.capabilities?.camera) startCamFeed(id);
@@ -961,99 +1011,15 @@ window.pCtrl = async function(printerId, action, extra = {}) {
   }
 };
 
-// Light toggle
-let _lightOn = false;
-window.toggleLight = function(printerId) {
-  _lightOn = !_lightOn;
-  const btn = document.getElementById('ctrl-light-btn');
-  if (btn) {
-    btn.textContent = _lightOn ? '💡 Light Off' : '💡 Light On';
-    btn.style.background = _lightOn ? 'var(--primary)' : '';
-    btn.style.color = _lightOn ? '#fff' : '';
-  }
-  pCtrl(printerId, _lightOn ? 'light_on' : 'light_off');
-};
-
-// Set a slider value and update its label
-window.setSlider = function(id, val) {
-  const el = document.getElementById(id);
-  if (el) {
-    el.value = val;
-    el.dispatchEvent(new Event('input'));
-  }
-};
-
-// Movement step size
-let _moveStep = 10;
-window._ms = function(positive) {
-  return positive ? _moveStep : -_moveStep;
-};
-window._setStep = function(step) {
-  _moveStep = step;
-  [1,5,10,50].forEach(s => {
-    const b = document.getElementById(`step-${s}`);
-    if (b) {
-      b.style.background = s === step ? 'var(--primary)' : '';
-      b.style.color = s === step ? '#fff' : '';
-    }
-  });
-};
-
-// Z-offset — stage only (no send until Apply)
-// Exposed on window so inline onclick handlers (which run in global scope) can read/reset it.
-window._zOff = 0;
-window.updZOff = function() {
-  const v = document.getElementById('ctrl-zoff-val');
-  const d = document.getElementById('ctrl-zoff-display');
-  const txt = window._zOff.toFixed(2) + 'mm';
-  if (v) v.textContent = txt;
-  if (d) d.textContent = window._zOff >= 0 ? '+' + window._zOff.toFixed(2) : window._zOff.toFixed(2);
-};
-window.stageZ = function(delta) {
-  window._zOff = Math.round((window._zOff + delta) * 100) / 100;
-  window._zOff = Math.max(-1, Math.min(1, window._zOff));
-  updZOff();
-};
-
-// Speed profile — stage only (no send until Apply)
-// Exposed on window so inline onclick handlers can read it (see applyOverride call sites).
-window._pendingSpeedProfile = 2;
-window.stageSpeedProfile = function(level) {
-  window._pendingSpeedProfile = level;
-  [1,2,3,4].forEach(l => {
-    const b = document.getElementById(`sp-${l}`);
-    if (b) {
-      b.style.background = l === level ? 'var(--primary)' : '';
-      b.style.color = l === level ? '#fff' : '';
-    }
-  });
-};
-
-// Speed profile — apply immediate (for reset button)
-window.setSpeedProfile = function(printerId, level) {
-  stageSpeedProfile(level);
-  pCtrl(printerId, 'set_speed_profile', { level });
-};
-
-// Apply override — sends the command AND saves to DB
-window.applyOverride = async function(printerId, key, value) {
-  const actionMap = {
-    speed_profile: { action: 'set_speed_profile', key: 'level', transform: v => parseInt(v) },
-    speed_override: { action: 'set_speed_override', key: 'percent', transform: v => parseInt(v) },
-    flow_override: { action: 'set_flow_override', key: 'percent', transform: v => parseInt(v) },
-    z_offset: { action: 'set_z_offset', key: 'offset', transform: v => parseFloat(v) },
-  };
-  const mapping = actionMap[key];
-  if (!mapping) return;
-
+// Pause / resume / stop the current print. Stop confirms (it can't be undone).
+window.printCtrl = async function(printerId, action) {
+  if (action === 'stop' && !confirm('Stop the current print? This cannot be resumed.')) return;
   try {
-    // Send to printer
-    await api.sendControl(printerId, { action: mapping.action, [mapping.key]: mapping.transform(value) });
-    // Save to DB
-    await api.setOverride(printerId, key, String(value));
-    toast(`Applied ${key.replace(/_/g,' ')}: ${value}`, 'success');
+    await api.sendControl(printerId, { action });
+    toast(action === 'stop' ? 'Stopping print…' : action === 'pause' ? 'Pausing…' : 'Resuming…', 'info');
+    setTimeout(() => refreshPrintControlButtons(printerId), 1500);
   } catch (err) {
-    toast(`Apply failed: ${err.message}`, 'error');
+    toast(`${action} failed: ${err.message}`, 'error');
   }
 };
 
@@ -1195,10 +1161,208 @@ window.startJobWithAms = async function(jobId) {
 
 // Update the printer detail Status card in place (used by the 1s poll AND
 // the live WebSocket push — no page reload needed to see state changes).
+function _applyStatusToDetail(s) {
+  const badge = document.getElementById('printer-status-badge');
+  if (badge) badge.innerHTML = statusBadge(s.print_error ? 'blocked' : (s.state || 'unknown'));
+  const grid = document.getElementById('printer-telemetry');
+  if (grid) {
+    grid.innerHTML = html`
+      <div><span style="color:var(--text-muted);">Bed Temp:</span> ${s.bed_temp ?? '—'}°C${s.bed_target ? ` / ${s.bed_target}°C` : ''}</div>
+      <div><span style="color:var(--text-muted);">Nozzle:</span> ${s.nozzle_temp ?? '—'}°C${s.nozzle_target ? ` / ${s.nozzle_target}°C` : ''}</div>
+      <div><span style="color:var(--text-muted);">Progress:</span> ${s.progress ?? '—'}%</div>
+      <div><span style="color:var(--text-muted);">Layer:</span> ${s.layer ?? '—'}/${s.total_layers ?? '—'}</div>
+    `;
+  }
+  const wrap = document.getElementById('printer-progress-wrap');
+  if (wrap) {
+    wrap.style.display = s.progress !== undefined ? '' : 'none';
+    const fill = document.getElementById('printer-progress-fill');
+    if (fill) fill.style.width = `${s.progress || 0}%`;
+  }
+}
+
+// Enable only the buttons that make sense for the printer's current state.
+window.refreshPrintControlButtons = async function(printerId) {
+  const pause = document.getElementById('pc-pause');
+  if (!pause) return; // not on this page
+  const resume = document.getElementById('pc-resume');
+  const stop = document.getElementById('pc-stop');
+  const recover = document.getElementById('pc-recover');
+  const label = document.getElementById('pc-state');
+  let state = 'unknown', printError = 0, decoded = null, gcodeState = null, hmsDecoded = [];
+  try {
+    const p = await api.getPrinter(printerId);
+    state = p.status_snapshot?.state || p.state || 'unknown';
+    printError = p.status_snapshot?.print_error || 0;
+    gcodeState = p.status_snapshot?.gcode_state || null;
+    decoded = p.print_error_decoded || null;
+    hmsDecoded = p.hms_decoded || [];
+    _applyStatusToDetail(p.status_snapshot || {});
+  } catch { /* keep unknown */ }
+  const printing = state === 'printing';
+  const paused = state === 'paused' || gcodeState === 'PAUSE';
+  const active = printing || paused;
+  const errored = state === 'error' || !!printError;
+  pause.disabled = !printing;
+  resume.disabled = !paused;
+  stop.disabled = !active;
+  if (recover && !recover.dataset.busy) {
+    // Recovery (clear + re-home) is for a DEAD print's residue — a paused
+    // print is live; its options are Resume/Stop (like the printer screen).
+    recover.disabled = !errored || paused;
+    recover.style.display = (errored && !paused) ? '' : 'none';
+  }
+  [pause, resume, stop, recover].filter(Boolean).forEach(b => { b.style.opacity = b.disabled ? '0.45' : '1'; });
+  label.textContent = active ? `(${state})` : (state === 'idle' ? '(printer idle — nothing to control)' : `(${state})`);
+
+  // ---- Active-error panel: decoded error + the same options the printer's
+  // own screen shows (Resume/Stop when paused on the error; Clear & Recover
+  // when the print is dead) ----
+  const panel = document.getElementById('printer-error-panel');
+  if (panel) {
+    if (printError && decoded) {
+      const actions = paused
+        ? `<button class="btn btn-sm btn-success" onclick="printCtrl('${printerId}','resume')">▶ Resume Print</button>
+           <button class="btn btn-sm btn-danger" onclick="printCtrl('${printerId}','stop')">⏹ Stop Print</button>
+           <span style="font-size:0.75rem;color:var(--text-muted);">Same options as on the printer screen — the print is paused on this error.</span>`
+        : `<button class="btn btn-sm btn-warning" onclick="recoverPrinter('${printerId}')">⚠️ Clear Error &amp; Recover</button>
+           <span style="font-size:0.75rem;color:var(--text-muted);">Dismisses the error and re-homes if needed — like tapping OK/Retry on the printer.</span>`;
+      // Active HMS notices with a real description add context to the error
+      const hmsWithText = hmsDecoded.filter(h => h.message);
+      const hmsBlock = hmsWithText.length
+        ? `<div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.6rem;">${hmsWithText.slice(0, 3).map(h => `<div style="margin-bottom:0.2rem;">🔔 <b>${h.formatted.slice(0, 9)}</b>: ${h.message}</div>`).join('')}</div>`
+        : '';
+      panel.innerHTML = `
+        <div style="font-weight:700;color:var(--warning,#fbbf24);margin-bottom:0.35rem;">⚠ Printer error ${decoded.formatted}${paused ? ' — print PAUSED' : ''}</div>
+        <div style="font-size:0.9rem;font-weight:600;margin-bottom:0.5rem;">${decoded.message}</div>
+        ${hmsBlock}
+        ${(decoded.remediation?.length && (!paused || decoded.known)) ? `<ul style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 0.6rem 1.1rem;padding:0;">${decoded.remediation.slice(0, 3).map(r => `<li>${r}</li>`).join('')}</ul>` : ''}
+        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;">${actions}</div>`;
+      panel.style.display = '';
+    } else {
+      panel.style.display = 'none';
+      panel.innerHTML = '';
+    }
+  }
+};
+
+// Software equivalent of tapping OK/Retry on the printer screen: dismiss the
+// error, re-home if the firmware holds a homing failure, verify it cleared.
+window.recoverPrinter = async function(printerId) {
+  const btn = document.getElementById('pc-recover');
+  if (btn) { btn.disabled = true; btn.dataset.busy = '1'; btn.textContent = '⏳ Recovering… (up to 45s)'; }
+  try {
+    const res = await api.recoverPrinter(printerId);
+    if (res.ok) {
+      toast('Printer recovered — error cleared, printer is idle ✓', 'success');
+    } else {
+      const errs = res.preflight?.errors?.join('; ') || 'still blocked';
+      toast(`Could not recover: ${errs}. Check the bed and the printer screen.`, 'error');
+    }
+  } catch (err) { toast(err.message, 'error'); }
+  if (btn) { delete btn.dataset.busy; btn.textContent = '⚠️ Clear Error & Recover'; }
+  refreshPrintControlButtons(printerId);
+};
+
+// Light toggle
+let _lightOn = false;
+window.toggleLight = function(printerId) {
+  _lightOn = !_lightOn;
+  const btn = document.getElementById('ctrl-light-btn');
+  if (btn) {
+    btn.textContent = _lightOn ? '💡 Light Off' : '💡 Light On';
+    btn.style.background = _lightOn ? 'var(--primary)' : '';
+    btn.style.color = _lightOn ? '#fff' : '';
+  }
+  pCtrl(printerId, _lightOn ? 'light_on' : 'light_off');
+};
+
+// Set a slider value and update its label
+window.setSlider = function(id, val) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.value = val;
+    el.dispatchEvent(new Event('input'));
+  }
+};
+
+// Movement step size
+let _moveStep = 10;
+window._ms = function(positive) {
+  return positive ? _moveStep : -_moveStep;
+};
+window._setStep = function(step) {
+  _moveStep = step;
+  [1,5,10,50].forEach(s => {
+    const b = document.getElementById(`step-${s}`);
+    if (b) {
+      b.style.background = s === step ? 'var(--primary)' : '';
+      b.style.color = s === step ? '#fff' : '';
+    }
+  });
+};
+
+// Z-offset — stage only (no send until Apply)
+let _zOff = 0;
+window.updZOff = function() {
+  const v = document.getElementById('ctrl-zoff-val');
+  const d = document.getElementById('ctrl-zoff-display');
+  const txt = _zOff.toFixed(2) + 'mm';
+  if (v) v.textContent = txt;
+  if (d) d.textContent = _zOff >= 0 ? '+' + _zOff.toFixed(2) : _zOff.toFixed(2);
+};
+window.stageZ = function(delta) {
+  _zOff = Math.round((_zOff + delta) * 100) / 100;
+  _zOff = Math.max(-1, Math.min(1, _zOff));
+  updZOff();
+};
+
+// Speed profile — stage only (no send until Apply)
+let _pendingSpeedProfile = 2;
+window.stageSpeedProfile = function(level) {
+  _pendingSpeedProfile = level;
+  [1,2,3,4].forEach(l => {
+    const b = document.getElementById(`sp-${l}`);
+    if (b) {
+      b.style.background = l === level ? 'var(--primary)' : '';
+      b.style.color = l === level ? '#fff' : '';
+    }
+  });
+};
+
+// Speed profile — apply immediate (for reset button)
+window.setSpeedProfile = function(printerId, level) {
+  stageSpeedProfile(level);
+  pCtrl(printerId, 'set_speed_profile', { level });
+};
+
+// Apply override — sends the command AND saves to DB
+window.applyOverride = async function(printerId, key, value) {
+  const actionMap = {
+    speed_profile: { action: 'set_speed_profile', key: 'level', transform: v => parseInt(v) },
+    speed_override: { action: 'set_speed_override', key: 'percent', transform: v => parseInt(v) },
+    flow_override: { action: 'set_flow_override', key: 'percent', transform: v => parseInt(v) },
+    z_offset: { action: 'set_z_offset', key: 'offset', transform: v => parseFloat(v) },
+  };
+  const mapping = actionMap[key];
+  if (!mapping) return;
+
+  try {
+    // Send to printer
+    await api.sendControl(printerId, { action: mapping.action, [mapping.key]: mapping.transform(value) });
+    // Save to DB
+    await api.setOverride(printerId, key, String(value));
+    toast(`Applied ${key.replace(/_/g,' ')}: ${value}`, 'success');
+  } catch (err) {
+    toast(`Apply failed: ${err.message}`, 'error');
+  }
+};
+
 // ===== AMS FILAMENT CONFIG =====
 
 // Store AMS state per page instance
 let _amsData = null;
+let _customColorsAms = []; // saved Custom colors in tray format {name, hex:'RRGGBBAA'}
 
 async function refreshAmsConfig(printerId) {
   const el = document.getElementById('ams-config-content');
@@ -1206,6 +1370,10 @@ async function refreshAmsConfig(printerId) {
 
   try {
     _amsData = await api.getPrinterAms(printerId);
+    try {
+      _customColorsAms = (await api.getCustomColors())
+        .map(c => ({ name: c.name, hex: c.hex.slice(1).toUpperCase() + 'FF' }));
+    } catch { _customColorsAms = []; /* older server */ }
     renderAmsSlots(el, printerId);
   } catch (err) {
     el.innerHTML = `<div style="text-align:center;color:var(--text-muted);padding:1rem;">
@@ -1216,10 +1384,28 @@ async function refreshAmsConfig(printerId) {
 }
 window.refreshAmsConfig = refreshAmsConfig;
 
+// Full-spectrum picker for a tray: applies the color (and its saved name) to
+// the tray config, then re-renders so newly-saved Custom colors show as chips.
+window.onCustomTrayColor = function (slotIdx, printerId) {
+  const slot = _amsData?.slots?.[slotIdx] || {};
+  const cur = '#' + String(slot.configured_color || 'FFFFFF').slice(0, 6).toLowerCase();
+  showColorPickerModal({
+    current: cur,
+    title: `Tray ${(slot.tray_id ?? slotIdx) + 1} color`,
+    onPick: async (hex, name) => {
+      await window.onSwatchClick(slotIdx, hex.slice(1).toUpperCase() + 'FF', name || hex, printerId);
+      refreshAmsConfig(printerId); // pick up colors saved inside the picker
+    },
+  });
+};
+
 function renderAmsSlots(el, printerId) {
   const slots = _amsData?.slots || [];
   const types = _amsData?.filament_types || [];
-  const palette = _amsData?.color_palette || [];
+  // built-in palette + saved Custom colors (converted to the tray RRGGBBAA
+  // format) — custom trays then match by name/hex everywhere, and auto-map
+  // finds them by RGB distance at print start like any other color
+  const palette = [...(_amsData?.color_palette || []), ...(_customColorsAms || [])];
 
   const numSlots = Math.max(slots.length, 4);
   let slotsHtml = '';
@@ -1235,8 +1421,24 @@ function renderAmsSlots(el, printerId) {
     const hasMat = !!mat;
     const isFromPrinter = !slot.configured_material && !!slot.live_type;
 
+    // What the PRINTER says is physically in this slot (live AMS report)
+    const liveHex = (slot.live_color || '').replace('#', '');
+    const liveCss = liveHex ? '#' + liveHex.slice(0, 6) : null;
+    const liveLabel = slot.live_material_name || slot.live_type || null;
+    const liveRemain = (slot.live_remaining ?? -1) >= 0 ? `${slot.live_remaining}% left` : null;
+    const mismatch = !!slot.configured_material && !!slot.live_type && (
+      slot.configured_material !== slot.live_type ||
+      (!!liveHex && !!slot.configured_color && liveHex.slice(0, 6).toUpperCase() !== slot.configured_color.slice(0, 6).toUpperCase())
+    );
+    const liveLine = liveLabel
+      ? `<div style="display:flex;align-items:center;gap:0.35rem;margin-top:0.3rem;font-size:0.72rem;color:${mismatch ? 'var(--warning,#fbbf24)' : 'var(--text-muted)'};" title="Reported live by the printer's AMS">
+           <span style="display:inline-block;width:0.7rem;height:0.7rem;border-radius:50%;flex-shrink:0;border:1px solid #555;background:${liveCss || 'var(--bg-secondary)'};"></span>
+           <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Printer: ${liveLabel}${liveRemain ? ' · ' + liveRemain : ''}${mismatch ? ' ⚠ differs from config' : ''}</span>
+         </div>`
+      : `<div style="margin-top:0.3rem;font-size:0.72rem;color:var(--text-muted);opacity:0.7;">Printer: no spool detected</div>`;
+
     slotsHtml += `
-      <div style="background:var(--bg-tertiary);border-radius:12px;padding:1rem;position:relative;border:2px solid ${hasMat ? 'var(--border-color)' : 'transparent'};">
+      <div style="background:var(--bg-tertiary);border-radius:12px;padding:1rem;position:relative;border:2px solid ${slot.loaded_now ? 'var(--success,#34d399)' : (hasMat ? 'var(--border-color)' : 'transparent')};">
         <div style="display:flex;align-items:center;gap:0.65rem;margin-bottom:0.75rem;">
           <div style="width:32px;height:32px;border-radius:50%;background:${hasMat ? cssColor : 'var(--bg-secondary)'};border:2px solid var(--border-color);flex-shrink:0;box-shadow:${hasMat ? '0 2px 8px rgba(0,0,0,0.3)' : 'none'};" id="ams-swatch-${i}"></div>
           <div style="flex:1;min-width:0;">
@@ -1244,8 +1446,12 @@ function renderAmsSlots(el, printerId) {
             <div style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="ams-status-${i}">
               ${hasMat ? mat + (colorName ? ' · ' + colorName : '') : 'Empty — select a material'}
             </div>
+            ${liveLine}
           </div>
-          ${isFromPrinter ? '<span style="font-size:0.6rem;background:rgba(100,200,255,0.12);color:var(--info,#64b5f6);padding:0.15rem 0.4rem;border-radius:3px;font-weight:600;position:absolute;top:0.5rem;right:0.5rem;">FROM PRINTER</span>' : ''}
+          <div style="position:absolute;top:0.5rem;right:0.5rem;display:flex;gap:0.25rem;">
+            ${slot.loaded_now ? '<span style="font-size:0.6rem;background:rgba(52,211,153,0.15);color:var(--success,#34d399);padding:0.15rem 0.4rem;border-radius:3px;font-weight:700;">● IN EXTRUDER</span>' : ''}
+            ${isFromPrinter ? '<span style="font-size:0.6rem;background:rgba(100,200,255,0.12);color:var(--info,#64b5f6);padding:0.15rem 0.4rem;border-radius:3px;font-weight:600;">FROM PRINTER</span>' : ''}
+          </div>
         </div>
 
         <div style="margin-bottom:0.6rem;">
@@ -1275,13 +1481,34 @@ function renderAmsSlots(el, printerId) {
                   transition:all 0.15s ease;"
               ></div>`;
             }).join('')}
+            <div
+              onclick="onCustomTrayColor(${i},'${printerId}')"
+              title="Custom color… (full spectrum)"
+              style="width:24px;height:24px;border-radius:50%;cursor:pointer;background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red);border:1px solid var(--border-color);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;text-shadow:0 0 2px #000;"
+            >＋</div>
           </div>
         </div>
       </div>
     `;
   }
 
+  // Header: what the printer reports right now (loaded tray + AMS humidity)
+  const humidityText = (_amsData?.humidity || [])
+    .map(h => `AMS ${h.ams_id + 1} humidity ${h.humidity}/5${h.humidity <= 2 ? ' (dry)' : (h.humidity >= 4 ? ' (humid ⚠)' : '')}`)
+    .join(' · ');
+  let loadedText;
+  if (_amsData?.external_spool_loaded) loadedText = 'external spool in extruder';
+  else if (_amsData?.tray_now !== null && _amsData?.tray_now !== undefined) loadedText = `Tray ${(_amsData.tray_now % 4) + 1}${_amsData.tray_now > 3 ? ` (AMS ${Math.floor(_amsData.tray_now / 4) + 1})` : ''} in extruder`;
+  else loadedText = 'no filament in extruder';
+  const liveHeader = _amsData?.ams_available
+    ? `<div style="display:flex;flex-wrap:wrap;gap:0.5rem 1rem;align-items:center;margin-bottom:0.75rem;font-size:0.78rem;color:var(--text-secondary);">
+         <span title="Reported live by the printer">🖨 Printer reports: <b>${loadedText}</b></span>
+         ${humidityText ? `<span>💧 ${humidityText}</span>` : ''}
+       </div>`
+    : `<div style="margin-bottom:0.75rem;font-size:0.78rem;color:var(--text-muted);">🖨 No live AMS report from the printer (offline?) — showing saved configuration.</div>`;
+
   el.innerHTML = `
+    ${liveHeader}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.75rem;">
       ${slotsHtml}
     </div>
