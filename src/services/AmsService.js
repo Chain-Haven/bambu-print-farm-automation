@@ -19,8 +19,13 @@ export class AmsService {
 
         const units = ams.ams || [];
         const slots = [];
+        const humidity = [];
 
         for (const unit of units) {
+            // Bambu humidity index: 1 (dry) … 5 (wet); some units omit it
+            if (unit.humidity !== undefined && unit.humidity !== null && unit.humidity !== '') {
+                humidity.push({ ams_id: Number(unit.id) || 0, humidity: Number(unit.humidity) });
+            }
             const trays = unit.tray || [];
             for (let i = 0; i < trays.length; i++) {
                 const tray = trays[i];
@@ -31,14 +36,21 @@ export class AmsService {
                     type: tray.tray_type || 'unknown',
                     color: tray.tray_color ? `#${tray.tray_color}` : null,
                     material: tray.tray_sub_brands || tray.tray_type,
+                    material_name: tray.tray_sub_brands || null, // e.g. "PLA Basic"
                     temp_nozzle: tray.nozzle_temp_max,
                     temp_bed: tray.bed_temp,
-                    remaining: tray.remain,
+                    remaining: tray.remain, // percent, -1 = unknown
                 });
             }
         }
 
-        return { available: true, slots };
+        // tray_now = GLOBAL index of the tray physically loaded in the
+        // extruder right now (Bambu: 254 = external spool, 255 = none)
+        const trayNowRaw = parseInt(ams.tray_now ?? '', 10);
+        const tray_now = Number.isFinite(trayNowRaw) && trayNowRaw < 254 ? trayNowRaw : null;
+        const external_spool_loaded = trayNowRaw === 254;
+
+        return { available: true, slots, tray_now, external_spool_loaded, humidity };
     }
 
     // ─────────────────────────────────────────────
@@ -184,9 +196,11 @@ export class AmsService {
                 configured_color: cfg?.color_hex || null,
                 configured_color_name: cfg?.color_name || null,
                 configured_setting_id: cfg?.setting_id || null,
-                live_type: liveSlot?.type || null,
+                live_type: liveSlot?.type && liveSlot.type !== 'unknown' ? liveSlot.type : null,
                 live_color: liveSlot?.color || null,
+                live_material_name: liveSlot?.material_name || null, // printer's own label, e.g. "PLA Basic"
                 live_remaining: liveSlot?.remaining ?? null,
+                loaded_now: live?.tray_now === i, // this tray is in the extruder
                 // Compare the configured material's BASE tray type (e.g. "PLA Silk"
                 // -> "PLA") to the live tray type, not the raw material string —
                 // otherwise every subtype is falsely flagged out-of-sync.
@@ -197,6 +211,9 @@ export class AmsService {
         return {
             printer_id: printerId,
             ams_available: live?.available ?? false,
+            tray_now: live?.tray_now ?? null,
+            external_spool_loaded: live?.external_spool_loaded ?? false,
+            humidity: live?.humidity || [],
             slots,
             filament_types: FILAMENT_TYPES.map(f => f.material),
             color_palette: COLOR_PALETTE,
@@ -211,6 +228,75 @@ export class AmsService {
         const entry = FILAMENT_TYPES.find(f => f.material === cfg.material);
         const expected = entry?.trayType || cfg.material;
         return String(expected).toUpperCase() === String(live).toUpperCase();
+    }
+
+    /**
+     * Auto-map requested print colors to physical AMS trays by color distance.
+     * Pure function (unit-testable): colors = ['#RRGGBB', ...] in filament-slot
+     * order; slots = getFullStatus().slots. Greedy nearest-color assignment,
+     * one tray per color, with a distance threshold so black never silently
+     * prints as white. Returns { ok, mapping: [globalTrayIdx per color] } or
+     * { ok:false, error }.
+     */
+    static matchColorsToTrays(colors, slots, maxDistance = 120, material = null) {
+        const hexToRgb = (h) => {
+            if (!h) return null;
+            const s = String(h).replace('#', '').slice(0, 6);
+            if (s.length < 6 || /[^0-9a-fA-F]/.test(s)) return null;
+            return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)];
+        };
+        const dist = (a, b) => Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
+
+        // MATERIAL FIRST, then color: a white PETG spool must never satisfy a
+        // white PLA print (learned the hard way). When the job specifies a
+        // material, only trays reporting that material are candidates.
+        const wantMat = material ? String(material).trim().toUpperCase() : null;
+        const allTrays = (slots || []).map((s, i) => ({
+            index: i,
+            rgb: hexToRgb(s.configured_color || s.live_color),
+            mat: String(s.configured_material || s.live_type || '').trim().toUpperCase(),
+            label: `AMS ${s.ams_id + 1} tray ${s.tray_id + 1}`,
+            desc: `${s.configured_material || s.live_type || '?'} ${s.configured_color_name || s.configured_color || s.live_color || ''}`.trim(),
+        })).filter(t => t.rgb);
+
+        const trays = wantMat ? allTrays.filter(t => t.mat === wantMat) : allTrays;
+
+        if (!trays.length) {
+            const have = allTrays.map(t => `${t.label}: ${t.desc}`).join(', ') || 'none';
+            return {
+                ok: false,
+                error: wantMat
+                    ? `No ${wantMat} spool is loaded/configured on this printer (loaded: ${have}). Load ${wantMat}, fix the tray material, or choose slots manually.`
+                    : 'No AMS tray colors are configured for this printer — set tray colors on the printer page, or choose slots manually.',
+            };
+        }
+
+        const wanted = colors.map((c, slot) => ({ slot, hex: c, rgb: hexToRgb(c) }));
+        for (const w of wanted) {
+            if (!w.rgb) return { ok: false, error: `Invalid color "${w.hex}" on filament ${w.slot + 1}` };
+        }
+        // Greedy global best-match-first so each color gets its closest free tray.
+        const taken = new Set();
+        const mapping = new Array(colors.length).fill(-1);
+        const pairs = [];
+        for (const w of wanted) for (const t of trays) pairs.push({ w, t, d: dist(w.rgb, t.rgb) });
+        pairs.sort((a, b) => a.d - b.d);
+        for (const { w, t, d } of pairs) {
+            if (mapping[w.slot] !== -1 || taken.has(t.index)) continue;
+            if (d > maxDistance) continue;
+            mapping[w.slot] = t.index;
+            taken.add(t.index);
+        }
+        const missing = wanted.filter(w => mapping[w.slot] === -1);
+        if (missing.length) {
+            const have = trays.map(t => `${t.label}: ${t.desc}`).join(', ');
+            return {
+                ok: false,
+                error: `No AMS spool matches color ${missing.map(m => m.hex).join(', ')} closely enough. Loaded: ${have}. ` +
+                    `Load a matching spool, update tray colors, or choose slots manually.`,
+            };
+        }
+        return { ok: true, mapping, details: mapping.map((t, i) => `${colors[i]} -> ${trays.find(x => x.index === t).label}`) };
     }
 }
 

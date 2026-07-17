@@ -574,12 +574,32 @@ export class JobOrchestrator {
                 throw new Error('Start failed: MQTT client not available');
             }
 
-            // AMS mapping. Re-read ams_roles from the DB NOW, not from the
-            // pipeline's snapshot: the upload takes ~15s and the operator may
-            // change the tray pick during it — the fresh value must win.
+            // AMS mapping — two modes (set at submit time by the slicer UI):
+            //   auto:   job stores the PRINT COLORS; resolve them against the
+            //           printer's CURRENT AMS inventory right now (start time),
+            //           so spool swaps between queue and start are respected.
+            //   manual: job stores an explicit slot_map (filament -> tray).
+            // The gcode is never edited — the printer's firmware applies
+            // ams_mapping from the start command to the file's filament indices.
+            // Re-read ams_roles from the DB NOW, not from the pipeline's
+            // snapshot: the upload takes ~15s and the operator may change the
+            // tray pick during it — the fresh value must win.
             const amsRoles = JobModel.findById(jobId)?.ams_roles ?? job.ams_roles;
             let amsMapping = [];
-            if (amsRoles?.slot_map) {
+            if (amsRoles?.mode === 'auto' && Array.isArray(amsRoles.colors) && amsRoles.colors.length) {
+                const { AmsService } = await import('./AmsService.js');
+                const amsStatus = AmsService.getFullStatus(job.printer_id);
+                const resolved = AmsService.matchColorsToTrays(amsRoles.colors, amsStatus.slots, 120, amsRoles.material || null);
+                if (!resolved.ok) {
+                    stage('AMS_AUTO_MAP_FAILED', { reason: resolved.error, colors: amsRoles.colors });
+                    broadcastPhase('start', 'failed', resolved.error);
+                    releaseLock();
+                    // printer-local: another printer may have the right spools loaded
+                    throw printerLocalError(`AMS auto-mapping failed: ${resolved.error}`);
+                }
+                amsMapping = resolved.mapping;
+                stage('AMS_AUTO_MAPPED', { mapping: resolved.details });
+            } else if (amsRoles?.slot_map) {
                 amsMapping = Object.values(amsRoles.slot_map);
                 stage('AMS_MANUAL_MAPPING', { slot_map: amsRoles.slot_map, mapping: amsMapping });
             }
@@ -863,11 +883,15 @@ export class JobOrchestrator {
      * Pick an idle, error-free printer with the same Automator geometry to
      * fail a job over to (P1P ≡ P1S). Printers the cloud/queue already gave
      * work to are skipped so failover can't butt into another job's printer.
+     * For AMS-auto jobs the candidate must also resolve every print color
+     * against its live AMS inventory — otherwise it would just fail again.
      */
     static async _pickFailoverPrinter(job, failedPrinter) {
         const { RuntimeSupervisor } = await import('../runtime/RuntimeSupervisor.js');
         const supervisor = RuntimeSupervisor.getInstance();
         if (!supervisor) return null;
+        const amsAuto = job.ams_roles?.mode === 'auto' && Array.isArray(job.ams_roles.colors) && job.ams_roles.colors.length;
+        const { AmsService } = amsAuto ? await import('./AmsService.js') : {};
         const wantedKey = automatorModelKey(failedPrinter.model);
         for (const p of PrinterModel.findAll()) {
             if (p.printer_id === failedPrinter.printer_id) continue;
@@ -877,6 +901,12 @@ export class JobOrchestrator {
             if (worker.state !== 'idle') continue;
             if (worker.latestStatus?.print_error) continue;
             if (worker.activeJobId) continue;
+            if (amsAuto) {
+                try {
+                    const status = AmsService.getFullStatus(p.printer_id);
+                    if (!AmsService.matchColorsToTrays(job.ams_roles.colors, status.slots, 120, job.ams_roles.material || null).ok) continue;
+                } catch { continue; }
+            }
             return p;
         }
         return null;
