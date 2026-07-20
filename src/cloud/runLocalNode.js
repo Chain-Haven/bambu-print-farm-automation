@@ -41,6 +41,26 @@ async function detectSlicerAvailable() {
     return _slicerAvailable;
 }
 
+// Whether this node can compile OpenSCAD source to STL (cloud.model.generate,
+// used by the agent MCP server's generate_model tool).
+let _openscadAvailable = null;
+async function detectOpenscadAvailable() {
+    if (_openscadAvailable !== null) return _openscadAvailable;
+    if (process.env.MOCK_MODE === 'true') {
+        _openscadAvailable = true;
+        return _openscadAvailable;
+    }
+    try {
+        const { execFile } = await import('node:child_process');
+        _openscadAvailable = await new Promise((resolve) => {
+            execFile('openscad', ['--version'], { timeout: 5000 }, (error) => resolve(!error));
+        });
+    } catch {
+        _openscadAvailable = false;
+    }
+    return _openscadAvailable;
+}
+
 async function sendHeartbeat(client, status = 'online', resultOutbox = null) {
     const networkInterfaces = collectNetworkInterfaces();
 
@@ -73,6 +93,7 @@ async function sendHeartbeat(client, status = 'online', resultOutbox = null) {
             command_polling: true,
             printer_lan_control: true,
             can_slice: await detectSlicerAvailable(),
+            can_generate_models: await detectOpenscadAvailable(),
             network_interface_count: networkInterfaces.length,
             pending_result_count: resultOutbox?.size?.() || 0,
             printer_count: printers.length,

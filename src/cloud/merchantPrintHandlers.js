@@ -231,6 +231,31 @@ async function reserveFilamentIfPossible({ store, job, upload }) {
 // uploads of any accepted format print fully automatically. Jobs that can't
 // place right now park as waiting_for_capacity and are re-dispatched from the
 // heartbeat path (printDispatch.redispatchWaitingJobs) when capacity frees.
+// Exported for the public storefront, which stores the file at checkout and
+// dispatches only after payment clears.
+export async function routeAndDispatchJobFile({ store, merchant, upload, file, now = () => new Date() }) {
+    return createRoutedPrintJob({ store, merchant, upload, file, now });
+}
+
+// First half of the pipeline: persist the artifact + create the job_files
+// record without routing anything. Also exported for the storefront.
+export async function storeUploadedJobFile({ store, merchant, upload, now = () => new Date() }) {
+    const storagePath = buildStoragePath({ merchant, file: upload.file, now });
+    await store.uploadPrintArtifact(storagePath, upload.file.buffer, upload.file.contentType);
+
+    return store.createJobFile({
+        org_id: merchant.org_id,
+        merchant_id: merchant.merchant_id,
+        storage_path: storagePath,
+        original_name: upload.file.originalName,
+        content_type: upload.file.contentType,
+        byte_size: upload.file.byteSize,
+        checksum_sha256: upload.file.checksum,
+        file_mode: upload.file.fileMode,
+        requirements: upload.requirements,
+    });
+}
+
 async function createRoutedPrintJob({ store, merchant, upload, file, now }) {
     const overview = await loadDispatchOverview({ store, orgId: merchant.org_id });
     const strategy = normalizeRoutingStrategy(upload.options.routing_strategy || upload.requirements.routing_strategy);
@@ -288,20 +313,7 @@ async function createRoutedPrintJob({ store, merchant, upload, file, now }) {
 }
 
 async function createPrintJob({ store, merchant, upload, now }) {
-    const storagePath = buildStoragePath({ merchant, file: upload.file, now });
-    await store.uploadPrintArtifact(storagePath, upload.file.buffer, upload.file.contentType);
-
-    const file = await store.createJobFile({
-        org_id: merchant.org_id,
-        merchant_id: merchant.merchant_id,
-        storage_path: storagePath,
-        original_name: upload.file.originalName,
-        content_type: upload.file.contentType,
-        byte_size: upload.file.byteSize,
-        checksum_sha256: upload.file.checksum,
-        file_mode: upload.file.fileMode,
-        requirements: upload.requirements,
-    });
+    const file = await storeUploadedJobFile({ store, merchant, upload, now });
 
     const result = await createRoutedPrintJob({ store, merchant, upload, file, now });
 

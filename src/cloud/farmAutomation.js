@@ -24,6 +24,17 @@ const DEFAULT_POLICY = {
     prefer_loaded_filament: true,
     low_spool_threshold_grams: 150,
     remote_access_enabled: true,
+    // Heartbeat sweep turns submitted-but-unprinted merchant order items
+    // (job_id null) into print jobs automatically. Off = only items that
+    // explicitly requested auto_submit are picked up.
+    auto_print_submitted_orders: true,
+    // One automatic re-route + reprint after a failure before a human is
+    // alerted (transient failures clear themselves; the retry may land on a
+    // different printer).
+    auto_retry_failed_jobs: true,
+    auto_retry_max: 1,
+    // Operator maintenance nudge every N completed prints per printer.
+    maintenance_alert_every_prints: 200,
 };
 
 const DEFAULT_INTEGRATIONS = {
@@ -116,6 +127,12 @@ function normalizePolicy(policy = {}) {
         prefer_loaded_filament: normalizeBoolean(source.prefer_loaded_filament, DEFAULT_POLICY.prefer_loaded_filament),
         low_spool_threshold_grams: normalizePositiveNumber(source.low_spool_threshold_grams, DEFAULT_POLICY.low_spool_threshold_grams),
         remote_access_enabled: normalizeBoolean(source.remote_access_enabled, DEFAULT_POLICY.remote_access_enabled),
+        auto_print_submitted_orders: normalizeBoolean(source.auto_print_submitted_orders, DEFAULT_POLICY.auto_print_submitted_orders),
+        auto_retry_failed_jobs: normalizeBoolean(source.auto_retry_failed_jobs, DEFAULT_POLICY.auto_retry_failed_jobs),
+        auto_retry_max: Number.isFinite(Number.parseInt(source.auto_retry_max, 10))
+            ? Math.max(0, Math.min(Number.parseInt(source.auto_retry_max, 10), 3))
+            : DEFAULT_POLICY.auto_retry_max,
+        maintenance_alert_every_prints: normalizePositiveNumber(source.maintenance_alert_every_prints, DEFAULT_POLICY.maintenance_alert_every_prints),
     };
 }
 

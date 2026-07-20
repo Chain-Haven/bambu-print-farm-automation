@@ -230,7 +230,13 @@ describe('cloud dashboard assets', () => {
     });
 
     it('keeps browser controller scripts parseable', () => {
-        for (const file of ['public/js/api.js', 'public/js/ws.js', 'public/js/app.js']) {
+        for (const file of [
+            'public/js/api.js',
+            'public/js/ws.js',
+            'public/js/app.js',
+            'public/js/model-viewer.js',
+            'public/js/storefront-order.js',
+        ]) {
             execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' });
         }
         // ES modules (they use import syntax): syntax-check via stdin in module mode.

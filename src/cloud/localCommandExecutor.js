@@ -775,6 +775,77 @@ async function executePrinterAdopt(command, deps) {
     };
 }
 
+// Compile OpenSCAD source to an STL on this node (agents literally write
+// parametric CAD as text). MOCK_MODE emits a small valid cube STL so the
+// whole generate → quote → print loop runs offline. The result rides the
+// command channel base64-encoded, capped to keep command rows sane.
+const MAX_GENERATED_STL_BYTES = 4 * 1024 * 1024;
+
+async function defaultGenerateModel({ scadSource, commandId }) {
+    if (process.env.MOCK_MODE === 'true') {
+        // 20mm cube, binary STL, built in-memory.
+        const V = [[0, 0, 0], [20, 0, 0], [20, 20, 0], [0, 20, 0], [0, 0, 20], [20, 0, 20], [20, 20, 20], [0, 20, 20]];
+        const F = [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]];
+        const buffer = Buffer.alloc(84 + F.length * 50);
+        buffer.writeUInt32LE(F.length, 80);
+        let offset = 84;
+        for (const face of F) {
+            offset += 12;
+            for (const vi of face) {
+                buffer.writeFloatLE(V[vi][0], offset);
+                buffer.writeFloatLE(V[vi][1], offset + 4);
+                buffer.writeFloatLE(V[vi][2], offset + 8);
+                offset += 12;
+            }
+            offset += 2;
+        }
+        return { buffer, mock: true };
+    }
+
+    const [{ execFile }, os, path, fsp] = await Promise.all([
+        import('node:child_process'),
+        import('node:os'),
+        import('node:path'),
+        import('node:fs/promises'),
+    ]);
+    const workDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'pkx-scad-'));
+    const scadPath = path.join(workDir, 'model.scad');
+    const stlPath = path.join(workDir, `${commandId || 'model'}.stl`);
+    try {
+        await fsp.writeFile(scadPath, scadSource, 'utf8');
+        await new Promise((resolve, reject) => {
+            execFile('openscad', ['-o', stlPath, scadPath], { timeout: 90_000 }, (error, _stdout, stderr) => {
+                if (error) {
+                    reject(new Error(error.code === 'ENOENT'
+                        ? 'openscad_not_installed: install OpenSCAD on this farm node to enable model generation'
+                        : `openscad_failed: ${String(stderr || error.message).slice(0, 400)}`));
+                } else resolve();
+            });
+        });
+        const buffer = await fsp.readFile(stlPath);
+        return { buffer, mock: false };
+    } finally {
+        await fsp.rm(workDir, { recursive: true, force: true }).catch(() => {});
+    }
+}
+
+async function executeModelGenerate(command, deps) {
+    const scadSource = requiredString(command.payload?.scad_source, 'payload.scad_source');
+    if (scadSource.length > 200_000) throw new Error('scad_source exceeds the 200 KB limit');
+    const generate = deps.generateModel || defaultGenerateModel;
+    const { buffer, mock } = await generate({ scadSource, commandId: command.command_id });
+    if (buffer.length > MAX_GENERATED_STL_BYTES) {
+        throw new Error(`generated STL is ${(buffer.length / 1048576).toFixed(1)} MB — over the ${MAX_GENERATED_STL_BYTES / 1048576} MB command-channel cap. Simplify the model ($fn, minkowski, etc.).`);
+    }
+    return {
+        ok: true,
+        file_name: `${String(command.payload?.file_name || 'generated').replace(/[^A-Za-z0-9._-]/g, '_').replace(/\.stl$/i, '')}.stl`,
+        stl_base64: buffer.toString('base64'),
+        byte_size: buffer.length,
+        mock,
+    };
+}
+
 async function executeCloudAction(command, deps) {
     if (command.command_type === 'cloud.print.ready') {
         return executeCloudPrintReady(command, deps);
@@ -790,6 +861,9 @@ async function executeCloudAction(command, deps) {
     }
     if (command.command_type === 'cloud.printers.adopt') {
         return executePrinterAdopt(command, deps);
+    }
+    if (command.command_type === 'cloud.model.generate') {
+        return executeModelGenerate(command, deps);
     }
     throw new Error(`Unsupported cloud command: ${command.command_type}`);
 }
