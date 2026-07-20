@@ -17,7 +17,7 @@ const log = createLogger('Automator');
 // A) PRINTER MODEL DEFAULTS
 // ============================================================
 
-export const MODEL_DEFAULTS = {
+const MODEL_DEFAULTS = {
     P1S: {
         zMax: 250,
         sweepStartX: 128, sweepStartY: 250,
@@ -203,10 +203,14 @@ export function automate(gcodeText, config = {}) {
     // ========================================================
     // STEP 1: PURGE / CALIBRATION LINE REMOVAL
     // ========================================================
-    const purgeResult = removePurgeBlock(lines, modelDef.purgeFamily);
+    const purgeResult = removePurgeBlock(lines, modelDef.purgeFamily, modelDef);
     report.purgeRemoval = purgeResult;
     if (purgeResult.found) {
-        log.info(`Purge removed: ${purgeResult.method}, lines ${purgeResult.startLine}-${purgeResult.endLine} (${purgeResult.linesCommented} lines commented)`);
+        log.info(`Purge removed: ${purgeResult.method}, lines ${purgeResult.startLine}-${purgeResult.endLine} (${purgeResult.linesCommented} lines commented)`
+            + (purgeResult.primeRestored ? ` — removed block contained the NOZZLE PRIME (${purgeResult.removedPrimeE.toFixed(1)}mm E) → chute prime injected` : ''));
+        if (purgeResult.removedPrimeE >= 2 && !purgeResult.primeRestored) {
+            report.warnings.push(`Purge removal cut ${purgeResult.removedPrimeE.toFixed(1)}mm of prime extrusion and no replacement was injected — first layer may underextrude (unprimed nozzle)`);
+        }
     } else {
         log.info(`Purge removal: no anchors found (fail-safe, nothing removed)`);
         report.warnings.push('No purge anchors found — nothing removed (fail-safe)');
@@ -288,13 +292,19 @@ export function automate(gcodeText, config = {}) {
  * @param {string[]} lines - Mutated in place
  * @param {'P1X1'|'A1'} family
  */
-function removePurgeBlock(lines, family) {
+function removePurgeBlock(lines, family, modelDef = null) {
     if (family === 'P1X1') {
         return removePurgeP1X1(lines);
     } else if (family === 'A1') {
-        return removePurgeA1(lines);
+        return removePurgeA1(lines, modelDef);
     }
     return { found: false, method: 'unknown_family' };
+}
+
+/** Sum of extrusion (E) in a removed line, for prime detection. */
+function extrusionOf(trimmedLine) {
+    const m = trimmedLine.match(/^G[01]\b.*?\bE(\d+(?:\.\d+)?)/);
+    return m ? parseFloat(m[1]) : 0;
 }
 
 /**
@@ -320,21 +330,36 @@ function removePurgeP1X1(lines) {
     if (endIdx < 0) return { found: false, method: 'p1x1_no_end_anchor' };
 
     let commented = 0;
+    let removedPrimeE = 0;
     for (let i = startIdx; i <= endIdx; i++) {
         const trimmed = lines[i].trim();
         if (trimmed && !trimmed.startsWith(';')) {
+            removedPrimeE += extrusionOf(trimmed);
             lines[i] = `; [AG_PURGE_REMOVED] ${lines[i]}`;
             commented++;
         }
     }
 
-    return { found: true, method: 'p1x1', startLine: startIdx, endLine: endIdx, linesCommented: commented };
+    // Newer P1S profiles (2025+) put a REAL load line here; removing it
+    // leaves the nozzle scrubbed empty. No injection implemented for the
+    // P1S chute geometry yet — surface it loudly via the report instead.
+    return { found: true, method: 'p1x1', startLine: startIdx, endLine: endIdx, linesCommented: commented, removedPrimeE, primeRestored: false };
 }
 
 /**
  * A1: start=";===== extrude cali test" -> end=";========turn off light and wait extrude temperature"
+ *
+ * FORMAT CHANGE (A1 profile date 2025-08-22, bundled with current OrcaSlicer):
+ * this block is no longer just the optional cali test — it contains the
+ * UNCONDITIONAL nozzle prime (~10mm E at the bed front) that refills the
+ * nozzle after the waste-touch/scrub/ABL sequence empties it. Blindly
+ * commenting it starts the first layer with an empty nozzle → nothing
+ * extrudes for centimeters → no adhesion (root cause of the 2026-07-14
+ * first-layer failures; older-format files put the prime at the chute, so
+ * removal was safe there). When the removed block contained significant
+ * extrusion we inject an equivalent prime at the CHUTE (off-bed, loop-safe).
  */
-function removePurgeA1(lines) {
+function removePurgeA1(lines, modelDef = null) {
     let startIdx = -1;
     for (let i = 0; i < lines.length; i++) {
         if (lines[i].trim().startsWith(';===== extrude cali test')) {
@@ -354,15 +379,60 @@ function removePurgeA1(lines) {
     if (endIdx < 0) return { found: false, method: 'a1_no_end_anchor' };
 
     let commented = 0;
+    let removedPrimeE = 0;
+    let m109Line = null;
     for (let i = startIdx; i <= endIdx; i++) {
         const trimmed = lines[i].trim();
         if (trimmed && !trimmed.startsWith(';')) {
+            removedPrimeE += extrusionOf(trimmed);
+            if (!m109Line && /^M109 S/.test(trimmed)) m109Line = trimmed;
             lines[i] = `; [AG_PURGE_REMOVED] ${lines[i]}`;
             commented++;
         }
     }
 
-    return { found: true, method: 'a1', startLine: startIdx, endLine: endIdx, linesCommented: commented };
+    let primeRestored = false;
+    if (removedPrimeE >= 2) {
+        // Chute/wiper X coordinates: taken from the file's own wipe-shake
+        // pattern (negative X = off-bed, model-correct for A1 vs A1 mini);
+        // fall back to the model's park X if the pattern isn't found.
+        let chuteX = null, shakeX = null;
+        for (let i = 0; i < startIdx; i++) {
+            const t = lines[i].trim();
+            const c = t.match(/^G1 X(-\d+(?:\.\d+)?) F3000\b/);
+            if (c) chuteX = parseFloat(c[1]);
+            const s = t.match(/^G1 X(-\d+(?:\.\d+)?) F(?:12000|18000|30000)\b/);
+            if (s) shakeX = parseFloat(s[1]);
+        }
+        if (chuteX === null) chuteX = (modelDef?.parkX ?? -48);
+        if (shakeX === null) shakeX = chuteX + 20;
+
+        const primeBlock = [
+            '; [AG_PRIME_RESTORED] the removed front line doubled as the nozzle prime',
+            '; in 2025+ A1 gcode — re-prime at the chute (off-bed, loop-safe) instead',
+            'G90',
+            'G1 Z10 F1200 ; hop to the same height stock chute extrusions use',
+            `G1 X${shakeX} Y0 F18000`,
+            `G1 X${chuteX} F3000 ; chute (off the bed)`,
+            'M83',
+            ...(m109Line ? [`${m109Line} ; wait for print temp (from removed block)`] : []),
+            'G92 E0',
+            'G1 E10 F200 ; prime — replaces the removed front-line extrusion',
+            'G1 E-0.5 F300',
+            'M106 P1 S178',
+            'M400 S2',
+            `G1 X${shakeX} F18000 ; wipe and shake`,
+            `G1 X${chuteX} F3000`,
+            `G1 X${shakeX} F18000`,
+            `G1 X${chuteX} F3000`,
+            'M400',
+            'M106 P1 S0',
+        ];
+        lines.splice(endIdx, 0, ...primeBlock); // just before the "turn off light" section
+        primeRestored = true;
+    }
+
+    return { found: true, method: 'a1', startLine: startIdx, endLine: endIdx, linesCommented: commented, removedPrimeE, primeRestored };
 }
 
 // ============================================================
@@ -378,8 +448,14 @@ function removePurgeA1(lines) {
  * Priority:
  * 1. `; MACHINE_END_GCODE_START` — Bambu Studio emits this marker
  * 2. `; filament end gcode` — sometimes appears before MACHINE_END marker
- * 3. `; EXECUTABLE_BLOCK_END` -> insert BEFORE (last resort with framing)
- * 4. Last resort: end of file
+ * 3. last `; FEATURE: Custom` — OrcaSlicer CLI output has NO machine-end
+ *    marker; the machine end gcode is emitted as the file's final Custom
+ *    feature block. Guarded: only accepted if NOTHING extrudes after it,
+ *    so a mid-print custom block can never be mistaken for the end.
+ * 4. `; EXECUTABLE_BLOCK_END` -> insert BEFORE (last resort with framing —
+ *    NOTE: this leaves the original end-gcode ACTIVE, which drops the bed
+ *    before ejection; kept only as a final fallback)
+ * 5. Last resort: end of file
  */
 function findInsertionPoint(lines, family) {
     // Primary: find MACHINE_END_GCODE_START
@@ -393,6 +469,20 @@ function findInsertionPoint(lines, family) {
     for (let i = lines.length - 1; i >= Math.max(0, lines.length - 200); i--) {
         if (lines[i].trim().startsWith('; filament end gcode')) {
             return { line: i, method: 'filament_end_gcode' };
+        }
+    }
+
+    // OrcaSlicer CLI: last "; FEATURE: Custom" = machine end gcode start,
+    // valid only if no extrusion follows it (safety against mid-print blocks).
+    for (let i = lines.length - 1; i >= 0; i--) {
+        if (lines[i].trim().startsWith('; FEATURE: Custom')) {
+            let extrudesAfter = false;
+            for (let j = i + 1; j < lines.length; j++) {
+                const m = lines[j].match(/^G[01]\s[^;]*E(-?[\d.]+)/);
+                if (m && parseFloat(m[1]) > 0) { extrudesAfter = true; break; }
+            }
+            if (!extrudesAfter) return { line: i, method: 'last_feature_custom' };
+            break; // last Custom block extrudes -> not the end gcode; use fallback
         }
     }
 
@@ -529,25 +619,72 @@ function buildSingleLoop(lines, insertionIdx, automationBlock) {
         // Comment out M73 P100 (progress=100%) to allow looping
         if (/^M73\s+P100\b/i.test(trimmed)) {
             result.push(`; [AG_REMOVED] ${lines[i]}`);
+        } else if (trimmed.includes('EXECUTABLE_BLOCK_END')) {
+            result.push(`; [AG_REMOVED_BLOCK_END] (suppressed to prevent duplicates)`);
         } else {
             result.push(lines[i]);
         }
     }
 
-    // 2) Comment out original end-gcode so the replacement block is authoritative.
+    // 2) Comment out ALL original end-gcode (Z moves, wipe, AMS return, etc.)
     for (let i = insertionIdx.line; i < lines.length; i++) {
-        const line = lines[i];
-        result.push(line.trim() ? `; [AG_END_REPLACED] ${line}` : line);
+        const trimmed = lines[i].trim();
+        // Skip empty lines and already-comments — pass through as-is
+        // Skip empty lines and already-comments — pass through as-is
+        if (!trimmed || trimmed.startsWith(';')) {
+            // SPECIAL CASE: Suppress original EXECUTABLE_BLOCK_END to prevent duplicates
+            if (trimmed.includes('EXECUTABLE_BLOCK_END')) {
+                result.push(`; [AG_REMOVED_BLOCK_END] (suppressed to prevent duplicates)`);
+            } else {
+                result.push(lines[i]);
+            }
+        } else {
+            result.push(`; [AG_END_REPLACED] ${lines[i]}`);
+        }
     }
 
-    // 3) Append the generated automation block and preserve the execution terminator.
+    // 3) Append our automation block
     result.push(...automationBlock);
+
+    // 4) Re-add Bambu Studio structural marker
     result.push('; EXECUTABLE_BLOCK_END');
+    result.push('');
+
     return result;
 }
 
-function countNegativeZMoves(gcodeText) {
-    return gcodeText.split('\n').filter((line) => /\bG0?1\b/i.test(line) && /\bZ-\d/i.test(line)).length;
+// ============================================================
+// VALIDATION HELPERS
+// ============================================================
+
+/**
+ * Count lines with negative Z moves (G0/G1 Z with negative value).
+ * Only checks within our automation block.
+ */
+function countNegativeZMoves(text) {
+    let count = 0;
+    const agStart = text.indexOf(';===== ANTIGRAVITY AUTOMATION START =====');
+    const agEnd = text.indexOf(';===== ANTIGRAVITY AUTOMATION END =====');
+
+    if (agStart < 0 || agEnd < 0) return 0;
+
+    const section = text.substring(agStart, agEnd);
+    const lines = section.split('\n');
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith(';')) continue;
+        // Match G0/G1 with Z parameter that is negative
+        const zMatch = trimmed.match(/[GG][01]\s.*Z(-\d+\.?\d*)/i);
+        if (zMatch) count++;
+    }
+
+    return count;
 }
 
-export default automate;
+// ============================================================
+// EXPORTS
+// ============================================================
+
+export { MODEL_DEFAULTS };
+export default { automate, MODEL_DEFAULTS };
