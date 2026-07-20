@@ -60,14 +60,29 @@ describe('PrinterWorker completion detection', () => {
         expect(finishes).toEqual([{ job_id: 'job-2', printer_id: 'cw2', outcome: 'aborted' }]);
     });
 
-    it('classifies the FAILED state as a failure', () => {
+    it('classifies FAILED with an active error code as a failure', () => {
         const { worker, finishes } = makeWorker('cw3');
         worker.state = 'printing';
         worker.activeJobId = 'job-3';
 
-        worker._handleStatus({ print: { gcode_state: 'FAILED' } });
+        worker._handleStatus({ print: { gcode_state: 'FAILED', print_error: 83935248 } });
 
         expect(finishes).toEqual([{ job_id: 'job-3', printer_id: 'cw3', outcome: 'failed' }]);
+    });
+
+    it('treats FAILED with NO active error as a dismissed cancel: worker reads idle, job aborts', () => {
+        // Bambu holds gcode_state=FAILED after any cancel until the screen is
+        // tapped. With no active print_error that is residue, not a fault —
+        // the printer must read as available (idle) or the whole farm queue
+        // would wait on a human tap.
+        const { worker, finishes } = makeWorker('cw3b');
+        worker.state = 'printing';
+        worker.activeJobId = 'job-3b';
+
+        worker._handleStatus({ print: { gcode_state: 'FAILED' } });
+
+        expect(worker.state).toBe('idle');
+        expect(finishes).toEqual([{ job_id: 'job-3b', printer_id: 'cw3b', outcome: 'aborted' }]);
     });
 
     it('keeps the job active across an offline transition (MQTT drop mid-print)', () => {

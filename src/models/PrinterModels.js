@@ -195,6 +195,27 @@ export const PRINTER_MODELS = [
     },
 ];
 
+// Bambu `printer_model_id` values from Metadata/slice_info.config inside a
+// .gcode.3mf → registry id. Lets us read what machine a file was SLICED for
+// (drives the transform dialect and the start-time file↔printer guard).
+// 2026-lineup ids are added as they're observed; unknown ids resolve to null
+// and the guard simply doesn't fire.
+const SLICE_INFO_MODEL_IDS = {
+    'N1': 'A1_MINI',
+    'N2S': 'A1',
+    'C11': 'P1P',
+    'C12': 'P1S',
+    'C13': 'X1E',
+    'BL-P001': 'X1C',
+    'BL-P002': 'X1',
+};
+
+/** Registry record for a slice_info printer_model_id, or null when unknown. */
+export function modelFromSliceInfoId(printerModelId) {
+    const id = SLICE_INFO_MODEL_IDS[String(printerModelId || '').trim()];
+    return id ? getModelById(id) : null;
+}
+
 function canonicalKey(value) {
     return String(value || '')
         .trim()

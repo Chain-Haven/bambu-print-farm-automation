@@ -77,21 +77,36 @@ export class PrinterWorker {
         // Check state
         if (this.state !== 'idle') {
             if (this.state === 'printing') errors.push('Printer is currently printing');
-            else if (this.state === 'error') errors.push('Printer is in error state');
+            else if (this.state === 'paused') {
+                // A paused print is still ACTIVE — starting (or clear+home
+                // "recovery") on top of it would wreck the print on the bed.
+                errors.push('Printer has a paused print — resume or stop it first');
+            }
+            else if (this.state === 'error') {
+                // Bambu keeps gcode_state=FAILED after a canceled/failed print
+                // until the on-screen dialog is dismissed — but the firmware
+                // accepts a new print from that state (Bambu Studio does this).
+                // With no ACTIVE error code it is startable; a human tap must
+                // never be required on a farm. Active error = still blocked.
+                if (printError && printError !== 0) errors.push('Printer is in error state');
+                else warnings.push('Printer shows a dismissed/failed-print screen (no active error) — starting anyway, like Bambu Studio');
+            }
             else if (this.state === 'offline') errors.push('Printer is offline');
             else warnings.push(`Printer state is "${this.state}" (expected idle)`);
         }
 
-        // Check HMS errors (SD-related)
+        // Check HMS errors (SD-related). h.attr/h.code arrive as NUMBERS from
+        // the firmware — coerce before string ops (a numeric code crashed the
+        // whole preflight/start pipeline). attr hex needs zero-padding or the
+        // module prefix check silently never matches (0x0500xxxx → "500xxxx").
+        // Storage module is 0500 (cf. the classic 0500-C010 SD error); 0300
+        // is motion/mechanical and must NOT be flagged as an SD fault.
         const hms = this.latestStatus?.hms_errors;
         if (hms && Array.isArray(hms) && hms.length > 0) {
             for (const h of hms) {
-                const code = h.attr?.toString(16) || '';
-                // h.code is numeric on Bambu HMS reports; coerce before string ops
-                // (otherwise .toLowerCase() throws and 500s preflight/diagnostics
-                // exactly when an HMS error is present).
-                const msg = String(h.code ?? '').toLowerCase();
-                if (code.includes('0300') || msg.includes('sd') || msg.includes('storage') || msg.includes('micro')) {
+                const code = (h.attr ?? 0).toString(16).padStart(8, '0');
+                const msg = String(h.code ?? '');
+                if (code.startsWith('0500') || /sd|storage|micro/i.test(msg)) {
                     errors.push(`SD/Storage error detected: HMS ${code} — Format SD in printer or replace card`);
                 }
             }
@@ -129,6 +144,62 @@ export class PrinterWorker {
      */
     clearPrintError() {
         return this._tryClearPrintError();
+    }
+
+    /**
+     * Full error recovery — the software equivalent of tapping OK/Retry on
+     * the printer screen. Dismisses the error dialog (clean_print_error);
+     * if the firmware re-asserts a homing failure (A1 holds 0300-40xx until
+     * a home actually SUCCEEDS — dismissing does nothing, verified on
+     * hardware 2026-07-08), re-homes and waits for the error to drop.
+     * Returns { recovered, steps, preflight }.
+     */
+    async recoverFromError({ homeWaitMs = 35000 } = {}) {
+        const steps = [];
+        const waitFor = async (pred, ms, pollMs = 1500) => {
+            const until = Date.now() + ms;
+            while (Date.now() < until) {
+                if (pred()) return true;
+                await new Promise(r => setTimeout(r, pollMs));
+            }
+            return pred();
+        };
+
+        // A PAUSED print holds its error until resumed or stopped — clearing
+        // or homing here would move axes over a live print. The right options
+        // are the ones on the printer screen: Resume or Stop.
+        if (this.state === 'paused' || this.state === 'printing' || this.latestStatus?.gcode_state === 'PAUSE') {
+            const preflight = this.getPreflightStatus();
+            log.info(`Recovery on ${this.printer.name}: skipped — print is ${this.state} (resume or stop it instead)`);
+            return { recovered: false, steps: ['skipped_active_print'], preflight };
+        }
+
+        if (this.latestStatus?.print_error && this.mqttClient?.connected) {
+            steps.push('clean_print_error');
+            this.mqttClient.cleanPrintError();
+            setTimeout(() => { if (this.mqttClient) this.mqttClient.requestStatus(); }, 1500);
+            await waitFor(() => !this.latestStatus?.print_error, 10000);
+        }
+
+        const remaining = this.latestStatus?.print_error;
+        if (remaining && this.mqttClient?.connected) {
+            const hex = formatErrorCode(remaining);
+            // Homing/motion failure family: the retry IS a re-home. If the bed
+            // is still obstructed the home fails again and the error stays —
+            // recovery reports not-recovered, same as tapping Retry on screen.
+            if (hex.startsWith('0300-40')) {
+                steps.push('home');
+                log.info(`Recovery on ${this.printer.name}: re-homing to clear ${hex}`);
+                this.mqttClient.homeAxes('all');
+                await waitFor(() => !this.latestStatus?.print_error, homeWaitMs, 2000);
+                this.mqttClient.requestStatus();
+                await new Promise(r => setTimeout(r, 3000));
+            }
+        }
+
+        const preflight = this.getPreflightStatus();
+        log.info(`Recovery on ${this.printer.name}: steps=[${steps.join(',')}] → ${preflight.ok ? 'RECOVERED (idle)' : 'still blocked: ' + preflight.errors.join('; ')}`);
+        return { recovered: preflight.ok, steps, preflight };
     }
 
     async start() {
@@ -292,7 +363,12 @@ export class PrinterWorker {
         if (print.mc_remaining_time !== undefined) update.remaining_time = print.mc_remaining_time;
         if (print.layer_num !== undefined) update.layer = print.layer_num;
         if (print.total_layer_num !== undefined) update.total_layers = print.total_layer_num;
-        if (print.ams !== undefined) update.ams = print.ams;
+        // Bambu sends ams incrementally — a mid-print push can be just
+        // {tray_tar:1}. A shallow replace wiped the tray inventory (and
+        // tray_now) from the last full push, losing all live spool data
+        // until the next pushall. Merge instead; the `ams.ams` unit array
+        // is only replaced when a push actually carries it.
+        if (print.ams !== undefined) update.ams = { ...(this.latestStatus?.ams || {}), ...print.ams };
         if (print.big_fan1_speed !== undefined) update.fan_speed = print.big_fan1_speed;
         if (print.spd_lvl !== undefined) update.speed_level = print.spd_lvl;
         if (print.wifi_signal !== undefined) update.wifi_signal = print.wifi_signal;
@@ -320,10 +396,27 @@ export class PrinterWorker {
         // Merge into existing status (preserve fields from prior reports)
         this.latestStatus = { ...this.latestStatus, ...update, last_update: new Date().toISOString() };
 
+        // Bambu keeps gcode_state=FAILED after a canceled/stopped print until
+        // the on-screen dialog is dismissed — that's a "last print didn't
+        // finish" note, not a fault. With no ACTIVE error code the printer is
+        // ready: report it as idle so the UI, failover and queue treat it as
+        // available. A real fault (print_error set) still reads as 'error'.
+        if (this.latestStatus.gcode_state === 'FAILED' && !(this.latestStatus.print_error > 0)) {
+            this.latestStatus.state = 'idle';
+        }
+
         const newState = this.latestStatus.state;
         if (newState && newState !== this.state) {
             this._transitionState(newState);
         }
+
+        // once per printing session: re-adopt a job orphaned by a server
+        // restart (_readoptActiveJob sets the one-shot flag itself, and only
+        // once it actually had a filename to match against)
+        if (this.state === 'printing' && !this.activeJobId && !this._readoptTried) {
+            this._readoptActiveJob();
+        }
+        if (this.state !== 'printing') this._readoptTried = false;
 
         PrinterModel.updateStatus(this.printerId, this.latestStatus);
         if (this.onStatusUpdate) this.onStatusUpdate(this.latestStatus);
@@ -461,8 +554,76 @@ export class PrinterWorker {
                 payload: { from: oldState, to: newState },
             });
             log.info(`Printer ${this.printer.name}: ${oldState} → ${newState}`);
+
+            // RECONNECT/BOOT RECONCILIATION: a print that ENDED while the
+            // server was offline never fires the completion hook (the
+            // transition seen here is offline/unknown → idle, not printing →
+            // idle) and its job stays 'printing' forever. Settle those now.
+            if ((oldState === 'offline' || oldState === 'unknown') && (newState === 'idle' || newState === 'error')) {
+                this._reconcileOrphanedJobs(newState).catch(err => log.error(`Orphan reconcile failed on ${this.printer.name}: ${err.message}`));
+            }
+
             this._maybeFinishActiveJob(oldState, newState);
         }
+    }
+
+    /**
+     * Settle jobs stranded in 'printing' after the printer ended a print
+     * while we were offline. gcode_state FINISH + a matching (or sole)
+     * orphan → late completion (bookkeeping only — no ejection, no
+     * auto-starts; hours may have passed). Anything else → the outcome is
+     * unknown → aborted/failed (retryable). A print still RUNNING on
+     * reconnect is handled by _readoptActiveJob, not here.
+     */
+    async _reconcileOrphanedJobs(newState) {
+        const { JobModel } = await import('../models/Job.js');
+        const orphans = JobModel.findAll({ status: 'printing', printer_id: this.printerId, limit: 20 })
+            .filter(j => j.job_id !== this.activeJobId);
+        if (!orphans.length) return;
+        const { JobOrchestrator } = await import('../services/JobOrchestrator.js');
+        const gs = this.latestStatus?.gcode_state;
+        const subtask = this.latestStatus?.subtask_name || '';
+        for (const j of orphans) {
+            const base = (j.transformed_file_name || '').replace(/\.gcode\.3mf$/i, '').replace(/\.gcode$/i, '');
+            const nameMatches = !!subtask && !!base && subtask === base;
+            if (gs === 'FINISH' && (nameMatches || orphans.length === 1)) {
+                log.info(`Printer ${this.printer.name}: job "${j.name}" [${j.job_id.slice(0, 8)}] finished while the server was offline — completing it now (bookkeeping only)`);
+                await JobOrchestrator.onJobCompleted(j.job_id, this.printerId, { reconcile: true });
+            } else {
+                log.warn(`Printer ${this.printer.name}: job "${j.name}" [${j.job_id.slice(0, 8)}] was 'printing' but the printer reports ${gs || newState} — outcome unknown, marked failed (retryable)`);
+                await JobOrchestrator.onJobAborted(j.job_id, this.printerId, 'ended_while_server_offline');
+            }
+            if (this.activeJobId === j.job_id) this.activeJobId = null;
+        }
+    }
+
+    /**
+     * RE-ASSOCIATE after a server restart: if this printer is printing and a
+     * job record says 'printing' on this printer with a matching gcode file,
+     * adopt it as the active job so completion/repeat tracking survives
+     * restarts (activeJobId is in-memory only).
+     */
+    _readoptActiveJob() {
+        if (this.activeJobId || this.state !== 'printing') return;
+        // gcode_file arrives only in FULL status pushes — after a reconnect the
+        // in-memory status may never carry it, so fall back to the snapshot
+        // persisted in the DB before the restart.
+        let gcodeFile = this.latestStatus?.gcode_file;
+        if (!gcodeFile) {
+            try { gcodeFile = PrinterModel.findById(this.printerId)?.status_snapshot?.gcode_file; } catch { /* ignore */ }
+        }
+        if (!gcodeFile) return; // no filename yet — try again on a later report
+        this._readoptTried = true;
+        import('../models/Job.js').then(({ JobModel }) => {
+            const mine = JobModel.findAll({ status: 'printing', printer_id: this.printerId, limit: 10 }).find(j =>
+                j.transformed_file_name && gcodeFile === j.transformed_file_name);
+            if (mine) {
+                this.activeJobId = mine.job_id;
+                log.info(`Printer ${this.printer.name}: re-adopted running job "${mine.name}" [${mine.job_id.slice(0, 8)}] after restart`);
+            } else {
+                log.info(`Printer ${this.printer.name}: printing "${gcodeFile}" but no matching system job — treating as external print`);
+            }
+        }).catch(() => { /* best effort */ });
     }
 
     /**
