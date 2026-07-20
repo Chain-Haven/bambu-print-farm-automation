@@ -21,3 +21,6 @@ output/admin-reset-links-*.json
 dist/windows-node/*
 !dist/windows-node/farm-node.cjs
 !dist/windows-node/sql-wasm.wasm
+
+# Generated slice-verification outputs
+verification/out/

@@ -7,7 +7,7 @@ import { EventModel } from '../models/Event.js';
 import { CommandBus } from './CommandBus.js';
 import { automate } from '../gcode/Automator.js';
 import { automatorModelKey, normalizeModel, modelFromSliceInfoId } from '../models/PrinterModels.js';
-import { extractGcodeFrom3mf, repack3mf } from '../gcode/AutomatorZip.js';
+import { extractGcodeFrom3mf, repack3mf, buildGcode3mf } from '../gcode/AutomatorZip.js';
 import { executeEjectionSequence } from './EjectionService.js';
 import { createLogger } from '../utils/logger.js';
 import { decodePrintError } from '../utils/PrinterErrors.js';
@@ -103,13 +103,25 @@ export class JobOrchestrator {
 
             if (skip_transform) {
                 // === RAW MODE: Skip transform, use file as-is ===
-                const rawFileName = fileName.replace(/\.gcode$/i, '.AG.gcode');
-                const rawPath = path.join(UPLOADS_DIR, `${job.job_id}_${rawFileName}`);
-                fs.writeFileSync(rawPath, fileContent);
+                // startJob refuses anything but a .gcode.3mf artifact, so raw
+                // jobs still need a printable package: keep the original 3MF
+                // as-is, or wrap plain gcode in a minimal one. (A bare .AG.gcode
+                // artifact can never start — skip_transform templates were
+                // producing permanently unstartable jobs.)
+                let rawFileName, rawEntryName;
+                if (rawBuffer3mf && originalFileName3mf) {
+                    rawFileName = originalFileName3mf.replace(/\.gcode\.3mf$/i, '.AG.gcode.3mf');
+                    fs.writeFileSync(path.join(UPLOADS_DIR, `${job.job_id}_${rawFileName}`), rawBuffer3mf);
+                    rawEntryName = extractGcodeFrom3mf(rawBuffer3mf).gcodeEntryName;
+                } else {
+                    rawFileName = fileName.replace(/\.gcode$/i, '') + '.AG.gcode.3mf';
+                    fs.writeFileSync(path.join(UPLOADS_DIR, `${job.job_id}_${rawFileName}`), buildGcode3mf([{ index: 1, gcode: fileContent }]));
+                    rawEntryName = 'Metadata/plate_1.gcode';
+                }
 
                 JobModel.update(job.job_id, {
                     transformed_file_name: rawFileName,
-                    transform_report: { skipped: true, reason: 'User requested raw upload', file_model: fileModel, allow_model_mismatch: transform_overrides?.allow_model_mismatch },
+                    transform_report: { skipped: true, reason: 'User requested raw upload', gcode_entry_name: rawEntryName, file_model: fileModel, allow_model_mismatch: transform_overrides?.allow_model_mismatch },
                     diff_summary: { sections_changed: [], raw_mode: true },
                     status: printer_id ? 'assigned' : 'queued',
                 });
@@ -310,6 +322,68 @@ export class JobOrchestrator {
     }
 
     /**
+     * Submit a job from a stored job_template — the ONE shared code path for
+     * the HTTP route (POST /job-templates/:id/submit) and any automated
+     * dispatcher, so the 3MF-extract/override-merge logic is never duplicated.
+     * overrides: { name, printer_id, profile_id, repeat_total, ams_roles,
+     *              transform_overrides, skip_transform, metadata } — all
+     * optional; template values are the defaults.
+     */
+    static async submitFromJobTemplate(templateId, overrides = {}) {
+        const { JobTemplateModel } = await import('../models/JobTemplate.js');
+        const tmpl = JobTemplateModel.findById(templateId);
+        if (!tmpl) { const e = new Error('Template not found'); e.status = 404; throw e; }
+        if (!tmpl.source_file_path || !fs.existsSync(tmpl.source_file_path)) {
+            const e = new Error('Template has no stored file — upload a G-code file first');
+            e.status = 400; throw e;
+        }
+
+        // Read the stored file as binary buffer (might be 3MF/ZIP)
+        const rawBuffer = fs.readFileSync(tmpl.source_file_path);
+        let fileContent;
+        let fileName = tmpl.source_file_name;
+        let rawBuffer3mf = null;
+        let originalFileName3mf = null;
+
+        const { isZipFile, is3mfFilename, extractGcodeFrom3mf: extract3mfSmart } = await import('../gcode/Extract3mf.js');
+        if (isZipFile(rawBuffer) || is3mfFilename(fileName)) {
+            rawBuffer3mf = rawBuffer;
+            originalFileName3mf = tmpl.source_file_name;
+            const extracted = await extract3mfSmart(rawBuffer, fileName);
+            fileContent = extracted.content;
+            if (extracted.entryName) {
+                fileName = extracted.entryName.split('/').pop() || fileName;
+            }
+        } else {
+            fileContent = rawBuffer.toString('utf-8');
+        }
+
+        // Merge: caller overrides take precedence over template defaults
+        const templateOverrides = tmpl.transform_overrides || {};
+        const mergedOverrides = { ...templateOverrides, ...(overrides.transform_overrides || {}) };
+        const skipTransform = !!(mergedOverrides.skip_transform || overrides.skip_transform);
+        const amsRoles = overrides.ams_roles !== undefined ? overrides.ams_roles : (tmpl.ams_roles || null);
+
+        const job = await this.submit({
+            name: overrides.name || tmpl.name,
+            printer_id: overrides.printer_id !== undefined ? overrides.printer_id : (tmpl.printer_id || null),
+            profile_id: overrides.profile_id || tmpl.profile_id || null,
+            repeat_total: parseInt(overrides.repeat_total, 10) || tmpl.repeat_total || 1,
+            ams_roles: amsRoles,
+            fileContent,
+            fileName,
+            skip_transform: skipTransform,
+            transform_overrides: mergedOverrides,
+            rawBuffer3mf,
+            originalFileName3mf,
+            metadata: overrides.metadata || null,
+        });
+
+        JobTemplateModel.recordUse(tmpl.template_id);
+        return job;
+    }
+
+    /**
      * Start a job: deterministic pipeline — Preflight → Upload → Start → Monitor.
      * Fully instrumented with monotonic ms timing for every stage.
      */
@@ -360,6 +434,7 @@ export class JobOrchestrator {
         stage('JOB_LOADED', { name: job.name, printer: printer.name, printer_ip: printer.ip_hostname, transformed_file: job.transformed_file_name });
 
         const sendTrace = { phases: [], started_at: new Date().toISOString() };
+        let worker = null; // hoisted: the catch block clears its stale activeJobId
         const broadcastPhase = (phase, status, detail = null) => {
             sendTrace.phases.push({ phase, status, detail, timestamp: new Date().toISOString() });
             this._broadcast('job.send_phase', { job_id: jobId, printer_id: job.printer_id, phase, status, detail });
@@ -369,7 +444,7 @@ export class JobOrchestrator {
             // ========== PHASE 1: PREFLIGHT ==========
             stage('PREFLIGHT_START');
             const { RuntimeSupervisor } = await import('../runtime/RuntimeSupervisor.js');
-            const worker = RuntimeSupervisor.getInstance()?.getWorker(job.printer_id);
+            worker = RuntimeSupervisor.getInstance()?.getWorker(job.printer_id);
             if (!worker) {
                 stage('PREFLIGHT_FAIL', 'No printer worker');
                 broadcastPhase('preflight', 'failed', 'No printer worker found.');
@@ -574,12 +649,32 @@ export class JobOrchestrator {
                 throw new Error('Start failed: MQTT client not available');
             }
 
-            // AMS mapping. Re-read ams_roles from the DB NOW, not from the
-            // pipeline's snapshot: the upload takes ~15s and the operator may
-            // change the tray pick during it — the fresh value must win.
+            // AMS mapping — two modes (set at submit time by the slicer UI):
+            //   auto:   job stores the PRINT COLORS; resolve them against the
+            //           printer's CURRENT AMS inventory right now (start time),
+            //           so spool swaps between queue and start are respected.
+            //   manual: job stores an explicit slot_map (filament -> tray).
+            // The gcode is never edited — the printer's firmware applies
+            // ams_mapping from the start command to the file's filament indices.
+            // Re-read ams_roles from the DB NOW, not from the pipeline's
+            // snapshot: the upload takes ~15s and the operator may change the
+            // tray pick during it — the fresh value must win.
             const amsRoles = JobModel.findById(jobId)?.ams_roles ?? job.ams_roles;
             let amsMapping = [];
-            if (amsRoles?.slot_map) {
+            if (amsRoles?.mode === 'auto' && Array.isArray(amsRoles.colors) && amsRoles.colors.length) {
+                const { AmsService } = await import('./AmsService.js');
+                const amsStatus = AmsService.getFullStatus(job.printer_id);
+                const resolved = AmsService.matchColorsToTrays(amsRoles.colors, amsStatus.slots, 120, amsRoles.material || null);
+                if (!resolved.ok) {
+                    stage('AMS_AUTO_MAP_FAILED', { reason: resolved.error, colors: amsRoles.colors });
+                    broadcastPhase('start', 'failed', resolved.error);
+                    releaseLock();
+                    // printer-local: another printer may have the right spools loaded
+                    throw printerLocalError(`AMS auto-mapping failed: ${resolved.error}`);
+                }
+                amsMapping = resolved.mapping;
+                stage('AMS_AUTO_MAPPED', { mapping: resolved.details });
+            } else if (amsRoles?.slot_map) {
                 amsMapping = Object.values(amsRoles.slot_map);
                 stage('AMS_MANUAL_MAPPING', { slot_map: amsRoles.slot_map, mapping: amsMapping });
             }
@@ -765,6 +860,11 @@ export class JobOrchestrator {
             this._broadcast('job.send_failed', { job_id: jobId, error: err.message, send_trace: sendTrace, debug_trace: debugTrace });
             this._broadcast('job.status_changed', { job_id: jobId, status: 'failed' });
 
+            // The start failed — the worker must not keep claiming this job,
+            // or the failed printer's completion detection could later resolve
+            // a job that moved to another printer via failover/retry.
+            if (worker && worker.activeJobId === jobId) worker.activeJobId = null;
+
             // ========== AUTO-FAILOVER ==========
             // The assigned printer is the problem (storage fault, unreachable,
             // refuses to start) — hand the job to another idle printer of the
@@ -863,11 +963,15 @@ export class JobOrchestrator {
      * Pick an idle, error-free printer with the same Automator geometry to
      * fail a job over to (P1P ≡ P1S). Printers the cloud/queue already gave
      * work to are skipped so failover can't butt into another job's printer.
+     * For AMS-auto jobs the candidate must also resolve every print color
+     * against its live AMS inventory — otherwise it would just fail again.
      */
     static async _pickFailoverPrinter(job, failedPrinter) {
         const { RuntimeSupervisor } = await import('../runtime/RuntimeSupervisor.js');
         const supervisor = RuntimeSupervisor.getInstance();
         if (!supervisor) return null;
+        const amsAuto = job.ams_roles?.mode === 'auto' && Array.isArray(job.ams_roles.colors) && job.ams_roles.colors.length;
+        const { AmsService } = amsAuto ? await import('./AmsService.js') : {};
         const wantedKey = automatorModelKey(failedPrinter.model);
         for (const p of PrinterModel.findAll()) {
             if (p.printer_id === failedPrinter.printer_id) continue;
@@ -877,6 +981,15 @@ export class JobOrchestrator {
             if (worker.state !== 'idle') continue;
             if (worker.latestStatus?.print_error) continue;
             if (worker.activeJobId) continue;
+            // Skip printers that already have queued/assigned work — the
+            // cloud dispatcher targets specific printers before they start.
+            if (JobModel.getQueue(p.printer_id).some(j => ['queued', 'assigned', 'printing'].includes(j.status))) continue;
+            if (amsAuto) {
+                try {
+                    const status = AmsService.getFullStatus(p.printer_id);
+                    if (!AmsService.matchColorsToTrays(job.ams_roles.colors, status.slots, 120, job.ams_roles.material || null).ok) continue;
+                } catch { continue; }
+            }
             return p;
         }
         return null;

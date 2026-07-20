@@ -376,7 +376,7 @@ async function executeCloudPrintReadyRaw({ payload, localPrinterId, worker, buff
 // transform (cool-release ejection + optional loops), preflight, verified FTPS
 // upload, MQTT start with ACK wait, and completion tracking (auto-eject /
 // repeat / auto-start-next + cloud status forwarding via job metadata).
-async function submitOrchestratedPrint({ command, payload, localPrinterId, worker, buffer, remoteFileName, originalName, extraResult = {} }, deps) {
+async function submitOrchestratedPrint({ command, payload, localPrinterId, worker, buffer, remoteFileName, originalName, extraResult = {}, amsRolesOverride = null }, deps) {
     const amsMapping = Array.isArray(payload.ams_mapping) ? payload.ams_mapping : [];
     const slotMap = {};
     amsMapping.forEach((value, index) => { slotMap[index] = value; });
@@ -391,7 +391,10 @@ async function submitOrchestratedPrint({ command, payload, localPrinterId, worke
         name: typeof payload.name === 'string' && payload.name.trim() ? payload.name.trim() : originalName,
         printer_id: localPrinterId,
         repeat_total: Number.parseInt(payload.repeat_total, 10) || 1,
-        ams_roles: amsMapping.length > 0 ? { slot_map: slotMap } : null,
+        // A composed multi-color plate resolves its colors against the LIVE
+        // AMS inventory at start time (auto mode) — the cloud-computed
+        // slot_map only knows about the single requested color.
+        ams_roles: amsRolesOverride || (amsMapping.length > 0 ? { slot_map: slotMap } : null),
         fileName: remoteFileName,
         fileContent: buffer,
         rawBuffer3mf: buffer,
@@ -459,7 +462,7 @@ async function executeCloudPrintReady(command, deps) {
 // run the sliced .gcode.3mf through the same orchestrated print pipeline. The
 // slicer runs on the SAME node that prints, so no artifact upload-back to the
 // cloud is needed.
-async function defaultSliceSourceModel({ buffer, originalName, printerModel, settings }) {
+async function defaultSliceSourceModel({ buffer, originalName, printerModel, settings, customization = null }) {
     const { SliceService } = await import('../services/SliceService.js');
 
     if (process.env.MOCK_MODE === 'true') {
@@ -483,6 +486,45 @@ async function defaultSliceSourceModel({ buffer, originalName, printerModel, set
         };
     }
 
+    // Storefront customization with placements: compose the case + logos/text
+    // into ONE merged object (auto-oriented onto the requested faces) so the
+    // logo is meshed into the case — never printed as a separate loose STL.
+    const placements = Array.isArray(customization?.placements) ? customization.placements : [];
+    if (placements.length) {
+        if (!/\.stl$/i.test(originalName)) {
+            return {
+                ok: false, code: 'compositor_needs_stl',
+                error: `Customization placements need an STL base model (got ${originalName}). Export the case as STL, or order without placements.`,
+            };
+        }
+        const modelKey = automatorModelKey(printerModel);
+        const { composeCustomizedPlate } = await import('../services/CustomizationCompositor.js');
+        const composed = await composeCustomizedPlate({
+            baseBuffer: buffer,
+            baseName: originalName,
+            placements,
+            baseColor: customization.color || null,
+            printerModel: modelKey,
+        });
+        const result = await SliceService.slice({
+            modelName: originalName,
+            modelBuffers: composed.modelBuffers,
+            profile: {},
+            options: {
+                printer_model: modelKey,
+                filaments: composed.filaments,
+                groups: composed.groups,
+                colors: composed.colors,
+                material: customization.material || undefined,
+                settings: isPlainObject(settings) ? settings : {},
+            },
+        });
+        if (result.ok) {
+            result.report = { ...(result.report || {}), composition: { colors: composed.colors, summary: composed.summary } };
+        }
+        return result;
+    }
+
     return SliceService.slice({
         modelBuffer: buffer,
         modelName: originalName,
@@ -503,16 +545,45 @@ async function executeCloudPrintSource(command, deps) {
     const worker = await getRequiredWorker(localPrinterId, deps);
 
     const downloaded = await deps.downloadArtifact(downloadUrl);
+
+    // Storefront customization: download the placement assets (logo SVGs/STLs)
+    // so the compositor can orient + merge them into the case at slice time.
+    // The cloud attaches a signed download_url per placement; entries without
+    // one (asset lookup failed) fail loudly rather than printing a bare case.
+    const customization = isPlainObject(payload.customization) ? payload.customization
+        : isPlainObject(payload.options?.customization) ? payload.options.customization : null;
+    let placements = Array.isArray(customization?.placement) ? customization.placement
+        : Array.isArray(customization?.placements) ? customization.placements : [];
+    placements = placements.filter((p) => isPlainObject(p));
+    if (placements.length) {
+        placements = await Promise.all(placements.map(async (p) => {
+            if (p.text) return { ...p };
+            if (!p.download_url) {
+                throw new Error(`Customization placement references asset ${p.asset_file_id || '?'} but no download URL was attached — cannot compose the case`);
+            }
+            const asset = await deps.downloadArtifact(p.download_url);
+            return { ...p, asset_buffer: Buffer.isBuffer(asset) ? asset : Buffer.from(asset) };
+        }));
+    }
+
     const sliced = await deps.sliceSourceModel({
         buffer: Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded),
         originalName,
         printerModel: payload.printer_model || null,
         settings: payload.slice_settings || null,
+        customization: customization ? { ...customization, placements } : null,
     });
 
     if (!sliced?.ok || !sliced.gcode3mf) {
         throw new Error(`Slicing failed: ${sliced?.error || 'no slicer backend available on this node'}`);
     }
+
+    // Composed multi-color plates resolve their colors against the printer's
+    // live AMS inventory at start time.
+    const compColors = sliced.report?.composition?.colors;
+    const amsRolesOverride = Array.isArray(compColors) && compColors.length > 1
+        ? { mode: 'auto', colors: compColors, material: customization?.material || null }
+        : null;
 
     const remoteFileName = safeRemoteFileName(sliced.outputName || originalName.replace(/\.[^.]+$/i, '.gcode.3mf'));
     return submitOrchestratedPrint({
@@ -523,9 +594,11 @@ async function executeCloudPrintSource(command, deps) {
         buffer: Buffer.isBuffer(sliced.gcode3mf) ? sliced.gcode3mf : Buffer.from(sliced.gcode3mf),
         remoteFileName,
         originalName,
+        amsRolesOverride,
         extraResult: {
             sliced: true,
             slice_report: sliced.report || null,
+            composed: placements.length > 0,
         },
     }, deps);
 }

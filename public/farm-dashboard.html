@@ -27,7 +27,13 @@
 
   <!-- Vendored ES module map (offline-friendly; no CDN at runtime) -->
   <script type="importmap">
-    { "imports": { "three": "/vendor/three/three.module.js" } }
+    { "imports": {
+      "three": "/vendor/three/three.module.js",
+      "three/addons/loaders/SVGLoader.js": "/vendor/three/SVGLoader.js",
+      "three-mesh-bvh": "/vendor/csg/three-mesh-bvh.module.js",
+      "three-bvh-csg": "/vendor/csg/three-bvh-csg.module.js",
+      "opentype.js": "/vendor/opentype/opentype.module.js"
+    } }
   </script>
 
   <!-- App Scripts -->

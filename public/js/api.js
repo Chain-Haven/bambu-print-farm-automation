@@ -105,12 +105,14 @@ class ApiClient {
         return `${this.baseUrl}/jobs/${id}/download?type=${type}&token=${this.token}`;
     }
     deleteJob(id) { return this.request('DELETE', `/jobs/${id}`); }
+    recoverPrinter(id) { return this.request('POST', `/printers/${id}/control`, { action: 'recover' }); }
     clearJobHistory() { return this.request('DELETE', '/jobs/history'); }
 
     // Job Templates
     getJobTemplates() { return this.request('GET', '/job-templates'); }
     getJobTemplate(id) { return this.request('GET', `/job-templates/${id}`); }
     createJobTemplate(formData) { return this.upload('/job-templates', formData); }
+    createJobTemplateFromJob(jobId, data = {}) { return this.request('POST', `/job-templates/from-job/${jobId}`, data); }
     updateJobTemplate(id, data) { return this.request('PATCH', `/job-templates/${id}`, data); }
     deleteJobTemplate(id) { return this.request('DELETE', `/job-templates/${id}`); }
     submitFromTemplate(id, overrides = {}) { return this.request('POST', `/job-templates/${id}/submit`, overrides); }
@@ -124,6 +126,14 @@ class ApiClient {
     // Slicer
     getSliceBackends() { return this.request('GET', '/slice/backends'); }
     sliceModel(formData) { return this.upload('/slice', formData); }
+    saveTextTemplate(formData) { return this.upload('/slice/templates', formData); }
+    getTextTemplates() { return this.request('GET', '/slice/templates'); }
+    fillTextTemplate(id, body) { return this.request('POST', `/slice/templates/${id}/fill`, body); }
+
+    // Custom colors (shared: slicer / AMS)
+    getCustomColors() { return this.request('GET', '/colors/custom'); }
+    saveCustomColor(name, hex) { return this.request('POST', '/colors/custom', { name, hex }); }
+    deleteCustomColor(hex) { return this.request('DELETE', `/colors/custom/${hex.replace('#', '')}`); }
 
     // Events
     getEvents(params = {}) { return this.request('GET', `/events?${new URLSearchParams(params)}`); }

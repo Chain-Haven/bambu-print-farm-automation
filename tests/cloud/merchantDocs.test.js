@@ -11,7 +11,10 @@ function collectPublicRoutePaths(dir = 'api/public') {
             continue;
         }
         if (!entry.isFile() || !entry.name.endsWith('.js')) continue;
+        // path.join emits backslashes on Windows — normalize so the derived
+        // route strings match the spec's forward-slash paths everywhere.
         const routePath = `/${entryPath
+            .split(path.sep).join('/')
             .replace(/^api\/public\//, 'api/public/')
             .replace(/\/index\.js$/, '')
             .replace(/\.js$/, '')

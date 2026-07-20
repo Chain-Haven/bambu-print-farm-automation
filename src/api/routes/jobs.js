@@ -112,18 +112,50 @@ router.patch('/:id', requireAuth, asyncHandler(async (req, res) => {
     if (!existing) return res.status(404).json({ error: 'Job not found' });
 
     // Only allow updating certain fields
-    const { printer_id, name } = req.body;
+    const { printer_id, name, status, ams_roles } = req.body;
     const updates = {};
     if (printer_id !== undefined) {
         updates.printer_id = printer_id || null;
-        // Auto-set status to 'assigned' when a printer is assigned to a queued job
-        if (printer_id && existing.status === 'queued') {
+        // Auto-set status to 'assigned' when a printer is assigned to a queued
+        // or failed job (failed jobs become retryable on the new printer)
+        if (printer_id && ['queued', 'failed'].includes(existing.status)) {
             updates.status = 'assigned';
         } else if (!printer_id && existing.status === 'assigned') {
             updates.status = 'queued';
         }
     }
     if (name !== undefined) updates.name = name;
+    // Change the spool selection without re-slicing (color lives in the AMS
+    // mapping, never in the gcode): {mode:'auto',colors,material} or
+    // {mode:'manual',colors,slot_map,material} or null to clear. The Jobs-page
+    // Start modal PATCHes this before starting — dropping it silently printed
+    // with the wrong spool.
+    if (ams_roles !== undefined) {
+        // Once the print is running the mapping has already been sent to the
+        // firmware — accepting a change here would silently do nothing. Fail
+        // honestly instead.
+        if (existing.status === 'printing') {
+            return res.status(400).json({ error: 'Job is already printing — the spool mapping was sent at start and cannot be changed mid-print. Stop the print and Retry to pick different spools.' });
+        }
+        updates.ams_roles = typeof ams_roles === 'string' ? JSON.parse(ams_roles) : ams_roles;
+    }
+    // Change how many times the job runs. repeat_remaining follows so an
+    // in-flight job honors the new total.
+    if (req.body.repeat_total !== undefined) {
+        const total = Math.max(1, parseInt(req.body.repeat_total, 10) || 1);
+        updates.repeat_total = total;
+        const done = (existing.repeat_total || 1) - (existing.repeat_remaining || 1);
+        updates.repeat_remaining = Math.max(1, total - done);
+    }
+    // Guarded status transitions: un-fail for requeue, and an escape hatch for
+    // jobs stuck in 'printing' (hung start, or tracking lost to a restart).
+    if (status !== undefined) {
+        const allowed = { failed: ['queued', 'assigned'], printing: ['failed'] };
+        if (!(allowed[existing.status] || []).includes(status)) {
+            return res.status(400).json({ error: `Cannot change status ${existing.status} -> ${status}` });
+        }
+        updates.status = status;
+    }
 
     const job = JobModel.update(req.params.id, updates);
     res.json(job);

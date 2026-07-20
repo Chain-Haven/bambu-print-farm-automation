@@ -577,8 +577,13 @@ export class PrinterWorker {
      */
     async _reconcileOrphanedJobs(newState) {
         const { JobModel } = await import('../models/Job.js');
-        const orphans = JobModel.findAll({ status: 'printing', printer_id: this.printerId, limit: 20 })
-            .filter(j => j.job_id !== this.activeJobId);
+        // Do NOT exclude the in-memory active job: a print that ENDS while
+        // MQTT is down (no restart involved) arrives here as offline→idle
+        // with activeJobId still set — _maybeFinishActiveJob never fires for
+        // that transition and _readoptActiveJob only covers the post-restart
+        // (activeJobId=null) case. Excluding it left the job 'printing'
+        // forever.
+        const orphans = JobModel.findAll({ status: 'printing', printer_id: this.printerId, limit: 20 });
         if (!orphans.length) return;
         const { JobOrchestrator } = await import('../services/JobOrchestrator.js');
         const gs = this.latestStatus?.gcode_state;
