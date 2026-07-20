@@ -15,6 +15,8 @@ import {
     createCloudCommandHandler,
     createCloudSetupStatusHandler,
     createCloudFarmAutomationHandler,
+    createCloudFilamentOrdersHandler,
+    createCloudStorefrontHandler,
     createCloudMerchantSettingsHandler,
     createCloudMerchantSetupTokenHandler,
     createCloudMerchantsHandler,
@@ -47,6 +49,15 @@ import {
     createMerchantPrintJobsHandler,
 } from './merchantPrintHandlers.js';
 import { createCloudPrintFilesHandler } from './adminPrintHandlers.js';
+import {
+    createStorefrontCancelHandler,
+    createStorefrontCheckoutHandler,
+    createStorefrontOrderStatusHandler,
+    createStorefrontQuoteHandler,
+    createStorefrontStripeWebhookHandler,
+} from './storefrontHandlers.js';
+import { createWooPluginDownloadHandler } from './woocommercePlugin.js';
+import { createMcpHandler } from './mcpServer.js';
 
 // A self-contained cloud control plane: the SAME handler code the Vercel
 // functions run, wired to an Express app against any store implementation
@@ -100,14 +111,16 @@ export function createLocalCloudApp({
     app.all('/api/cloud/print-files', wire(createCloudPrintFilesHandler({ store, adminToken, now })));
     app.all('/api/cloud/overview', wire(createCloudOverviewHandler({ store, adminToken })));
     app.all('/api/cloud/farm-automation', wire(createCloudFarmAutomationHandler({ store, adminToken })));
+    app.all('/api/cloud/filament-orders', wire(createCloudFilamentOrdersHandler({ store, adminToken, fetchImpl, now })));
+    app.all('/api/cloud/storefront', wire(createCloudStorefrontHandler({ store, adminToken, now })));
     app.all('/api/cloud/merchants', wire(createCloudMerchantsHandler({ store, adminToken, merchantPepper: pepper })));
     app.all('/api/cloud/merchant-settings', wire(createCloudMerchantSettingsHandler({ store, adminToken })));
     app.all('/api/cloud/merchant-setup-token', wire(createCloudMerchantSetupTokenHandler({ store, adminToken, merchantPepper: pepper })));
 
     // Agent (edge node) endpoints.
-    app.all('/api/agent/heartbeat', wire(createHeartbeatHandler({ store, pepper, now })));
+    app.all('/api/agent/heartbeat', wire(createHeartbeatHandler({ store, pepper, now, fetchImpl, mailer: authMailer })));
     app.all('/api/agent/commands', wire(createClaimCommandsHandler({ store, pepper })));
-    app.all('/api/agent/events', wire(createEventsHandler({ store, pepper, now, fetchImpl })));
+    app.all('/api/agent/events', wire(createEventsHandler({ store, pepper, now, fetchImpl, mailer: authMailer })));
     app.all('/api/agent/command-result', wire(createCommandResultHandler({ store, pepper, now })));
 
     // Public merchant endpoints.
@@ -117,6 +130,19 @@ export function createLocalCloudApp({
     app.all('/api/public/merchant/me', wire(createMerchantMeHandler({ store, pepper, now })));
     app.all('/api/public/print-jobs', wire(createMerchantPrintJobsHandler({ store, pepper, now, fetchImpl })));
     app.all('/api/public/print-jobs/status', wire(createMerchantPrintJobStatusHandler({ store, pepper, now })));
+
+    // Public storefront (no auth): instant quote -> checkout -> status -> cancel.
+    app.all('/api/public/storefront/quote', wire(createStorefrontQuoteHandler({ store, now })));
+    app.all('/api/public/storefront/checkout', wire(createStorefrontCheckoutHandler({ store, now, fetchImpl, mailer: authMailer })));
+    app.all('/api/public/storefront/orders', wire(createStorefrontOrderStatusHandler({ store })));
+    app.all('/api/public/storefront/cancel', wire(createStorefrontCancelHandler({ store, now, fetchImpl, mailer: authMailer })));
+    app.all('/api/public/storefront/stripe-webhook', wire(createStorefrontStripeWebhookHandler({ store, now, fetchImpl, mailer: authMailer })));
+
+    // Merchant integrations: WooCommerce plugin download.
+    app.all('/api/public/integrations/woocommerce-plugin', wire(createWooPluginDownloadHandler({ rootDir })));
+
+    // Remote MCP server: AI agents quote, order, pay USDC, and track prints.
+    app.all('/api/mcp', wire(createMcpHandler({ store, now, fetchImpl, mailer: authMailer, pepper })));
 
     // Public liveness (parity with the Vercel /api/health function) + OpenAPI
     // index, so the landing page status badge and spec links work self-hosted.
@@ -192,7 +218,7 @@ export function createLocalCloudApp({
     const publicDir = path.join(rootDir, 'public');
     if (fs.existsSync(path.join(publicDir, 'cloud.html'))) {
         app.get('/cloud', (_req, res) => res.sendFile(path.join(publicDir, 'cloud.html')));
-        for (const page of ['merchant', 'merchant-onboarding', 'admin-reset']) {
+        for (const page of ['merchant', 'merchant-onboarding', 'admin-reset', 'order']) {
             const file = path.join(publicDir, `${page}.html`);
             if (fs.existsSync(file)) {
                 app.get(`/${page}`, (_req, res) => res.sendFile(file));

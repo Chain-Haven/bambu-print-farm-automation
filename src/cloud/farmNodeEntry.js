@@ -7,7 +7,11 @@
 //      the exe, prompts for the cloud URL + node token, and writes .env.
 //   2. Fatal startup errors never flash-and-vanish: when run from a console
 //      (double-click), the window stays open until the user presses Enter.
+//   3. Once the local server answers, the dashboard opens in the default
+//      browser (double-click runs only; PKX_OPEN_DASHBOARD=false disables).
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import readline from 'node:readline';
 
@@ -79,6 +83,51 @@ async function promptForCloudConfig(envPath) {
     process.stdout.write('Delete that file (or edit it) to re-run this setup.\n\n');
 }
 
+function openInBrowser(url) {
+    const platform = process.platform;
+    let child;
+    if (platform === 'darwin') {
+        child = spawn('open', [url], { stdio: 'ignore', detached: true });
+    } else if (platform === 'win32') {
+        // `start` is a cmd builtin; the empty string is the window title slot.
+        child = spawn('cmd', ['/c', 'start', '', url], { stdio: 'ignore', detached: true });
+    } else {
+        child = spawn('xdg-open', [url], { stdio: 'ignore', detached: true });
+    }
+    child.on('error', () => { /* headless box without a browser — fine */ });
+    child.unref();
+}
+
+// Out-of-the-box UX for the double-click flows: poll the local server until it
+// answers, then pop the dashboard so the user lands in the UI without typing a
+// URL. Only runs at an interactive console (never in CI/services), and only
+// unref'd timers so a failed server start still exits cleanly.
+function openDashboardWhenReady() {
+    if (process.env.PKX_OPEN_DASHBOARD === 'false' || !process.stdin.isTTY) return;
+    const port = Number.parseInt(process.env.PORT || '', 10) || 3000;
+    const url = `http://localhost:${port}`;
+    const deadline = Date.now() + 90_000;
+
+    const attempt = () => {
+        let settled = false; // destroy() re-fires 'error' — schedule one retry per attempt
+        const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: 2000 }, (res) => {
+            settled = true;
+            res.resume(); // any HTTP answer (200/302/401/…) means the server is up
+            process.stdout.write(`\n[farm-node] Local dashboard ready: ${url} (opening browser)\n`);
+            openInBrowser(url);
+        });
+        const retry = () => {
+            if (settled) return;
+            settled = true;
+            req.destroy();
+            if (Date.now() < deadline) setTimeout(attempt, 1000).unref();
+        };
+        req.on('error', retry);
+        req.on('timeout', retry);
+    };
+    setTimeout(attempt, 1500).unref();
+}
+
 async function bootstrap() {
     const sea = await loadSea();
 
@@ -114,6 +163,8 @@ async function bootstrap() {
 
     // Tell runLocalNode's failure path to hold the window open too.
     if (process.stdin.isTTY) process.env.PKX_HOLD_CONSOLE = '1';
+
+    openDashboardWhenReady();
 
     await import('./runLocalNode.js');
 }

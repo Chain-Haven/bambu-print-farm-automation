@@ -17,6 +17,16 @@ import { redactPublicValue } from './merchantPublicProjections.js';
 import { redactWebhookConfig } from './webhooks.js';
 import { buildWindowsNodePackage, getNodePackageFileName, PORTABLE_BUNDLE_SUBDIR } from './nodePackage.js';
 import { buildFarmAutomationPlan, normalizeFarmAutomationSettings } from './farmAutomation.js';
+import {
+    approveFilamentReorder,
+    denyFilamentReorder,
+    evaluateFilamentReorders,
+    FILAMENT_REORDER_CONFIG_KEY,
+    getFilamentReorderOverview,
+    normalizeReorderConfig,
+} from './filamentReorder.js';
+import { searchAmazonBusinessProducts, testAmazonBusinessConnection } from './amazonBusiness.js';
+import { adminMarkStorefrontRefunded, createStorefrontAdminOverview } from './storefrontHandlers.js';
 
 const FARM_AUTOMATION_POLICY_KEY = 'farm_automation_policy';
 const FARM_FILAMENT_INVENTORY_KEY = 'farm_filament_inventory';
@@ -817,6 +827,211 @@ export function createCloudFarmAutomationHandler({
             return sendJson(res, 400, {
                 ok: false,
                 error: 'update_farm_automation_failed',
+                message: error.message,
+            });
+        }
+    };
+}
+
+// Filament auto-ordering (Amazon Business): GET overview, PATCH config,
+// POST { action: evaluate | approve | deny | test_connection }.
+export function createCloudFilamentOrdersHandler({
+    store,
+    adminToken = process.env.CLOUD_ADMIN_TOKEN,
+    fetchImpl = fetch,
+    now = () => new Date(),
+}) {
+    if (!store) throw new Error('store is required');
+
+    return async function cloudFilamentOrdersHandler(req, res) {
+        if (req.method === 'GET') {
+            try {
+                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+                const overview = await getFilamentReorderOverview({ store, now });
+                return sendJson(res, 200, { ok: true, ...overview });
+            } catch (error) {
+                return sendInternalError(res, req, 'filament_orders_failed');
+            }
+        }
+
+        if (req.method === 'PATCH') {
+            try {
+                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+                const body = parseJsonBody(req.body);
+                const incoming = isPlainObject(body.config) ? body.config : body;
+                const current = normalizeReorderConfig(await store.getPlatformSetting(FILAMENT_REORDER_CONFIG_KEY, null));
+
+                // LWA secrets are write-only: keep the stored value unless the
+                // request carries a non-empty replacement.
+                const incomingCredentials = isPlainObject(incoming.credentials) ? incoming.credentials : {};
+                const keepUnlessProvided = (nextValue, currentValue) => (
+                    typeof nextValue === 'string' && nextValue.trim() ? nextValue.trim() : currentValue
+                );
+                const next = normalizeReorderConfig({
+                    ...current,
+                    ...incoming,
+                    credentials: {
+                        client_id: keepUnlessProvided(incomingCredentials.client_id, current.credentials.client_id),
+                        client_secret: keepUnlessProvided(incomingCredentials.client_secret, current.credentials.client_secret),
+                        refresh_token: keepUnlessProvided(incomingCredentials.refresh_token, current.credentials.refresh_token),
+                    },
+                });
+
+                await store.upsertPlatformSetting(FILAMENT_REORDER_CONFIG_KEY, next);
+                const overview = await getFilamentReorderOverview({ store, now });
+                return sendJson(res, 200, { ok: true, ...overview });
+            } catch (error) {
+                return sendJson(res, 400, {
+                    ok: false,
+                    error: 'update_filament_orders_failed',
+                    message: error.message,
+                });
+            }
+        }
+
+        if (req.method && req.method !== 'POST') {
+            return methodNotAllowed(res, 'GET, PATCH, POST');
+        }
+
+        try {
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+            const body = parseJsonBody(req.body);
+            const action = normalizeOptionalString(body.action);
+
+            if (action === 'evaluate') {
+                const result = await evaluateFilamentReorders({ store, now, fetchImpl, force: true });
+                const overview = await getFilamentReorderOverview({ store, now });
+                return sendJson(res, 200, { ok: true, result, ...overview });
+            }
+
+            if (action === 'approve' || action === 'deny') {
+                const orderId = normalizeOptionalString(body.order_id);
+                if (!orderId) {
+                    return sendJson(res, 400, { ok: false, error: 'order_id_required' });
+                }
+                try {
+                    const order = action === 'approve'
+                        ? await approveFilamentReorder({ store, orderId, now, fetchImpl })
+                        : await denyFilamentReorder({ store, orderId, now });
+                    const overview = await getFilamentReorderOverview({ store, now });
+                    return sendJson(res, 200, { ok: true, order, ...overview });
+                } catch (error) {
+                    if (error.message === 'reorder_not_found') {
+                        return sendJson(res, 404, { ok: false, error: 'reorder_not_found' });
+                    }
+                    if (error.message === 'reorder_not_awaiting_approval') {
+                        return sendJson(res, 409, { ok: false, error: 'reorder_not_awaiting_approval' });
+                    }
+                    throw error;
+                }
+            }
+
+            if (action === 'test_connection') {
+                const config = normalizeReorderConfig(await store.getPlatformSetting(FILAMENT_REORDER_CONFIG_KEY, null));
+                // Always 200: the probe result travels in `connection.ok` so the
+                // console can render the failure diagnostics instead of a
+                // generic thrown error.
+                const connection = await testAmazonBusinessConnection({ config, fetchImpl });
+                return sendJson(res, 200, { ok: true, connection });
+            }
+
+            if (action === 'suggest_product') {
+                const config = normalizeReorderConfig(await store.getPlatformSetting(FILAMENT_REORDER_CONFIG_KEY, null));
+                const material = normalizeOptionalString(body.material) || 'PLA';
+                const colorName = normalizeOptionalString(body.color_name);
+                const keywords = normalizeOptionalString(body.keywords)
+                    || [material, 'filament', colorName, '1.75mm 1kg spool'].filter(Boolean).join(' ');
+                try {
+                    const products = await searchAmazonBusinessProducts({ config, keywords, fetchImpl });
+                    return sendJson(res, 200, { ok: true, keywords, products });
+                } catch (error) {
+                    // Search availability depends on the AB account's API roles;
+                    // return the diagnosis instead of a bare 400 so the console
+                    // can show it next to the manual-ASIN fallback.
+                    return sendJson(res, 200, {
+                        ok: true,
+                        keywords,
+                        products: [],
+                        search_error: String(error.message || error).slice(0, 300),
+                    });
+                }
+            }
+
+            return sendJson(res, 400, {
+                ok: false,
+                error: 'unknown_action',
+                message: 'action must be one of: evaluate, approve, deny, test_connection, suggest_product',
+            });
+        } catch (error) {
+            return sendJson(res, 400, {
+                ok: false,
+                error: 'filament_orders_action_failed',
+                message: error.message,
+            });
+        }
+    };
+}
+
+// Public storefront settings + order log (GET) and settings updates (PATCH,
+// Stripe secrets write-only).
+export function createCloudStorefrontHandler({
+    store,
+    adminToken = process.env.CLOUD_ADMIN_TOKEN,
+    now = () => new Date(),
+}) {
+    if (!store) throw new Error('store is required');
+    const overviewApi = createStorefrontAdminOverview({ store, now });
+
+    return async function cloudStorefrontHandler(req, res) {
+        if (req.method === 'GET') {
+            try {
+                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+                const overview = await overviewApi.getOverview();
+                return sendJson(res, 200, { ok: true, ...overview });
+            } catch (error) {
+                return sendInternalError(res, req, 'storefront_overview_failed');
+            }
+        }
+
+        if (req.method === 'POST') {
+            try {
+                if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+                const body = parseJsonBody(req.body);
+                if (normalizeOptionalString(body.action) === 'mark_refunded') {
+                    const orderId = normalizeOptionalString(body.order_id);
+                    if (!orderId) return sendJson(res, 400, { ok: false, error: 'order_id_required' });
+                    const order = await adminMarkStorefrontRefunded({
+                        store,
+                        orderId,
+                        txHash: normalizeOptionalString(body.tx_hash),
+                        now,
+                    });
+                    const { access_token: _token, file_record: _file, ...redacted } = order;
+                    return sendJson(res, 200, { ok: true, order: redacted });
+                }
+                return sendJson(res, 400, { ok: false, error: 'unknown_action', message: 'action must be mark_refunded' });
+            } catch (error) {
+                return sendJson(res, error.message === 'order_not_found' ? 404 : 400, {
+                    ok: false,
+                    error: error.message === 'order_not_found' ? 'order_not_found' : 'storefront_action_failed',
+                    message: error.message,
+                });
+            }
+        }
+
+        if (req.method && req.method !== 'PATCH') {
+            return methodNotAllowed(res, 'GET, PATCH, POST');
+        }
+
+        try {
+            if (!(await authenticateAdmin(req, res, adminToken, store))) return null;
+            const body = parseJsonBody(req.body);
+            const settings = await overviewApi.patchSettings(isPlainObject(body.settings) ? body.settings : body);
+            return sendJson(res, 200, { ok: true, settings });
+        } catch (error) {
+            return sendJson(res, 400, {
+                ok: false,
+                error: 'update_storefront_failed',
                 message: error.message,
             });
         }

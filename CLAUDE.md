@@ -137,6 +137,305 @@ build (all covered by `tests/runtime/startReliability.test.js` + updated
    contains the transform's cooldown+sweep (`transform_report.insertionPoint`) — with an
    ejector fitted the accessory pass would double-eject and stall the repeat chain.
 
+## Changes already made (July 2026 session — UI/UX refresh: landing, operator console, merchant portal)
+
+1. **Merchant portal (`public/merchant.html` + `merchant-portal.js`) rebuilt**:
+ sticky brand header, split auth layout (gradient brand/value panel + auth
+ card), login ↔ forgot-password now swap in place (`showSigninForm`; new
+ `#back-to-login`), focus rings, and a real signed-in dashboard — company
+ name + status pill header, account tiles, hoverable API-key table, one-click
+ **Copy key to clipboard** (`#copy-key-secret`), and "Build with the farm"
+ quick links (API guide / Woo plugin / /order). All test-asserted IDs and
+ endpoints unchanged.
+2. **Operator console visual refresh (`cloud.css` + small `cloud.html` edits)**:
+ compact brand-mark header (h1 42→22px), centered brand on the login screen,
+ tabs became a segmented control, metric cards dropped the thick colored top
+ borders for dot-labeled cards with tabular numbers + hover, focus rings on
+ all inputs/buttons, softer layered shadows/radii, table `thead`/row-hover
+ styling, subpanel tint, animated toast. Every ID/class asserted by
+ `dashboardAssets.test.js` kept (incl. `[hidden]{display:none}` guards).
+3. **Landing page polish (`index.html`)**: hero eyebrow chip + gradient
+ headline accent, numbered step badges, per-section uppercase eyebrows with
+ uniform 76px section rhythm, panel/pricing hover lift, "Most popular" badge,
+ smooth-scroll + `:focus-visible`. Dark-mode vars respected throughout.
+4. Verified with Playwright before/after shots (incl. a mocked signed-in
+ portal). Tests: 664 pass.
+
+## Changes already made (July 2026 session — MCP v2: agent-native commerce + org routing fix)
+
+1. **CRITICAL routing fix**: `ensureStorefrontIdentity` now provisions the
+ walk-in merchant **inside the org that owns the farm nodes** (routing +
+ redispatch are org-scoped; the old separate "Public Storefront" org meant
+ production storefront/agent jobs could NEVER dispatch). Self-heals stored
+ identities created before nodes existed (re-provisions merchant in the node
+ org, keeps quote_secret).
+2. **MCP v2 (`mcpServer.js`, 11 tools)**: adds `farm_capacity` (live printers/
+ queue/lead time + AMS-loaded colors via buildFilamentStockView),
+ `print_preview` (meshPreview.js: shaded isometric SVG returned as MCP image
+ content), `generate_model` (OpenSCAD → STL via new node command
+ `cloud.model.generate`; executor compiles with `openscad` CLI, 90s timeout,
+ 4MB cap, MOCK emits a cube; nodes advertise `can_generate_models`; poll
+ with generation_id), `print_snapshot` (live camera frame via
+ printer.camera.snapshot command round-trip, poll with snapshot_command_id),
+ `cancel_order` (unpaid), `request_refund` (queued + operator alert;
+ admin settles via POST /api/cloud/storefront {action:'mark_refunded'}).
+ Multi-item orders (items[] ≤10, one shipping fee, combined-digest quote
+ token); per-IP token-bucket rate limiting (429 + Retry-After); merchant
+ tier (Bearer pkx_ key → resolveMerchantAuth → bills merchant account,
+ dispatches immediately, no USDC).
+3. **Hands-free USDC settlement**: every anonymous order gets a UNIQUE
+ payable amount (sub-cent dither, collision-checked vs open orders);
+ storefront sweep stage 0 scans Transfer logs to the wallet
+ (`scanUsdcTransfersToWallet`, eth_getLogs from `storefront_sweep_state.
+ usdc_scanned_block` with confirmation-window rewind) and settles matching
+ orders — the agent just pays. Plus EIP-681 URI, per-material rates
+ (`USDC_PRICE_PER_GRAM_<MAT>`), volume break (`USDC_VOLUME_BREAK_GRAMS`/
+ `_DISCOUNT_PCT`), and x402 (`settleX402Payment` via `X402_FACILITATOR_URL`
+ verify→settle; `print_pay` accepts x402_payment; mock 'mock_x402').
+ dist/windows-node rebuilt (executor + capability changes). Tests:
+ mcpServer.test.js rewritten (17) — 664 total.
+
+## Changes already made (July 2026 session — MCP server: agents buy prints with USDC)
+
+1. **Remote MCP server at `POST /api/mcp`** (`src/cloud/mcpServer.js`):
+ stateless Streamable HTTP JSON-RPC (initialize/tools list+call/ping;
+ notifications → 202; GET → 405 hint; batch tolerated). Five tools:
+ `farm_info`, `print_quote` (file_url with SSRF guard OR base64; finish
+ options), `print_order` (quote token + shipping address → pending_payment
+ order), `print_pay` (tx hash), `print_status`. Orders reuse the storefront
+ machinery end-to-end (`source:'mcp_agent'`, provider `usdc`), so dispatch,
+ auto-retry, auto-ship labels, and emails all apply. Wired: `api/mcp.js`
+ (Vercel) + localCloudServer; landing "For developers" card documents it.
+2. **USDC per-filament-gram payments** (`src/cloud/usdcPayments.js`):
+ price = grams × `USDC_PRICE_PER_GRAM` (0.05 default) × qty +
+ `USDC_SHIPPING_FLAT` (8), exact 6-decimal base units. Self-custodial:
+ agent transfers to `USDC_WALLET_ADDRESS` (env, Vercel) on `USDC_CHAIN`
+ (base default; ethereum/polygon/arbitrum; token + RPC overridable), then
+ submits the tx hash; verification is read-only RPC
+ (eth_getTransactionReceipt: status 0x1, USDC contract Transfer log to OUR
+ wallet, amount ≥ owed, `USDC_MIN_CONFIRMATIONS` ≥ 2 via eth_blockNumber).
+ One tx settles exactly one order (reuse rejected). MOCK: tx `mock_paid`.
+ Env documented in `.env.example`. Tests: `mcpServer.test.js` (6) — pricing
+ math, on-chain verify matrix (wrong wallet/underpaid/unconfirmed), full
+ agent funnel, tamper/reuse/token attacks, SSRF guard (653 total).
+
+## Changes already made (July 2026 session — fulfillment loop + alerts + WooCommerce)
+
+1. **Auto-shipping** — `src/cloud/shippingLabels.js`: EasyPost REST adapter
+ (create shipment → cheapest/preferred rate → buy; Basic auth; MOCK
+ simulates). Storefront sweep stage 3: orders whose jobs are ALL completed
+ buy a label, flip to `shipped`, email tracking; without a carrier key they
+ park `ready_to_ship` + alert. Config in `storefront_settings.shipping`
+ (easypost key write-only or `EASYPOST_API_KEY`, from_address defaults to
+ the Houston dock, parcel dims + base weight, `auto_ship` default ON).
+2. **Customer emails** (Resend mailer, best-effort): paid receipt with status
+ link, shipped with tracking, cancel/refund confirmation. Status link stored
+ on the order (`status_url`). Handlers take `mailer`; Vercel functions pass
+ `createMailer()`; heartbeat/events wire it too.
+3. **Cancel/refund** — `POST /api/public/storefront/cancel` {order_id, token}:
+ allowed until any job leaves queued/waiting; cancels jobs, refunds via new
+ `createStripeRefund` (payment_intent captured from webhook/sweep), status
+ `refunded`/`canceled`. UI: cancel button + shipped/refunded statuses +
+ tracking line on /order. **Stripe Tax**: `stripe.tax_enabled` setting →
+ `automatic_tax[enabled]` on Checkout Sessions.
+4. **Operator alerts** — `src/cloud/operatorAlerts.js`: fan-out to
+ `farm_integrations.alerts` channels ({type: discord|slack|webhook|email}).
+ Fired on: job failed (final), job auto-retried, printer.alert/auto_canceled
+ node events, order paid/shipped/canceled, ready_to_ship, maintenance due.
+5. **Auto-retry + maintenance** (agentHandlers): `print_job.failed` →
+ `maybeRetryFailedJob` re-routes the same file once (policy
+ `auto_retry_failed_jobs` ON, `auto_retry_max` 1, marker `options.retry_of`);
+ `print_job.completed` → per-printer counter in `printer_service_state`,
+ alert every `maintenance_alert_every_prints` (200).
+6. **WooCommerce plugin** — `integrations/woocommerce/printkinetix-print-on-
+ demand/` (PHP 8 linted, single-file + assets): merchant pastes API key;
+ product meta box uploads the model to `/api/public/files`; product page
+ customizer (material/color/scale/strength/quality + optional interactive 3D
+ preview via bundled `pkx-model-viewer.js`); paid Woo orders POST
+ `/api/public/orders` with `auto_submit` + shipping address (idempotent
+ `external_order_id` woo-{host}-{id}) → our pickup sweep prints them; hourly
+ cron syncs farm status back to order notes. Download:
+ `GET /api/public/integrations/woocommerce-plugin` (adm-zip on demand,
+ viewer injected; `src/cloud/woocommercePlugin.js`; vercel.json
+ includeFiles). Links on landing + onboarding pages.
+7. Deferred deliberately: slice-to-quote refinement for STEP/OBJ, carrier-rate
+ quoting at checkout, storefront orders → real table, node self-update.
+ Tests: `fulfillment.test.js` (10) + storefront ship/cancel tests (647 total).
+
+## Changes already made (July 2026 session — 3D viewer + finishing touches on /order)
+
+1. **Interactive 3D preview** — `public/js/model-viewer.js`: dependency-free
+ WebGL viewer (no three.js/CDN; ~450 lines): binary+ASCII STL and OBJ
+ parsers, per-face flat normals, two-light lambert shader, orbit/wheel/pinch
+ controls, auto-fit + idle spin, DPI-aware. `window.PKXModelViewer`.
+ Verified in real Chromium (Playwright smoke: parse, WebGL init, bounds,
+ zero page errors + screenshot).
+2. **Finishing touches that really change the print** (panel under the
+ viewer): scale 25–400% (server reprices by scale³ via `analyzePrintUpload
+ scalePercent`; sliced files ignore scale), color swatch (tints the viewer
+ AND becomes `requirements.colors` → router prefers a printer with that
+ filament loaded), strength light/standard/strong (solidity 0.28/0.35/0.48 +
+ `slice_settings.infill_percent` 10/15/25), quality draft/standard/fine
+ (machine-time ×0.8/1/1.35 + `layer_height_mm` 0.28/0.2/0.12). All in
+ `normalizeFinishOptions`/`finishSolidity`/`finishSliceSettings`
+ (storefrontHandlers); jobs carry `options.finish` + `options.slice_settings`.
+ Client marks the quote stale on any change (checkout disabled until
+ re-quote); the HMAC token binds the finish via the total.
+3. **Page polish**: /order gets the viewer card + finish panel + status
+ timeline (Paid → Printing → Done); landing page gets a customer
+ "three steps" strip; file reading switched to ArrayBuffer (feeds viewer +
+ chunked base64). `model-viewer.js` excluded from the farm-node bundle
+ (all three lists); browser scripts syntax-checked in dashboardAssets test.
+
+## Changes already made (July 2026 session — unprinted-order pickup + ASIN suggestions)
+
+1. **Nothing paid/submitted can sit unprinted in Supabase anymore.** Two
+ heartbeat sweeps (both throttled 5min, best-effort, never fail a heartbeat):
+ - `pickupUnprintedOrderItems` (`src/cloud/orderPickup.js`): merchant v2
+   `merchant_order_items` rows with a file but `job_id: null` (the old
+   `auto_submit` dead end that only "recorded intent") become REAL routed
+   print jobs — one per unit (cap 20), item gets `job_id` + `metadata.job_ids`
+   + `auto_submit_status:'submitted'`, order → `in_production`
+   (in_production/printing stay pickup-eligible so multi-item orders finish).
+   Gate: farm policy `auto_print_submitted_orders` (default ON; off = only
+   items that explicitly requested auto_submit). Missing file →
+   `pickup_failed` marker (no retry loop). New store methods
+   `listUnprintedMerchantOrderItems`/`updateMerchantOrderItem` (supabaseRest;
+   `merchant_order_items` added to MERCHANT_V2_IDS).
+ - `sweepStorefrontOrders` (storefrontHandlers): `pending_payment` orders
+   whose Stripe webhook never arrived are settled by asking Stripe for the
+   session state directly (paid → dispatch; expired → `payment_expired`;
+   ≤8 lookups/sweep); paid/processing orders with zero jobs (dispatch crash)
+   re-dispatch idempotently. Throttle state in `storefront_sweep_state`.
+2. **"Suggest product" for filament tagging** — Amazon Business Product
+ Search API client (`searchAmazonBusinessProducts`,
+ `GET /products/2020-08-26/products?keywords=…`), handler action
+ `suggest_product` (never 400s — returns `search_error` inline), console
+ button per Filament Catalog row fills ASIN + price cap (top hit × 1.1).
+ MOCK returns a fake product.
+3. Heartbeat responses now include pickup/sweep counts; `createHeartbeatHandler`
+ takes `fetchImpl`. Tests: `orderPickup.test.js` (6) + sweep tests in
+ `storefront.test.js` + search/suggest tests in `filamentReorder.test.js`
+ (629 total).
+
+## Changes already made (July 2026 session — public storefront: quote → pay → ship)
+
+1. **Anyone can order a print at `/order`** (no account): upload STL/3MF/STEP/
+ OBJ/gcode(.3mf) → instant server-side price → shipping address → Stripe
+ hosted checkout → paid order dispatches through the REAL merchant pipeline
+ (`routeAndDispatchJobFile`, exported split of `merchantPrintHandlers`'
+ `createPrintJob`) under a platform-owned **"Walk-in Storefront" merchant**
+ (auto-provisioned once, `ensureStorefrontIdentity`, `storefront_state`).
+ One print job per ordered piece; capacity parking + heartbeat redispatch
+ apply as usual. Tokenized public status page (`/order?order_id&token`).
+2. **Honest pricing from the file itself** — `src/cloud/modelAnalysis.js`:
+ sliced files parse the slicer's "filament used [g]" (gcode header or
+ slice_info `used_g`); STL gets exact signed-tetrahedron mesh volume
+ (binary + ASCII) × density × 0.35 solidity; OBJ/STEP fall back to a
+ size heuristic labeled `file_size_heuristic`. Quote = per-piece estimator
+ (`quoteEstimator`) × qty + setup + markup% + flat shipping (all in
+ `storefront_settings`). **Quotes are HMAC-tokenized** (checksum+material+
+ qty+total+expiry, `storefront_state.quote_secret`) and recomputed at
+ checkout — clients cannot name their own price.
+3. **Stripe without the SDK** — `src/cloud/stripePayments.js`: hosted
+ Checkout Sessions via form-encoded REST; keys from settings (write-only)
+ or `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`; `mock` mode for offline.
+ **Webhook trust**: Vercel functions lack the raw body, so the delivered
+ event is only a hint — the handler re-fetches the event by id from Stripe
+ with our key before mutating anything (forgery-proof, replay-idempotent);
+ raw-body HMAC verify (`verifyStripeSignature`) also available self-hosted.
+ No Stripe → orders park unless `allow_unpaid_orders` (or MOCK_MODE demo).
+4. **Surfaces**: public `/api/public/storefront/{quote,checkout,orders,
+ stripe-webhook}`; admin `/api/cloud/storefront` (GET settings+orders /
+ PATCH settings); wired on Vercel + `localCloudServer` (+ `/order` page
+ route + vercel.json rewrite). Landing page: hero CTA + nav "Instant Print
+ Quote" + no-account card. Storefront page excluded from the farm-node
+ bundle (all three exclusion lists). Orders log: `storefront_orders`
+ platform setting (capped 500). Tests: `tests/cloud/storefront.test.js`
+ (17) — mesh math, token tamper, offline + Stripe funnels, webhook
+ idempotency, secret redaction.
+
+## Changes already made (July 2026 session — filament auto-ordering via Amazon Business)
+
+1. **Auto-restocking closes the supply loop** — `src/cloud/filamentReorder.js`
+ watches the spool inventory (`farm_filament_inventory`, AMS-synced) against
+ per-material/color rules (`min_spools`, `order_quantity`, `asin`,
+ `max_unit_price_usd`) and creates reorders when usable spools (≥
+ `min_usable_grams`) drop below threshold. Config in platform setting
+ `farm_filament_reorder`, order log in `farm_filament_reorder_state` (capped
+ 200). Evaluation runs from the **heartbeat path** (same pattern as
+ auto-eject; throttled to 1/5min, never fails a heartbeat) and manually via
+ "Check Stock Now".
+2. **Amazon Business Ordering API client** — `src/cloud/amazonBusiness.js`:
+ LWA refresh-token exchange (`api.amazon.com/auth/o2/token`), regional hosts
+ (na/eu/jp.business-api.amazon.com), `POST /ordering/2022-10-30/orders` +
+ `GET …/orders/{externalId}`, headers `x-amz-access-token` +
+ `x-amz-user-email`. Requires an Amazon Business account approved for the
+ Ordering API (partner onboarding) — credentials via console or `AB_LWA_*`
+ env vars. MOCK_MODE simulates acceptance.
+3. **Safety rails**: `trial_mode` default ON (Amazon test orders — flip off
+ after a trial round-trips), approval mode default (one-click Approve/Deny in
+ the console), monthly budget + per-order caps (over-cap parks for approval),
+ per-rule cooldown + open-order dedupe, and Amazon-side idempotency via
+ deterministic `externalId` (`pkx-{rule}-{month}-{seq}`) so racing heartbeats
+ can't double-order.
+4. **Surface**: `/api/cloud/filament-orders` (GET overview / PATCH config with
+ write-only secrets / POST evaluate|approve|deny|test_connection), wired in
+ Vercel (`api/cloud/filament-orders.js`) + `localCloudServer`. Console:
+ "Filament Auto-Ordering" panel + "Filament Orders" table on the Automation
+ tab. Tests: `tests/cloud/filamentReorder.test.js` (28) incl. heartbeat
+ integration; LWA secrets never echo in responses.
+5. **Ships to the farm dock + fully-auto defaults** — every Amazon order
+ carries an Ordering-API `ShippingAddress` attribute (PhysicalAddress);
+ default ship-to is the farm's receiving address (**5151 Mitchelldale St
+ A10, Houston TX 77092**, `DEFAULT_SHIP_TO`), editable in the console
+ ("Ship filament to" fields; absent key = keep default, explicit null =
+ clear; incomplete address → attribute omitted → AB account default).
+ Reorder defaults flipped to hands-off: `enabled` + `mode:'auto'` out of
+ the box (trial_mode still ON + budget caps still gate real spend).
+6. **Fully hands-off variant (AMS-level tracking + tagging)** — stock now
+ includes **live AMS tray levels** (`count_ams_trays`, default ON): trays from
+ heartbeat-mirrored printers (`capabilities.ams_trays[].live_remaining`,
+ Bambu `remain` %; null/-1 = no RFID → counts as full; RGBA colors normalized
+ to #RRGGBB; printers silent >24h ignored; inventory spools assigned to a
+ printer skipped to avoid double-count with their live tray). Zero manual
+ inventory needed. `buildFilamentStockView` powers the **"Filament Catalog —
+ tag to Amazon"** table: every detected filament (AMS + shelf) with live
+ stock and per-row ASIN/threshold inputs — Tag/Untag upserts rules
+ (`rule_defaults` config prefills). Loop closes physically: order arrives →
+ spools loaded → tray levels rise → no re-order (plus cooldown while
+ shipping).
+
+## Changes already made (July 2026 session — macOS farm node + out-of-the-box download)
+
+1. **The portable node app now runs on macOS** — the same downloaded ZIP works on
+ Windows, macOS (Apple Silicon + Intel), and Pi/Linux. New `Start Farm Node.command`
+ double-click launcher (`createStartFarmNodeCommand` in `nodePackage.js`):
+ clears the `com.apple.quarantine` flag + restores exec bits on first run,
+ prepends Homebrew paths (`/opt/homebrew/bin:/usr/local/bin`) because Finder
+ launches with a bare PATH, resolves Node three ways (bundled `./node` →
+ system/Homebrew → auto-downloads `darwin-arm64`/`darwin-x64` tarball via the
+ now OS-aware `get-node.sh`), and holds the Terminal window open on errors.
+ First launch needs right-click → Open (Gatekeeper; documented in
+ README-FIRST + guide + toast).
+2. **Unix launchers ship 0755 in the ZIP** — `zip.addFile(..., 0o755)` for
+ `.command`/`.sh` so Archive Utility/unzip extract them executable (verified by
+ a real unzip round-trip test). Without it, double-click dies with
+ "permission denied".
+3. **Auto-config stays baked in** (`.env` with CLOUD_API_URL + LOCAL_NODE_TOKEN
+ generated per download) and the node now **auto-opens the local dashboard**:
+ `farmNodeEntry.js` polls `127.0.0.1:PORT` until the server answers, then opens
+ the browser (`open`/`start`/`xdg-open`) — TTY-only (never CI/services),
+ `PKX_OPEN_DASHBOARD=false` in `.env` to disable. `dist/windows-node/farm-node.cjs`
+ rebuilt (committed artifact).
+4. **SEA build on macOS fixed** — `build-windows-node.mjs --exe` on darwin now
+ strips the runtime signature before postject injection and ad-hoc re-signs
+ after (`codesign --sign -`), otherwise Gatekeeper kills the binary.
+5. **Copy de-Windows-ed** — console quickstart ("Windows · macOS · Pi 5 · Linux"),
+ platform-aware download toast, `windows-node-guide.html` (filename kept, now
+ "Local Farm Node" with a macOS/Gatekeeper section), index/merchant pages,
+ platformStrategy gate texts.
+
 ## Changes already made (July 2026 session — console overhaul + models + drop-in printing)
 
 1. **Unified API key management** — `/api/public/api-keys` is the canonical
