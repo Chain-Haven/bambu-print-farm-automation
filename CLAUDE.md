@@ -47,6 +47,51 @@ history but is **superseded** — those printers were healthy all along. `proof_
 still predates the fix and uses the old URL form; don't treat its output as evidence
 without updating it.
 
+## Changes already made (2026-07-17→20 session — phase 2: slicer stack, compositor, review pass)
+
+PR #11 (branch `port/slicer-phase2`, builds on #10). Read the PR body for full detail.
+1. **Multi-color slicing core**: `Model3mf.js` (buildPlain3mf / buildBambuProject3mf) +
+   `assets/bambu_multicolor_template.3mf` (DO NOT DELETE — multi-color depends on it) +
+   full `SliceService` (resolved preset chains baked into project config — never
+   `--load-settings` on the project path, it re-centers the plate; fully-resolved flat
+   presets for the CLI; materials; 49-field schema; merged-parts `options.groups` where
+   the LATER part wins overlap = show-through; Textured PEI default bed; plate Z offset;
+   teardown-crash retry; post-slice multi-filament verification). Fixed A1/A1_MINI
+   slice_info modelIds (A1 was stamped 'N1' = A1 mini). Regression:
+   `node verification/mc_verify.mjs` (real engine, ~21 checks).
+2. **Full browser slicer + saved prints**: slicer.js (text/logo tools, colors, scene
+   persistence), `#/prints` pages, text templates + fill webhook (`X-Webhook-Token`),
+   custom colors (`/api/colors`, migration 019), vendored offline 3D stack
+   (three r160 + SVGLoader + bvh/CSG + opentype + fonts; import map in
+   farm-dashboard.html; identical npm devDeps for Node-side use).
+   Migrations 017 (text_templates) / 018 (filament_profiles) / 019 (custom_colors).
+3. **AMS color intelligence**: `AmsService.matchColorsToTrays` (MATERIAL first at the
+   base-tray-type level — "PLA Silk" satisfies PLA, PLA-CF does not — then RGB distance);
+   startJob resolves `ams_roles {mode:'auto'}` against LIVE inventory; failover checks
+   candidate spools.
+4. **Customization compositor** (`src/services/CustomizationCompositor.js`): the consumer
+   of the order-intake `placement[]` contract — auto-orients SVG/STL/text assets onto the
+   requested case face, slices as ONE merged object (asset last = shows through). Logos
+   default 0.5mm; bottom-face = flush CSG-carved inlay occupying the first ~2 layers.
+   ENGINE FACT (empirical): on layer 1 only, strokes ≲3mm wide are absorbed into the
+   surrounding filament — solid areas hold color from layer 1. Cloud: printDispatch signs
+   per-placement asset URLs (WITH org/merchant ownership check); node executor downloads,
+   composes, starts with AMS auto colors. Merchant opt-in: `options.customization` on
+   POST /api/public/print-jobs. Regression: `node verification/compositor_verify.mjs`.
+5. **Richer printer page** (1s live status, decoded error panel + Clear Error & Recover,
+   live AMS trays, motion-action 409 guard, stop→job-fail + residue dismissal, real
+   `ams_change`) and **Jobs page** (Start AMS modal — PATCH /jobs/:id now accepts
+   ams_roles/repeat_total/status escapes; save-job-as-template via
+   POST /job-templates/from-job/:jobId recovers the ORIGINAL pre-transform file by
+   repack; shared `JobOrchestrator.submitFromJobTemplate`).
+6. **47-agent adversarial review pass fixed 16 confirmed defects** — see commit cd6a775
+   (cross-tenant asset signing, ES-module inline-handler ReferenceErrors, stale
+   activeJobId, MQTT-drop completion, failover queue-stealing, raw-mode startable
+   artifacts, path sanitize, upload caps, and more). merchantDocs test fixed for
+   Windows (path.sep normalization). Node bundle rebuilt WITH the compositor.
+NOTE: the SPA at `/` locally is `farm-dashboard.html`; on Vercel `/` is the cloud
+landing `index.html` (server.js rootPageFile — deliberate, commit 51232bc).
+
 ## Changes already made (2026-07-17 session — start-reliability port from the local farm build)
 
 Ported the hardware-verified start pipeline hardening from the sibling Antigravity farm
