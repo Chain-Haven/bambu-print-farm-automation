@@ -251,15 +251,26 @@ export class AmsService {
         // white PLA print (learned the hard way). When the job specifies a
         // material, only trays reporting that material are candidates.
         const wantMat = material ? String(material).trim().toUpperCase() : null;
+        // Compare BASE tray types, not raw material strings: trays configured
+        // as a subtype ("PLA Silk", "PETG HF") must still satisfy a job that
+        // asks for the base material — the firmware-level tray type is what
+        // matters for temperature compatibility.
+        const baseType = (raw) => {
+            const up = String(raw || '').trim().toUpperCase();
+            if (!up) return '';
+            const entry = FILAMENT_TYPES.find(f => f.material.toUpperCase() === up);
+            return (entry?.trayType || up.split(/\s+/)[0]).toUpperCase();
+        };
         const allTrays = (slots || []).map((s, i) => ({
             index: i,
             rgb: hexToRgb(s.configured_color || s.live_color),
-            mat: String(s.configured_material || s.live_type || '').trim().toUpperCase(),
+            mat: baseType(s.configured_material || s.live_type),
             label: `AMS ${s.ams_id + 1} tray ${s.tray_id + 1}`,
             desc: `${s.configured_material || s.live_type || '?'} ${s.configured_color_name || s.configured_color || s.live_color || ''}`.trim(),
         })).filter(t => t.rgb);
 
-        const trays = wantMat ? allTrays.filter(t => t.mat === wantMat) : allTrays;
+        const wantBase = wantMat ? (FILAMENT_TYPES.find(f => f.material.toUpperCase() === wantMat)?.trayType || wantMat.split(/\s+/)[0]).toUpperCase() : null;
+        const trays = wantBase ? allTrays.filter(t => t.mat === wantBase) : allTrays;
 
         if (!trays.length) {
             const have = allTrays.map(t => `${t.label}: ${t.desc}`).join(', ') || 'none';

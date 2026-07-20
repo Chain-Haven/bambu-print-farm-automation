@@ -15,7 +15,7 @@ const router = Router();
 const UPLOADS_DIR = getUploadRoot();
 const TEMPLATES_DIR = getUploadPath('templates');
 const AG_MARKER = ';===== ANTIGRAVITY AUTOMATION START =====';
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } }); // 200MB
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024, files: 32, fields: 64 } }); // 200MB/file, bounded file count (memoryStorage buffers in RAM)
 
 // Ensure templates directory exists
 if (!fs.existsSync(TEMPLATES_DIR)) fs.mkdirSync(TEMPLATES_DIR, { recursive: true });
@@ -201,6 +201,10 @@ router.post('/from-job/:jobId', requireAuth, asyncHandler(async (req, res) => {
         tags: [],
         transform_overrides,
     });
+    // source_file_name derives from the job's stored original filename —
+    // sanitize before it becomes part of a filesystem path (basename +
+    // whitelist), or a crafted upload name could write outside TEMPLATES_DIR.
+    source_file_name = path.basename(source_file_name).replace(/[^\w.\- ()]/g, '_');
     const source_file_path = path.join(TEMPLATES_DIR, `${tmpl.template_id}_${source_file_name}`);
     fs.writeFileSync(source_file_path, fileBuffer);
     const updated = JobTemplateModel.update(tmpl.template_id, { source_file_name, source_file_path });

@@ -751,7 +751,7 @@ route('/printers/:id', async (el, { id }) => {
                 <span style="font-size:0.8rem;font-weight:600;">Speed Profile</span>
                 <div class="btn-group" style="gap:0.2rem;">
                   <button class="btn btn-sm" onclick="setSpeedProfile('${id}',2)" title="Revert to Standard" style="font-size:0.7rem;">↺ Reset</button>
-                  <button class="btn btn-sm btn-primary" onclick="applyOverride('${id}','speed_profile',_pendingSpeedProfile||2)" style="font-size:0.7rem;">▶ Apply</button>
+                  <button class="btn btn-sm btn-primary" onclick="applyOverride('${id}','speed_profile',window._pendingSpeedProfile||2)" style="font-size:0.7rem;">▶ Apply</button>
                 </div>
               </div>
               <div style="display:flex;gap:0.35rem;">
@@ -805,8 +805,8 @@ route('/printers/:id', async (el, { id }) => {
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
                 <span style="font-size:0.8rem;font-weight:600;">Z-Offset <span id="ctrl-zoff-val" style="color:var(--primary);">0.00mm</span></span>
                 <div class="btn-group" style="gap:0.2rem;">
-                  <button class="btn btn-sm" onclick="_zOff=0;updZOff()" style="font-size:0.7rem;">↺ Reset</button>
-                  <button class="btn btn-sm btn-primary" onclick="applyOverride('${id}','z_offset',_zOff)" style="font-size:0.7rem;">▶ Apply</button>
+                  <button class="btn btn-sm" onclick="window._zOff=0;updZOff()" style="font-size:0.7rem;">↺ Reset</button>
+                  <button class="btn btn-sm btn-primary" onclick="applyOverride('${id}','z_offset',window._zOff)" style="font-size:0.7rem;">▶ Apply</button>
                 </div>
               </div>
               <div style="display:flex;gap:0.35rem;align-items:center;justify-content:center;">
@@ -1303,24 +1303,24 @@ window._setStep = function(step) {
 };
 
 // Z-offset — stage only (no send until Apply)
-let _zOff = 0;
+window._zOff = 0;
 window.updZOff = function() {
   const v = document.getElementById('ctrl-zoff-val');
   const d = document.getElementById('ctrl-zoff-display');
-  const txt = _zOff.toFixed(2) + 'mm';
+  const txt = window._zOff.toFixed(2) + 'mm';
   if (v) v.textContent = txt;
-  if (d) d.textContent = _zOff >= 0 ? '+' + _zOff.toFixed(2) : _zOff.toFixed(2);
+  if (d) d.textContent = window._zOff >= 0 ? '+' + window._zOff.toFixed(2) : window._zOff.toFixed(2);
 };
 window.stageZ = function(delta) {
-  _zOff = Math.round((_zOff + delta) * 100) / 100;
-  _zOff = Math.max(-1, Math.min(1, _zOff));
+  window._zOff = Math.round((window._zOff + delta) * 100) / 100;
+  window._zOff = Math.max(-1, Math.min(1, window._zOff));
   updZOff();
 };
 
 // Speed profile — stage only (no send until Apply)
-let _pendingSpeedProfile = 2;
+window._pendingSpeedProfile = 2;
 window.stageSpeedProfile = function(level) {
-  _pendingSpeedProfile = level;
+  window._pendingSpeedProfile = level;
   [1,2,3,4].forEach(l => {
     const b = document.getElementById(`sp-${l}`);
     if (b) {
@@ -1872,6 +1872,8 @@ route('/jobs', async (el) => {
     window.ws.off('job.status_changed', window.jobRefreshHandler);
     window.ws.off('job.canceled', window.jobRefreshHandler);
     window.ws.off('job.completed', window.jobRefreshHandler);
+    window.ws.off('job.deleted', window.jobRefreshHandler);
+    window.ws.off('jobs.history_cleared', window.jobRefreshHandler);
   }
 
   // Define new handler

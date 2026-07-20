@@ -66,6 +66,13 @@ describe('AmsService.matchColorsToTrays', () => {
         expect(r.ok).toBe(false); // only one white tray — second color has no home
     });
 
+    it('subtype-configured trays satisfy their base material (PLA Silk tray, PLA job)', () => {
+        const silk = [tray(0, 0, 'PLA Silk', '#e23a3a', 'Silk Red')];
+        const r = AmsService.matchColorsToTrays(['#e23a3a'], silk, 120, 'PLA');
+        expect(r.ok).toBe(true);
+        expect(r.mapping).toEqual([0]);
+    });
+
     it('rejects invalid color specs loudly', () => {
         const r = AmsService.matchColorsToTrays(['not-a-color'], slots, 120, null);
         expect(r.ok).toBe(false);

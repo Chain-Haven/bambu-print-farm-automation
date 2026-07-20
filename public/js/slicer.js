@@ -19,6 +19,9 @@ import * as THREE from 'three';
 const BED = {
     P1S: { x: 256, y: 256, z: 256 }, X1: { x: 256, y: 256, z: 256 },
     A1: { x: 256, y: 256, z: 256 }, A1_MINI: { x: 180, y: 180, z: 180 },
+    // 2026 lineup (matches src/models/PrinterModels.js registry beds)
+    P2S: { x: 256, y: 256, z: 256 }, X2D: { x: 256, y: 256, z: 260 },
+    H2D: { x: 325, y: 320, z: 325 }, A2L: { x: 330, y: 320, z: 325 },
 };
 
 const BODY_COLOR = 0x6ea8ff, SELECT_EMISSIVE = 0x1a3a7a, OUT_COLOR = 0xdd5555;

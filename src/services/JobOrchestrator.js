@@ -7,7 +7,7 @@ import { EventModel } from '../models/Event.js';
 import { CommandBus } from './CommandBus.js';
 import { automate } from '../gcode/Automator.js';
 import { automatorModelKey, normalizeModel, modelFromSliceInfoId } from '../models/PrinterModels.js';
-import { extractGcodeFrom3mf, repack3mf } from '../gcode/AutomatorZip.js';
+import { extractGcodeFrom3mf, repack3mf, buildGcode3mf } from '../gcode/AutomatorZip.js';
 import { executeEjectionSequence } from './EjectionService.js';
 import { createLogger } from '../utils/logger.js';
 import { decodePrintError } from '../utils/PrinterErrors.js';
@@ -103,13 +103,25 @@ export class JobOrchestrator {
 
             if (skip_transform) {
                 // === RAW MODE: Skip transform, use file as-is ===
-                const rawFileName = fileName.replace(/\.gcode$/i, '.AG.gcode');
-                const rawPath = path.join(UPLOADS_DIR, `${job.job_id}_${rawFileName}`);
-                fs.writeFileSync(rawPath, fileContent);
+                // startJob refuses anything but a .gcode.3mf artifact, so raw
+                // jobs still need a printable package: keep the original 3MF
+                // as-is, or wrap plain gcode in a minimal one. (A bare .AG.gcode
+                // artifact can never start — skip_transform templates were
+                // producing permanently unstartable jobs.)
+                let rawFileName, rawEntryName;
+                if (rawBuffer3mf && originalFileName3mf) {
+                    rawFileName = originalFileName3mf.replace(/\.gcode\.3mf$/i, '.AG.gcode.3mf');
+                    fs.writeFileSync(path.join(UPLOADS_DIR, `${job.job_id}_${rawFileName}`), rawBuffer3mf);
+                    rawEntryName = extractGcodeFrom3mf(rawBuffer3mf).gcodeEntryName;
+                } else {
+                    rawFileName = fileName.replace(/\.gcode$/i, '') + '.AG.gcode.3mf';
+                    fs.writeFileSync(path.join(UPLOADS_DIR, `${job.job_id}_${rawFileName}`), buildGcode3mf([{ index: 1, gcode: fileContent }]));
+                    rawEntryName = 'Metadata/plate_1.gcode';
+                }
 
                 JobModel.update(job.job_id, {
                     transformed_file_name: rawFileName,
-                    transform_report: { skipped: true, reason: 'User requested raw upload', file_model: fileModel, allow_model_mismatch: transform_overrides?.allow_model_mismatch },
+                    transform_report: { skipped: true, reason: 'User requested raw upload', gcode_entry_name: rawEntryName, file_model: fileModel, allow_model_mismatch: transform_overrides?.allow_model_mismatch },
                     diff_summary: { sections_changed: [], raw_mode: true },
                     status: printer_id ? 'assigned' : 'queued',
                 });
@@ -422,6 +434,7 @@ export class JobOrchestrator {
         stage('JOB_LOADED', { name: job.name, printer: printer.name, printer_ip: printer.ip_hostname, transformed_file: job.transformed_file_name });
 
         const sendTrace = { phases: [], started_at: new Date().toISOString() };
+        let worker = null; // hoisted: the catch block clears its stale activeJobId
         const broadcastPhase = (phase, status, detail = null) => {
             sendTrace.phases.push({ phase, status, detail, timestamp: new Date().toISOString() });
             this._broadcast('job.send_phase', { job_id: jobId, printer_id: job.printer_id, phase, status, detail });
@@ -431,7 +444,7 @@ export class JobOrchestrator {
             // ========== PHASE 1: PREFLIGHT ==========
             stage('PREFLIGHT_START');
             const { RuntimeSupervisor } = await import('../runtime/RuntimeSupervisor.js');
-            const worker = RuntimeSupervisor.getInstance()?.getWorker(job.printer_id);
+            worker = RuntimeSupervisor.getInstance()?.getWorker(job.printer_id);
             if (!worker) {
                 stage('PREFLIGHT_FAIL', 'No printer worker');
                 broadcastPhase('preflight', 'failed', 'No printer worker found.');
@@ -847,6 +860,11 @@ export class JobOrchestrator {
             this._broadcast('job.send_failed', { job_id: jobId, error: err.message, send_trace: sendTrace, debug_trace: debugTrace });
             this._broadcast('job.status_changed', { job_id: jobId, status: 'failed' });
 
+            // The start failed — the worker must not keep claiming this job,
+            // or the failed printer's completion detection could later resolve
+            // a job that moved to another printer via failover/retry.
+            if (worker && worker.activeJobId === jobId) worker.activeJobId = null;
+
             // ========== AUTO-FAILOVER ==========
             // The assigned printer is the problem (storage fault, unreachable,
             // refuses to start) — hand the job to another idle printer of the
@@ -963,6 +981,9 @@ export class JobOrchestrator {
             if (worker.state !== 'idle') continue;
             if (worker.latestStatus?.print_error) continue;
             if (worker.activeJobId) continue;
+            // Skip printers that already have queued/assigned work — the
+            // cloud dispatcher targets specific printers before they start.
+            if (JobModel.getQueue(p.printer_id).some(j => ['queued', 'assigned', 'printing'].includes(j.status))) continue;
             if (amsAuto) {
                 try {
                     const status = AmsService.getFullStatus(p.printer_id);

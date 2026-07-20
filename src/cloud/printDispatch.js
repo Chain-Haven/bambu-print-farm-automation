@@ -97,18 +97,33 @@ export async function queuePrintDispatchCommand({
     // passed through WITHOUT a URL — the node fails that job loudly instead
     // of silently printing a bare case.
     let customization = null;
+    const requestedPlacements = isPlainObject(options.customization)
+        ? (Array.isArray(options.customization.placement) ? options.customization.placement
+            : Array.isArray(options.customization.placements) ? options.customization.placements : [])
+        : [];
+    if (!isSource && requestedPlacements.length) {
+        // A pre-sliced artifact can't be composed — silently printing the bare
+        // case would ship a customer the wrong product. Fail loudly at dispatch.
+        throw new Error('customization.placement requires a source model (STL) — the uploaded file is already sliced and cannot have logos/text composed into it. Upload the case as STL, or remove the placements.');
+    }
     if (isSource && isPlainObject(options.customization)) {
         const src = options.customization;
-        const placementsIn = Array.isArray(src.placement) ? src.placement
-            : Array.isArray(src.placements) ? src.placements : [];
         const placements = [];
-        for (const entry of placementsIn) {
+        for (const entry of requestedPlacements) {
             if (!isPlainObject(entry)) continue;
             const out = { ...entry };
             if (entry.asset_file_id && !entry.text && typeof store.getJobFileById === 'function') {
                 try {
                     const asset = await store.getJobFileById(entry.asset_file_id);
-                    if (asset?.storage_path) {
+                    // TENANT CHECK: only sign assets owned by the dispatching
+                    // org (and the job's merchant, when both are scoped) — a
+                    // merchant could otherwise reference another tenant's
+                    // file_id and receive a signed URL for their content.
+                    const orgOk = asset?.org_id ? asset.org_id === orgId : false;
+                    const merchantOk = asset?.merchant_id && job?.merchant_id
+                        ? asset.merchant_id === job.merchant_id
+                        : true;
+                    if (asset?.storage_path && orgOk && merchantOk) {
                         out.download_url = await store.createSignedPrintArtifactUrl(asset.storage_path, SIGNED_URL_TTL_SECONDS);
                         out.original_name = asset.original_name || null;
                     }

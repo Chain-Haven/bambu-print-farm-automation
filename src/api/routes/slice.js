@@ -18,7 +18,18 @@ import { TextTemplateService } from '../../services/TextTemplateService.js';
 import { GcodeProfileModel } from '../../models/GcodeProfile.js';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } });
+// memoryStorage buffers uploads in RAM: cap per-file size AND file count, and
+// reject oversized requests up front via Content-Length (an authenticated
+// request could otherwise buffer files*fileSize bytes in memory).
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024, files: 64, fields: 64 } });
+const MAX_REQUEST_BYTES = 512 * 1024 * 1024;
+const capRequestSize = (req, res, next) => {
+    const len = parseInt(req.headers['content-length'], 10);
+    if (Number.isFinite(len) && len > MAX_REQUEST_BYTES) {
+        return res.status(413).json({ error: `Request too large (${Math.round(len / 1048576)}MB > ${MAX_REQUEST_BYTES / 1048576}MB)` });
+    }
+    next();
+};
 
 // Which compute backends exist and which are currently usable.
 router.get('/backends', requireAuth, asyncHandler(async (req, res) => {
@@ -72,7 +83,7 @@ router.delete('/filament-profiles/:id', requireAuth, asyncHandler(async (req, re
 //     files = one baked STL per placed object (printer coords) — the layout is
 //             assembled into a 3MF and sliced with --arrange 0 (exact placement)
 //   plus: profile_id?, options?(JSON), backend?
-router.post('/', requireAuth, upload.fields([{ name: 'file', maxCount: 1 }, { name: 'files', maxCount: 64 }]), asyncHandler(async (req, res) => {
+router.post('/', requireAuth, capRequestSize, upload.fields([{ name: 'file', maxCount: 1 }, { name: 'files', maxCount: 64 }]), asyncHandler(async (req, res) => {
     const single = req.files?.file?.[0] || null;
     const placed = req.files?.files || [];
     if (!single && !placed.length) return res.status(400).json({ error: 'No model uploaded (field "file" or "files")' });
@@ -163,7 +174,7 @@ router.post('/', requireAuth, upload.fields([{ name: 'file', maxCount: 1 }, { na
 // coords), fields: name, printer_model, profile_id?, text_def? (JSON — omit
 // for a textless saved print), settings? (JSON), files_meta? (JSON aligned
 // with files: [{name, color, filament}]).
-router.post('/templates', requireAuth, upload.fields([{ name: 'files', maxCount: 32 }]), asyncHandler(async (req, res) => {
+router.post('/templates', requireAuth, capRequestSize, upload.fields([{ name: 'files', maxCount: 32 }]), asyncHandler(async (req, res) => {
     const files = req.files?.files || [];
     if (!files.length) return res.status(400).json({ error: 'No base model files (field "files")' });
     let textDef = null, settings = {}, filesMeta = [];
